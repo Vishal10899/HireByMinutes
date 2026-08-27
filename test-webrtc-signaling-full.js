@@ -52,9 +52,8 @@ async function testWebRTCSignalingAndTimerCutoff() {
     const clientId = clientLogin.data.user.id;
     const expertId = expertLogin.data.user.id;
 
-    // 2. Create and complete an active session
     const servicesRes = await request('http://localhost:5000/api/services');
-    const service = servicesRes.data.services[0];
+    const service = servicesRes.data.services.find(s => s.provider_id === expertId) || servicesRes.data.services[0];
 
     const reqRes = await request('http://localhost:5000/api/consultation-requests', {
       method: 'POST',
@@ -94,6 +93,8 @@ async function testWebRTCSignalingAndTimerCutoff() {
     // 4. Join Session Room
     clientSocket.emit('join_session', { sessionId, userId: clientId, userName: 'Sarah Chen' });
     expertSocket.emit('join_session', { sessionId, userId: expertId, userName: 'Arjun Sharma' });
+
+    await new Promise(r => setTimeout(r, 150));
 
     // 5. Test WebRTC Offer / Answer Signaling
     console.log('\n3. Testing WebRTC SDP Offer / Answer Exchange...');

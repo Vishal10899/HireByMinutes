@@ -1835,9 +1835,11 @@ module.exports = function(timerEngine, io) {
       request.problem_description || ''
     );
 
+    const actualEnd = request.connect_type === 'now' ? endTime.toISOString() : null;
+
     db.prepare(`
-      INSERT INTO sessions (id, booking_id, client_id, provider_id, service_id, scheduled_start, scheduled_end, actual_start, duration_minutes, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, booking_id, client_id, provider_id, service_id, scheduled_start, scheduled_end, actual_start, actual_end, duration_minutes, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       sessionId,
       request.id,
@@ -1847,6 +1849,7 @@ module.exports = function(timerEngine, io) {
       startTime.toISOString(),
       endTime.toISOString(),
       actualStart,
+      actualEnd,
       request.duration_minutes,
       sessionStatus
     );
@@ -2088,9 +2091,11 @@ module.exports = function(timerEngine, io) {
       request.problem_description || ''
     );
 
+    const actualEnd = request.connect_type === 'now' ? endTime.toISOString() : null;
+
     db.prepare(`
-      INSERT INTO sessions (id, booking_id, client_id, provider_id, service_id, scheduled_start, scheduled_end, actual_start, duration_minutes, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, booking_id, client_id, provider_id, service_id, scheduled_start, scheduled_end, actual_start, actual_end, duration_minutes, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       sessionId,
       request.id,
@@ -2100,6 +2105,7 @@ module.exports = function(timerEngine, io) {
       startTime.toISOString(),
       endTime.toISOString(),
       actualStart,
+      actualEnd,
       request.duration_minutes,
       sessionStatus
     );
@@ -2207,7 +2213,7 @@ module.exports = function(timerEngine, io) {
   });
 
   router.post('/sessions/:id/messages', authMiddleware, (req, res) => {
-    const { content } = req.body;
+    const content = req.body.content || req.body.message;
     const sessionId = req.params.id;
 
     if (!timerEngine.isCommunicationAllowed(sessionId, req.user.id)) {

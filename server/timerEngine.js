@@ -171,9 +171,10 @@ class TimerEngine {
     if (session.client_id !== userId && session.provider_id !== userId) return false;
     if (session.status !== 'ACTIVE') return false;
     
-    if (!session.actual_end) return false;
     const nowMs = Date.now();
-    const endMs = new Date(session.actual_end).getTime();
+    const endTarget = session.actual_end || session.scheduled_end;
+    if (!endTarget) return false;
+    const endMs = new Date(endTarget).getTime();
     return nowMs < endMs;
   }
 }
