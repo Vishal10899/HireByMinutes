@@ -1,0 +1,66 @@
+# =============================================================================
+# HIREBYMINUTES — RENDER BLUEPRINT SPECIFICATION (render.yaml)
+# =============================================================================
+# Automated Infrastructure as Code for 1-Click Deployment on Render
+# Includes persistent disk for SQLite database & uploaded avatars
+# =============================================================================
+
+services:
+  - type: web
+    name: hirebyminutes
+    env: node
+    plan: starter # Starter ($7/mo) or standard supports Render Persistent Disks
+    region: oregon # or frankfurt, ohio, singapore
+    buildCommand: npm install && npm --prefix client install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: vishalkumar75912@gmail.com
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: PLATFORM_NAME
+        value: HireByMinutes
+      - key: LISTING_FEE_USD
+        value: "2.00"
+      - key: PLATFORM_FEE_PERCENT
+        value: "15"
+      - key: DATABASE_PATH
+        value: /var/data/hirebyminutes.db
+      - key: UPLOADS_PATH
+        value: /var/data/uploads
+      - key: EMAIL_ENABLED
+        value: "true"
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: EMAIL_FROM
+        value: "HireByMinutes <no-reply@hirebyminutes.com>"
+      - key: EMAIL_FROM_NAME
+        value: "HireByMinutes"
+      - key: EMAIL_REPLY_TO
+        value: "support@hirebyminutes.com"
+      - key: EMAIL_API_KEY
+        sync: false
+      - key: OTP_EXPIRY_MINUTES
+        value: "10"
+      - key: OTP_MAX_ATTEMPTS
+        value: "5"
+      - key: OTP_RESEND_COOLDOWN_SECONDS
+        value: "60"
+      - key: PASSWORD_RESET_EXPIRY_MINUTES
+        value: "30"
+    disk:
+      name: hirebyminutes-data
+      mountPath: /var/data
+      sizeGB: 10

@@ -1,0 +1,767 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { api } from '../services/api';
+import { Service, Review, ProviderAvailability, ConsultationRequest } from '../types';
+import { useAuth } from '../context/AuthContext';
+import { useSocket } from '../context/SocketContext';
+import {
+  Star,
+  CheckCircle,
+  Clock,
+  Calendar,
+  MessageSquare,
+  ShieldCheck,
+  Zap,
+  Globe,
+  MapPin,
+  Award,
+  ArrowRight,
+  Sparkles,
+  UserCheck,
+  AlertCircle,
+  CheckCircle2,
+  XCircle,
+  Lock,
+  Radio,
+  FileText
+} from 'lucide-react';
+import confetti from 'canvas-confetti';
+
+export const ServiceDetailPage: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { socket } = useSocket();
+
+  const [service, setService] = useState<Service | null>(null);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [availability, setAvailability] = useState<ProviderAvailability[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Request form state
+  const [selectedDuration, setSelectedDuration] = useState<number>(30);
+  const [customDuration, setCustomDuration] = useState<number>(20);
+  const [isCustomDuration, setIsCustomDuration] = useState(false);
+  const [connectType, setConnectType] = useState<'now' | 'scheduled'>('now');
+  const [scheduledSlot, setScheduledSlot] = useState<string>('in30');
+  const [problemDescription, setProblemDescription] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Active consultation request state
+  const [activeRequest, setActiveRequest] = useState<ConsultationRequest | null>(null);
+  const [paying, setPaying] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState<number>(600);
+
+  const durationMinutes = isCustomDuration ? customDuration : selectedDuration;
+  const totalPrice = service ? (durationMinutes * service.price_per_minute).toFixed(2) : '0.00';
+
+  useEffect(() => {
+    async function loadServiceDetail() {
+      if (!id) return;
+      try {
+        setLoading(true);
+        const data = await api.getServiceById(id);
+        setService(data.service);
+        setReviews(data.reviews || []);
+        setAvailability(data.availability || []);
+      } catch (err: any) {
+        setError(err.message || 'Service not found');
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadServiceDetail();
+  }, [id]);
+
+  // Real-time Socket.IO and Server-Authoritative Polling for Request updates
+  useEffect(() => {
+    if (!activeRequest) return;
+
+    // Countdown interval
+    const timer = setInterval(() => {
+      setCountdownSeconds(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setActiveRequest(curr => curr ? { ...curr, status: 'EXPIRED' } : null);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Socket.IO event listeners for instant state changes
+    if (socket) {
+      const handleAccepted = (data: any) => {
+        if (data.requestId === activeRequest.id) {
+          setActiveRequest(curr => curr ? { ...curr, status: 'ACCEPTED' } : null);
+        }
+      };
+
+      const handleDeclined = (data: any) => {
+        if (data.requestId === activeRequest.id) {
+          setActiveRequest(curr => curr ? { ...curr, status: 'DECLINED' } : null);
+        }
+      };
+
+      const handleExpired = (data: any) => {
+        if (data.requestId === activeRequest.id) {
+          setActiveRequest(curr => curr ? { ...curr, status: 'EXPIRED' } : null);
+        }
+      };
+
+      socket.on('consultation_request_accepted', handleAccepted);
+      socket.on('consultation_request_declined', handleDeclined);
+      socket.on('consultation_request_expired', handleExpired);
+
+      return () => {
+        clearInterval(timer);
+        socket.off('consultation_request_accepted', handleAccepted);
+        socket.off('consultation_request_declined', handleDeclined);
+        socket.off('consultation_request_expired', handleExpired);
+      };
+    }
+
+    // Polling fallback to recover state from server if socket drops
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await api.getConsultationRequest(activeRequest.id);
+        if (res.request) {
+          setActiveRequest(res.request);
+          if (res.request.remaining_seconds !== undefined) {
+            setCountdownSeconds(res.request.remaining_seconds);
+          }
+        }
+      } catch (err) {
+        // Silently retry
+      }
+    }, 3000);
+
+    return () => {
+      clearInterval(timer);
+      clearInterval(pollInterval);
+    };
+  }, [activeRequest?.id, socket]);
+
+  const handleRequestSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!service) return;
+
+    if (!user) {
+      navigate('/auth');
+      return;
+    }
+
+    if (!problemDescription.trim()) {
+      setFormError('Please enter a brief description of what you want to solve.');
+      return;
+    }
+
+    setSubmitting(true);
+    setFormError(null);
+
+    try {
+      let scheduledStart = new Date();
+      if (connectType === 'scheduled') {
+        if (scheduledSlot === 'in30') scheduledStart = new Date(Date.now() + 30 * 60 * 1000);
+        else if (scheduledSlot === 'in60') scheduledStart = new Date(Date.now() + 60 * 60 * 1000);
+        else if (scheduledSlot === 'tomorrow') scheduledStart = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      }
+
+      const res = await api.createConsultationRequest({
+        service_id: service.id,
+        duration_minutes: durationMinutes,
+        connect_type: connectType,
+        scheduled_start: scheduledStart.toISOString(),
+        problem_description: problemDescription.trim()
+      });
+
+      setActiveRequest(res.request);
+      setCountdownSeconds(res.request.remaining_seconds || 600);
+    } catch (err: any) {
+      setFormError(err.message || 'Failed to submit consultation request');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePayment = async () => {
+    if (!activeRequest || activeRequest.status !== 'ACCEPTED') return;
+    setPaying(true);
+    try {
+      const res = await api.payConsultationRequest(activeRequest.id);
+      confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+      if (res.session_id) {
+        navigate(`/session/${res.session_id}`);
+      } else {
+        navigate('/client');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Payment failed. Please try again.');
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const formatTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  if (loading) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 py-16 text-center">
+        <div className="w-10 h-10 border-2 border-moonstone border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-sm text-midnight/60">Loading expert profile...</p>
+      </div>
+    );
+  }
+
+  if (error || !service) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16 text-center">
+        <h2 className="text-xl font-bold text-midnight mb-2">Expert profile not found</h2>
+        <p className="text-sm text-midnight/70 mb-6">{error || 'This service may have been removed or paused.'}</p>
+        <Link to="/services" className="px-4 py-2 rounded-lg bg-midnight text-aliceblue text-sm font-semibold">
+          Return to Marketplace
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      
+      {/* Breadcrumb */}
+      <div className="text-xs text-midnight/60 mb-6 flex items-center gap-2">
+        <Link to="/services" className="hover:text-midnight">Services</Link>
+        <span>/</span>
+        <span className="text-midnight font-medium">{service.category_name}</span>
+        <span>/</span>
+        <span className="truncate max-w-xs">{service.provider_name}</span>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        
+        {/* Left Column: Expert Profile, About, Skills, Reviews */}
+        <div className="lg:col-span-2 space-y-8">
+          
+          {/* Profile Card */}
+          <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-6 sm:p-8 shadow-card">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 pb-6 border-b border-timberwolf/40">
+              <div className="relative">
+                <img
+                  src={service.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${service.provider_name}`}
+                  alt={service.provider_name}
+                  className="w-20 h-20 rounded-2xl object-cover border-2 border-lightblue"
+                />
+                {service.available_now && (
+                  <span className="absolute -bottom-1 -right-1 px-2 py-0.5 bg-emerald-500 text-white font-bold text-[10px] rounded-full border-2 border-white shadow-xs">
+                    LIVE
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-1.5 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-2xl font-extrabold text-midnight">
+                    {service.provider_name}
+                  </h1>
+                  {service.provider_verified && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-moonstone bg-moonstone/10 px-2.5 py-0.5 rounded-full border border-moonstone/20">
+                      <CheckCircle className="w-3.5 h-3.5" /> Verified Expert
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-midnight/80 font-medium">
+                  {service.provider_headline || service.title}
+                </p>
+
+                {/* Rating & Stats */}
+                <div className="flex items-center gap-4 text-xs text-midnight/70 pt-1 flex-wrap">
+                  <span className="flex items-center gap-1 font-bold text-amber-600">
+                    <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                    {service.provider_rating ? service.provider_rating.toFixed(1) : '5.0'}
+                    <span className="text-midnight/50 font-normal">({reviews.length} reviews)</span>
+                  </span>
+                  <span>•</span>
+                  <span className="flex items-center gap-1">
+                    <Zap className="w-3.5 h-3.5 text-moonstone" />
+                    {service.sessions_completed || 0} consultations completed
+                  </span>
+                  <span>•</span>
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-moonstone" />
+                    {service.provider_response_time || 'Within 15 mins'} response
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Subcategory & Category Badge */}
+            {service.subcategory && (
+              <div className="pt-4">
+                <span className="inline-flex items-center text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-lg bg-aliceblue text-moonstone border border-moonstone/30">
+                  {service.subcategory}
+                </span>
+              </div>
+            )}
+
+            {/* Service Title & Detailed Description */}
+            <div className="pt-4 space-y-3">
+              <h2 className="text-xl font-bold text-midnight">
+                {service.title}
+              </h2>
+              <p className="text-sm text-midnight/80 leading-relaxed whitespace-pre-line">
+                {service.description}
+              </p>
+            </div>
+
+            {/* Worldwide Discovery Data: Languages & Location */}
+            <div className="pt-6 border-t border-timberwolf/40 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/50 space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-midnight">
+                  <Globe className="w-4 h-4 text-moonstone" />
+                  <span>Languages Spoken</span>
+                </div>
+                <p className="text-xs text-midnight/80 font-medium">
+                  {service.languages && service.languages.length > 0
+                    ? service.languages.join(' · ')
+                    : 'Languages not specified'}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/50 space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-midnight">
+                  <MapPin className="w-4 h-4 text-moonstone" />
+                  <span>Location (Online Global)</span>
+                </div>
+                <p className="text-xs text-midnight/80 font-medium">
+                  {[service.city || service.provider_city, service.state_region || service.provider_state_region, service.country || service.provider_country].filter(Boolean).join(', ') || 'Worldwide · Online'}
+                </p>
+              </div>
+            </div>
+
+            {/* Skills & Domain Expertise */}
+            {service.skills && service.skills.length > 0 && (
+              <div className="pt-6 border-t border-timberwolf/40 space-y-2.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-midnight">
+                  Skills & Expertise
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {service.skills.map((skill, i) => (
+                    <span
+                      key={i}
+                      className="px-3 py-1 rounded-lg bg-aliceblue text-midnight text-xs font-semibold border border-timberwolf/50"
+                    >
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Reviews Section */}
+          <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-6 sm:p-8 shadow-card space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-midnight flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-moonstone" />
+                Verified Consultation Reviews ({reviews.length})
+              </h3>
+            </div>
+
+            {reviews.length === 0 ? (
+              <div className="p-6 text-center bg-aliceblue/40 rounded-xl border border-timberwolf/40">
+                <p className="text-xs text-midnight/60">No reviews yet. Be the first to consult with this expert!</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {reviews.map((rev) => (
+                  <div key={rev.id} className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          src={rev.client_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${rev.client_name}`}
+                          alt={rev.client_name}
+                          className="w-8 h-8 rounded-full border border-lightblue"
+                        />
+                        <div>
+                          <span className="font-bold text-xs text-midnight block">{rev.client_name}</span>
+                          <span className="text-[10px] text-midnight/50">{new Date(rev.created_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center text-amber-500">
+                        {Array.from({ length: rev.rating || 5 }).map((_, idx) => (
+                          <Star key={idx} className="w-3.5 h-3.5 fill-amber-400" />
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-xs text-midnight/80 leading-relaxed">
+                      "{rev.comment}"
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </div>
+
+        {/* ========================================================================= */}
+        {/* RIGHT COLUMN: APPROVAL-FIRST CONSULTATION REQUEST & PAYMENT WORKFLOW */}
+        {/* ========================================================================= */}
+        <div className="lg:col-span-1">
+          <div className="sticky top-24 bg-white rounded-2xl border-2 border-timberwolf/70 p-6 shadow-card space-y-5">
+            
+            {/* ------------------------------------------------------------- */}
+            {/* STATE 1: WAITING FOR EXPERT TO ACCEPT (10-Min Live Timer) */}
+            {/* ------------------------------------------------------------- */}
+            {activeRequest && activeRequest.status === 'PENDING_EXPERT' && (
+              <div className="space-y-5 text-center animate-fade-in py-2">
+                <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 mx-auto flex items-center justify-center border border-amber-200 shadow-subtle">
+                  <Clock className="w-6 h-6 animate-pulse" />
+                </div>
+
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100/80 px-2.5 py-0.5 rounded-full">
+                    Request Sent
+                  </span>
+                  <h3 className="text-lg font-bold text-midnight">
+                    Waiting for {service.provider_name} to respond
+                  </h3>
+                  <p className="text-xs text-midnight/70 leading-relaxed">
+                    Your request will remain open for 10 minutes. Payment will only be requested if the expert accepts.
+                  </p>
+                </div>
+
+                {/* Server-Authoritative Response Countdown */}
+                <div className={`p-4 rounded-xl border text-center transition-colors ${
+                  countdownSeconds > 300
+                    ? 'bg-aliceblue border-timberwolf/60 text-midnight'
+                    : countdownSeconds > 120
+                    ? 'bg-amber-50 border-amber-300 text-amber-900'
+                    : 'bg-rose-50 border-rose-300 text-rose-900'
+                }`}>
+                  <span className="text-[10px] uppercase font-bold text-midnight/60 block mb-0.5">
+                    Expert Response Window
+                  </span>
+                  <div className="text-2xl font-mono font-extrabold tracking-wider">
+                    {formatTimer(countdownSeconds)}
+                  </div>
+                  <span className="text-[10px] text-midnight/50 mt-1 block">
+                    Auto-expires if expert does not respond in time
+                  </span>
+                </div>
+
+                <div className="p-3 bg-aliceblue/40 rounded-xl border border-timberwolf/40 text-xs text-left space-y-1 text-midnight/80">
+                  <div className="flex justify-between">
+                    <span className="text-midnight/60">Duration:</span>
+                    <span className="font-semibold">{activeRequest.duration_minutes} minutes</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-midnight/60">Estimated Total:</span>
+                    <span className="font-semibold font-mono">${Number(activeRequest.total_price).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="pt-1">
+                  <Link
+                    to="/client"
+                    className="w-full py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-colors block"
+                  >
+                    View in Client Dashboard
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {/* ------------------------------------------------------------- */}
+            {/* STATE 2: EXPERT ACCEPTED -> CLIENT COMPLETES PAYMENT */}
+            {/* ------------------------------------------------------------- */}
+            {activeRequest && activeRequest.status === 'ACCEPTED' && (
+              <div className="space-y-5 animate-fade-in py-2">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 mx-auto flex items-center justify-center border border-emerald-200 shadow-subtle">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                    Expert Available ✓
+                  </span>
+                  <h3 className="text-lg font-bold text-midnight">
+                    {service.provider_name} accepted your request!
+                  </h3>
+                  <p className="text-xs text-midnight/70">
+                    Confirm your consultation by completing payment. Funds are held safely in escrow.
+                  </p>
+                </div>
+
+                {/* Itemized Payment Breakdown */}
+                <div className="bg-aliceblue p-4 rounded-xl border border-timberwolf/60 space-y-2 text-xs">
+                  <div className="flex justify-between text-midnight/80">
+                    <span>{activeRequest.duration_minutes} minutes × ${service.price_per_minute.toFixed(2)}</span>
+                    <span className="font-mono font-semibold">${Number(activeRequest.total_price).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-midnight/80">
+                    <span>Platform escrow protection</span>
+                    <span className="text-emerald-700 font-semibold">Included</span>
+                  </div>
+                  <div className="border-t border-timberwolf/40 pt-2 flex justify-between items-baseline font-bold text-midnight">
+                    <span className="text-sm">Total</span>
+                    <span className="text-xl font-mono">${Number(activeRequest.total_price).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handlePayment}
+                  disabled={paying}
+                  className="btn-shine w-full py-3.5 rounded-xl bg-midnight text-aliceblue font-bold text-sm hover:bg-midnight-hover transition-all shadow-subtle flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {paying ? (
+                    <span className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Processing Escrow...
+                    </span>
+                  ) : (
+                    <>
+                      <span>Pay & Confirm Session</span>
+                      <ArrowRight className="w-4 h-4 text-moonstone" />
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* ------------------------------------------------------------- */}
+            {/* STATE 3: DECLINED OR EXPIRED */}
+            {/* ------------------------------------------------------------- */}
+            {activeRequest && (activeRequest.status === 'DECLINED' || activeRequest.status === 'EXPIRED') && (
+              <div className="space-y-4 text-center animate-fade-in py-2">
+                <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 mx-auto flex items-center justify-center border border-rose-200 shadow-subtle">
+                  <XCircle className="w-6 h-6" />
+                </div>
+
+                <div className="space-y-1">
+                  <h3 className="text-base font-bold text-midnight">
+                    {activeRequest.status === 'DECLINED'
+                      ? `${service.provider_name} isn't available right now`
+                      : 'Consultation request timed out'}
+                  </h3>
+                  <p className="text-xs text-midnight/70 leading-relaxed">
+                    {activeRequest.status === 'DECLINED'
+                      ? 'The expert was unable to accept this request at this time. No payment was taken.'
+                      : 'The expert did not respond within the 10-minute window. No payment was taken.'}
+                  </p>
+                </div>
+
+                <div className="pt-2 flex flex-col gap-2">
+                  <Link
+                    to="/services"
+                    className="w-full py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-colors text-center"
+                  >
+                    Find Another Expert
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setActiveRequest(null)}
+                    className="text-xs text-midnight/60 hover:text-midnight cursor-pointer"
+                  >
+                    Try Requesting Again
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ------------------------------------------------------------- */}
+            {/* INITIAL STATE: REQUEST CONSULTATION FORM */}
+            {/* ------------------------------------------------------------- */}
+            {!activeRequest && (
+              <form onSubmit={handleRequestSubmit} className="space-y-5">
+                
+                {/* Rate Header */}
+                <div className="flex items-baseline justify-between pb-3.5 border-b border-timberwolf/40">
+                  <div>
+                    <span className="text-xs text-midnight/60 block">Price rate</span>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-3xl font-extrabold text-midnight font-mono">
+                        ${service.price_per_minute.toFixed(2)}
+                      </span>
+                      <span className="text-xs text-midnight/70 font-medium">/ min</span>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-full bg-aliceblue text-midnight text-[11px] font-semibold border border-timberwolf/40 flex items-center gap-1">
+                    <Radio className="w-2.5 h-2.5 text-emerald-500 animate-pulse" />
+                    <span>On Demand</span>
+                  </span>
+                </div>
+
+                {formError && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                    <span>{formError}</span>
+                  </div>
+                )}
+
+                {/* Duration Selector */}
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-midnight block">
+                    Consultation Duration
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[15, 30, 45, 60].map((mins) => (
+                      <button
+                        key={mins}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDuration(mins);
+                          setIsCustomDuration(false);
+                        }}
+                        className={`py-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                          !isCustomDuration && selectedDuration === mins
+                            ? 'bg-midnight text-aliceblue border-midnight shadow-subtle'
+                            : 'border-timberwolf/70 hover:border-moonstone text-midnight'
+                        }`}
+                      >
+                        {mins}m
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Custom Duration Option */}
+                  <div className="pt-1 flex items-center justify-between text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomDuration(!isCustomDuration)}
+                      className="text-moonstone font-semibold hover:underline cursor-pointer"
+                    >
+                      {isCustomDuration ? '← Quick options' : 'Set custom minutes...'}
+                    </button>
+                    {isCustomDuration && (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min="5"
+                          max="180"
+                          value={customDuration}
+                          onChange={(e) => setCustomDuration(Math.max(5, parseInt(e.target.value) || 5))}
+                          className="w-16 px-2 py-1 border border-timberwolf rounded text-center font-bold text-xs"
+                        />
+                        <span className="text-midnight/60">mins</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Connect Type */}
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-midnight block">
+                    When would you like to connect?
+                  </label>
+                  <div className="space-y-1.5 text-xs">
+                    <label
+                      className={`flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                        connectType === 'now'
+                          ? 'bg-lightblue/20 border-midnight/60 text-midnight font-semibold'
+                          : 'border-timberwolf/50 hover:border-timberwolf text-midnight/80'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="connectType"
+                        checked={connectType === 'now'}
+                        onChange={() => setConnectType('now')}
+                        className="w-3.5 h-3.5 accent-midnight"
+                      />
+                      <span>Connect Now (Live within minutes)</span>
+                    </label>
+
+                    <label
+                      className={`flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                        connectType === 'scheduled'
+                          ? 'bg-lightblue/20 border-midnight/60 text-midnight font-semibold'
+                          : 'border-timberwolf/50 hover:border-timberwolf text-midnight/80'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="connectType"
+                        checked={connectType === 'scheduled'}
+                        onChange={() => setConnectType('scheduled')}
+                        className="w-3.5 h-3.5 accent-midnight"
+                      />
+                      <span>Schedule for later today / tomorrow</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Problem Description (Topic) */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-midnight block">
+                    What would you like to solve? *
+                  </label>
+                  <textarea
+                    rows={3}
+                    required
+                    value={problemDescription}
+                    onChange={(e) => setProblemDescription(e.target.value)}
+                    placeholder="Describe your questions or files for the expert..."
+                    className="w-full p-2.5 bg-aliceblue/30 border border-timberwolf/70 rounded-xl text-xs text-midnight placeholder:text-midnight/40 focus:outline-none focus:border-moonstone leading-relaxed"
+                  />
+                </div>
+
+                {/* Estimated Cost Summary */}
+                <div className="bg-aliceblue p-3.5 rounded-xl border border-timberwolf/60 space-y-1.5 text-xs">
+                  <div className="flex justify-between text-midnight/70">
+                    <span>{durationMinutes} minutes × ${service.price_per_minute.toFixed(2)}</span>
+                    <span className="font-mono">${totalPrice}</span>
+                  </div>
+                  <div className="flex justify-between text-midnight/70">
+                    <span>Platform protection</span>
+                    <span className="font-mono text-emerald-600">Included</span>
+                  </div>
+                  <div className="border-t border-timberwolf/40 pt-1.5 flex justify-between items-baseline font-bold text-midnight">
+                    <span className="text-xs">Estimated Total</span>
+                    <span className="text-base font-mono">${totalPrice}</span>
+                  </div>
+                </div>
+
+                {/* Submit Request Button */}
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="btn-shine w-full py-3.5 rounded-xl bg-midnight text-aliceblue font-bold text-sm hover:bg-midnight-hover transition-all shadow-subtle flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {submitting ? (
+                    <span className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Sending Request...
+                    </span>
+                  ) : (
+                    <>
+                      <span>Request Consultation</span>
+                      <ArrowRight className="w-4 h-4 text-moonstone" />
+                    </>
+                  )}
+                </button>
+
+                {/* Trust Guarantee */}
+                <p className="text-[11px] text-midnight/60 text-center flex items-center justify-center gap-1.5 leading-tight">
+                  <ShieldCheck className="w-3.5 h-3.5 text-moonstone shrink-0" />
+                  <span>Request first. Pay only after the expert confirms availability.</span>
+                </p>
+              </form>
+            )}
+
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  );
+};
+export default ServiceDetailPage;
