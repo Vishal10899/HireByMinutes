@@ -348,6 +348,64 @@ export const api = {
     return res.json();
   },
 
+  createRazorpayOrder: async (requestId: string) => {
+    const res = await fetch(`${API_BASE}/consultation-requests/${requestId}/create-razorpay-order`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create payment order');
+    }
+    return res.json();
+  },
+
+  verifyRazorpayPayment: async (requestId: string, paymentData: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  }) => {
+    const res = await fetch(`${API_BASE}/consultation-requests/${requestId}/verify-razorpay-payment`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(paymentData)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Payment signature verification failed');
+    }
+    return res.json();
+  },
+
+  createListingOrder: async (serviceId: string) => {
+    const res = await fetch(`${API_BASE}/services/${serviceId}/create-listing-order`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create listing payment order');
+    }
+    return res.json();
+  },
+
+  verifyListingPayment: async (serviceId: string, paymentData: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  }) => {
+    const res = await fetch(`${API_BASE}/services/${serviceId}/verify-listing-payment`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(paymentData)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Listing payment verification failed');
+    }
+    return res.json();
+  },
+
   // Legacy Bookings (for backward compatibility)
   createBooking: async (data: {
     service_id: string;

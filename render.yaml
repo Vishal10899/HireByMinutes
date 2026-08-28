@@ -1,15 +1,15 @@
 # =============================================================================
 # HIREBYMINUTES — RENDER BLUEPRINT SPECIFICATION (render.yaml)
 # =============================================================================
-# Automated Infrastructure as Code for 1-Click Deployment on Render
-# Includes persistent disk for SQLite database & uploaded avatars
+# Configured for Render Free Web Service Deployment (100% Free Plan Tier)
+# Ephemeral filesystem safe: Uses external PostgreSQL & S3/R2 Object Storage
 # =============================================================================
 
 services:
   - type: web
     name: hirebyminutes
     env: node
-    plan: starter # Starter ($7/mo) or standard supports Render Persistent Disks
+    plan: free # Free Tier Web Service on Render
     region: oregon # or frankfurt, ohio, singapore
     buildCommand: npm install && npm --prefix client install && npm run build
     startCommand: npm start
@@ -24,10 +24,12 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: DATABASE_URL
+        sync: false # External free PostgreSQL connection string (e.g. Neon, Supabase, Aiven)
       - key: JWT_SECRET
         generateValue: true
       - key: ADMIN_EMAIL
-        value: vishalkumar75912@gmail.com
+        sync: false
       - key: ADMIN_PASSWORD
         sync: false
       - key: PLATFORM_NAME
@@ -36,10 +38,20 @@ services:
         value: "2.00"
       - key: PLATFORM_FEE_PERCENT
         value: "15"
-      - key: DATABASE_PATH
-        value: /var/data/hirebyminutes.db
-      - key: UPLOADS_PATH
-        value: /var/data/uploads
+      - key: STORAGE_PROVIDER
+        value: s3 # or r2, local
+      - key: STORAGE_BUCKET
+        sync: false
+      - key: STORAGE_REGION
+        value: auto
+      - key: STORAGE_ENDPOINT
+        sync: false
+      - key: STORAGE_ACCESS_KEY
+        sync: false
+      - key: STORAGE_SECRET_KEY
+        sync: false
+      - key: STORAGE_PUBLIC_URL
+        sync: false
       - key: EMAIL_ENABLED
         value: "true"
       - key: EMAIL_PROVIDER
@@ -52,6 +64,12 @@ services:
         value: "support@hirebyminutes.com"
       - key: EMAIL_API_KEY
         sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
       - key: OTP_EXPIRY_MINUTES
         value: "10"
       - key: OTP_MAX_ATTEMPTS
@@ -60,7 +78,3 @@ services:
         value: "60"
       - key: PASSWORD_RESET_EXPIRY_MINUTES
         value: "30"
-    disk:
-      name: hirebyminutes-data
-      mountPath: /var/data
-      sizeGB: 10

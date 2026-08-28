@@ -37,7 +37,7 @@ export const Footer: React.FC = () => {
             <div className="flex items-center gap-3 text-xs text-midnight/60">
               <span className="inline-flex items-center gap-1 bg-aliceblue px-2.5 py-1 rounded-md border border-timberwolf/50">
                 <Lock className="w-3 h-3 text-moonstone" />
-                <span>Escrow Protected</span>
+                <span>Payment Protected</span>
               </span>
               <span className="inline-flex items-center gap-1 bg-aliceblue px-2.5 py-1 rounded-md border border-timberwolf/50">
                 <ShieldCheck className="w-3 h-3 text-emerald-600" />

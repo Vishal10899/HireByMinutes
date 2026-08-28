@@ -191,9 +191,10 @@ const handleHealthCheck = (req, res) => {
       }
     });
   } catch (err) {
+    console.error('[Health Check Failure]', err.message);
     res.status(503).json({
       status: 'unhealthy',
-      error: err.message,
+      database: 'disconnected',
       timestamp: new Date().toISOString()
     });
   }

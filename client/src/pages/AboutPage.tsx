@@ -56,7 +56,7 @@ export const AboutPage: React.FC = () => {
               When engineering teams encounter complex architecture roadblocks, designers review critical launch designs, or founders assess legal trade-offs, they rarely need an expensive multi-week statement of work or a mandatory minimum retainer. What they need is 15 to 30 minutes of focused, direct clarity from someone who has navigated that exact challenge before.
             </p>
             <p>
-              Traditional marketplaces force practitioners into lengthy proposal bidding cycles, arbitrary hourly minimums, and protracted onboarding. HireByMinutes eliminates that friction by introducing <strong>minute-accurate consultation rooms</strong> backed by automated escrow settlement and transparent per-minute pricing.
+              Traditional marketplaces force practitioners into lengthy proposal bidding cycles, arbitrary hourly minimums, and protracted onboarding. HireByMinutes eliminates that friction by introducing <strong>minute-accurate consultation rooms</strong> backed by automated payment hold and release settlement and transparent per-minute pricing.
             </p>
           </div>
         </div>
@@ -87,9 +87,9 @@ export const AboutPage: React.FC = () => {
             <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center border border-amber-200">
               <Lock className="w-4 h-4" />
             </div>
-            <h3 className="text-base font-bold text-midnight">Authoritative Escrow</h3>
+            <h3 className="text-base font-bold text-midnight">Protected Payment Hold</h3>
             <p className="text-xs text-midnight/70 leading-relaxed">
-              Payments are held securely in platform escrow and only disbursed upon successful consultation completion according to server timer logs.
+              Payments are held securely upon client authorization and only disbursed upon successful consultation completion according to server timer logs.
             </p>
           </div>
         </div>
@@ -180,7 +180,7 @@ export const AboutPage: React.FC = () => {
               <div className="text-xs font-bold text-midnight uppercase tracking-wider">Platform Take & Cataloging</div>
               <div className="text-xl font-extrabold text-midnight font-mono">15%</div>
               <p className="text-[11px] text-midnight/70">
-                15% platform commission covers live signaling infrastructure, escrow processing, and support.
+                15% platform commission covers live signaling infrastructure, payment hold & release processing, and support.
               </p>
             </div>
           </div>

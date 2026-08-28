@@ -40,7 +40,7 @@ export const PrivacyPage: React.FC = () => {
         <div className="p-4 rounded-xl bg-white border border-timberwolf/70 shadow-subtle flex items-start gap-3 text-xs text-midnight/80">
           <Shield className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            HireByMinutes is designed with data minimization as a core architecture principle. We collect and process only the information necessary to authenticate users, facilitate minute-based consultations, process secure escrow settlements, and maintain marketplace integrity.
+            HireByMinutes is designed with data minimization as a core architecture principle. We collect and process only the information necessary to authenticate users, facilitate minute-based consultations, process secure payment transactions, and maintain marketplace integrity.
           </p>
         </div>
 
@@ -120,7 +120,7 @@ export const PrivacyPage: React.FC = () => {
               <li>To provide, operate, and maintain the HireByMinutes marketplace.</li>
               <li>To verify email addresses via secure 6-digit one-time password (OTP) codes.</li>
               <li>To match clients with relevant expert service listings across worldwide categories.</li>
-              <li>To calculate authoritative session fees, hold escrow, and credit expert payouts.</li>
+              <li>To calculate authoritative session fees, hold and release payments upon session completion, and credit expert payouts.</li>
               <li>To authenticate administrator actions and maintain immutable audit trails.</li>
               <li>To detect and prevent fraudulent account creation, spam listings, or platform abuse.</li>
             </ul>

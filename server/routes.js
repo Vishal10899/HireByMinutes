@@ -7,27 +7,13 @@ const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const emailService = require('./services/emailService');
+const storageService = require('./services/storageService');
 
-// Uploads directory setup (supports Render persistent disk path via UPLOADS_PATH)
-const uploadsDir = process.env.UPLOADS_PATH
-  ? path.resolve(process.env.UPLOADS_PATH)
-  : path.join(__dirname, 'uploads');
-
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const cleanName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
-    cb(null, `${Date.now()}-${uuidv4().slice(0, 8)}-${cleanName}${ext}`);
-  }
-});
+// Multer memory storage adapter (enables streaming to Cloudflare R2 / AWS S3 / Object Storage on Render Free)
+const memoryStorage = multer.memoryStorage();
 
 const upload = multer({
-  storage,
+  storage: memoryStorage,
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB limit
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
@@ -642,7 +628,7 @@ module.exports = function(timerEngine, io) {
   // FILE & PROFILE PHOTO UPLOADS
   // ==========================================
   const avatarUpload = multer({
-    storage,
+    storage: memoryStorage,
     limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit for profile images
     fileFilter: (req, file, cb) => {
       const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
@@ -656,18 +642,29 @@ module.exports = function(timerEngine, io) {
     }
   });
 
-  router.post('/upload/avatar', avatarUpload.single('photo'), (req, res) => {
+  router.post('/upload/avatar', avatarUpload.single('photo'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'No image file provided for upload.' });
     }
-    const fileUrl = `/uploads/${req.file.filename}`;
-    res.json({
-      url: fileUrl,
-      filename: req.file.filename,
-      size: req.file.size,
-      mimetype: req.file.mimetype,
-      message: 'Profile photo uploaded successfully.'
-    });
+    try {
+      const uploadResult = await storageService.upload({
+        buffer: req.file.buffer,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        folder: 'avatars'
+      });
+      res.json({
+        url: uploadResult.url,
+        filename: uploadResult.filename,
+        size: uploadResult.size,
+        mimetype: uploadResult.mimeType,
+        provider: uploadResult.provider,
+        message: 'Profile photo uploaded successfully.'
+      });
+    } catch (err) {
+      console.error('[Avatar Upload Error]', err.message);
+      res.status(500).json({ error: 'Failed to process avatar upload' });
+    }
   }, (err, req, res, next) => {
     if (err) {
       return res.status(400).json({ error: err.message || 'Image upload failed.' });
@@ -2246,11 +2243,10 @@ module.exports = function(timerEngine, io) {
     res.status(201).json({ message: msgObj });
   });
 
-  router.post('/sessions/:id/upload', authMiddleware, upload.single('file'), (req, res) => {
+  router.post('/sessions/:id/upload', authMiddleware, upload.single('file'), async (req, res) => {
     const sessionId = req.params.id;
 
     if (!timerEngine.isCommunicationAllowed(sessionId, req.user.id)) {
-      if (req.file) fs.unlinkSync(req.file.path);
       return res.status(403).json({ error: 'This session has already ended. File sharing is disabled.' });
     }
 
@@ -2258,41 +2254,53 @@ module.exports = function(timerEngine, io) {
       return res.status(400).json({ error: 'No file uploaded.' });
     }
 
-    const fileUrl = `/uploads/${req.file.filename}`;
-    const messageId = `msg-${uuidv4().slice(0, 8)}`;
-    const now = new Date().toISOString();
+    try {
+      const uploadResult = await storageService.upload({
+        buffer: req.file.buffer,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        folder: 'session_files'
+      });
 
-    db.prepare(`
-      INSERT INTO messages (id, session_id, sender_id, sender_name, sender_role, content, file_url, file_name, file_size, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      messageId,
-      sessionId,
-      req.user.id,
-      req.user.full_name,
-      req.user.role,
-      `Shared a file: ${req.file.originalname}`,
-      fileUrl,
-      req.file.originalname,
-      req.file.size,
-      now
-    );
+      const fileUrl = uploadResult.url;
+      const messageId = `msg-${uuidv4().slice(0, 8)}`;
+      const now = new Date().toISOString();
 
-    const msgObj = {
-      id: messageId,
-      session_id: sessionId,
-      sender_id: req.user.id,
-      sender_name: req.user.full_name,
-      sender_role: req.user.role,
-      content: `Shared a file: ${req.file.originalname}`,
-      file_url: fileUrl,
-      file_name: req.file.originalname,
-      file_size: req.file.size,
-      created_at: now
-    };
+      db.prepare(`
+        INSERT INTO messages (id, session_id, sender_id, sender_name, sender_role, content, file_url, file_name, file_size, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        messageId,
+        sessionId,
+        req.user.id,
+        req.user.full_name,
+        req.user.role,
+        `Shared a file: ${req.file.originalname}`,
+        fileUrl,
+        req.file.originalname,
+        uploadResult.size,
+        now
+      );
 
-    io.to(`session_${sessionId}`).emit('new_message', msgObj);
-    res.status(201).json({ message: msgObj });
+      const msgObj = {
+        id: messageId,
+        session_id: sessionId,
+        sender_id: req.user.id,
+        sender_name: req.user.full_name,
+        sender_role: req.user.role,
+        content: `Shared a file: ${req.file.originalname}`,
+        file_url: fileUrl,
+        file_name: req.file.originalname,
+        file_size: uploadResult.size,
+        created_at: now
+      };
+
+      io.to(`session_${sessionId}`).emit('new_message', msgObj);
+      res.status(201).json({ message: msgObj });
+    } catch (err) {
+      console.error('[Session Upload Error]', err.message);
+      res.status(500).json({ error: 'Failed to process session file upload' });
+    }
   });
 
   router.post('/sessions/:id/review', authMiddleware, (req, res) => {

@@ -176,7 +176,7 @@ export const ClientDashboardPage: React.FC = () => {
             Client Dashboard
           </h1>
           <p className="text-sm text-midnight/70 mt-1">
-            Track consultation requests, complete escrow payments upon expert acceptance, and join live rooms.
+            Track consultation requests, complete secure payments upon expert acceptance, and join live rooms.
           </p>
         </div>
         <div className="flex items-center gap-3 self-start sm:self-auto">

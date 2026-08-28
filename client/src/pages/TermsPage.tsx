@@ -121,13 +121,13 @@ export const TermsPage: React.FC = () => {
           {/* Section 6 */}
           <section className="space-y-3">
             <h2 className="text-base sm:text-lg font-bold text-midnight">
-              6. Payments, Escrow & Platform Economics
+              6. Payments, Hold & Release Workflow & Platform Economics
             </h2>
             <p>
               Upon an Expert's acceptance of a Consultation Request, the Client completes payment for the total duration price (Duration in Minutes × Price per Minute).
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
-              <li><strong>Escrow Holding:</strong> Client funds are held in secure platform escrow for the duration of the scheduled consultation.</li>
+              <li><strong>Payment Hold:</strong> Client funds are held securely upon authorization for the duration of the scheduled consultation.</li>
               <li><strong>Expert Payout (85%):</strong> Upon server-validated completion of the session, eighty-five percent (85%) of the consultation fee is credited to the verified Expert's payout ledger balance.</li>
               <li><strong>Platform Commission (15%):</strong> HireByMinutes retains fifteen percent (15%) of the completed session amount to maintain real-time signaling servers, payment processing, fraud mitigation, and dispute handling.</li>
             </ul>
@@ -155,9 +155,9 @@ export const TermsPage: React.FC = () => {
               Cancellations and refund requests are governed by our dedicated <Link to="/refund-policy" className="text-moonstone hover:underline font-semibold">Refund & Cancellation Policy</Link>.
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
-              <li>If an Expert fails to attend an accepted, paid session, the full escrow amount is refunded to the Client.</li>
+              <li>If an Expert fails to attend an accepted, paid session, the full payment is refunded to the Client.</li>
               <li>If an unresolvable technical malfunction prevents the session from taking place, administrative dispute logs determine proportionate refund or session re-scheduling.</li>
-              <li>Completed sessions in which both parties participated for the agreed duration are non-refundable once escrow is settled, absent substantiated fraud.</li>
+              <li>Completed sessions in which both parties participated for the agreed duration are non-refundable once payment is released, absent substantiated fraud.</li>
             </ul>
           </section>
 

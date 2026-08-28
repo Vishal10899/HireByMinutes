@@ -79,9 +79,9 @@ export const ContactPage: React.FC = () => {
             <div className="w-8 h-8 rounded-lg bg-aliceblue text-moonstone flex items-center justify-center border border-timberwolf/60">
               <CreditCard className="w-4 h-4" />
             </div>
-            <h3 className="text-xs font-bold text-midnight uppercase tracking-wider">Billing & Escrow</h3>
+            <h3 className="text-xs font-bold text-midnight uppercase tracking-wider">Billing & Payments</h3>
             <p className="text-xs text-midnight/70 leading-relaxed">
-              Inquiries regarding consultation receipts, escrow releases, refunds, duplicate charge checks, and payout calculations.
+              Inquiries regarding consultation receipts, payment authorizations, refunds, duplicate charge checks, and payout calculations.
             </p>
           </div>
 
@@ -176,7 +176,7 @@ export const ContactPage: React.FC = () => {
                     >
                       <option value="general">General Support</option>
                       <option value="account">Account & Authentication</option>
-                      <option value="billing">Billing & Escrow Refunds</option>
+                      <option value="billing">Billing & Payment Inquiries</option>
                       <option value="session">Consultation & Technical Issue</option>
                       <option value="verification">Expert Verification Review</option>
                       <option value="policy">Policy & Safety Report</option>
@@ -256,7 +256,7 @@ export const ContactPage: React.FC = () => {
                 </li>
                 <li>
                   <Link to="/refund-policy" className="text-midnight/80 hover:text-moonstone font-medium flex items-center justify-between py-1 border-b border-timberwolf/30">
-                    <span>Refund & Escrow Policy</span>
+                    <span>Refund & Cancellation Policy</span>
                     <span className="text-midnight/40">→</span>
                   </Link>
                 </li>

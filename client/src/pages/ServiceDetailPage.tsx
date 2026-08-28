@@ -495,7 +495,7 @@ export const ServiceDetailPage: React.FC = () => {
                     {service.provider_name} accepted your request!
                   </h3>
                   <p className="text-xs text-midnight/70">
-                    Confirm your consultation by completing payment. Funds are held safely in escrow.
+                    Confirm your consultation by completing payment. Funds are held safely until session completion.
                   </p>
                 </div>
 
@@ -506,7 +506,7 @@ export const ServiceDetailPage: React.FC = () => {
                     <span className="font-mono font-semibold">${Number(activeRequest.total_price).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-midnight/80">
-                    <span>Platform escrow protection</span>
+                    <span>Platform payment protection</span>
                     <span className="text-emerald-700 font-semibold">Included</span>
                   </div>
                   <div className="border-t border-timberwolf/40 pt-2 flex justify-between items-baseline font-bold text-midnight">
@@ -524,7 +524,7 @@ export const ServiceDetailPage: React.FC = () => {
                   {paying ? (
                     <span className="flex items-center gap-2">
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Processing Escrow...
+                      Processing Payment...
                     </span>
                   ) : (
                     <>

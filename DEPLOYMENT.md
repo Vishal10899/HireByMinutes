@@ -1,151 +1,130 @@
-# HireByMinutes — Production & Render Deployment Guide
+# =============================================================================
+# HIREBYMINUTES — FREE RENDER PRODUCTION DEPLOYMENT GUIDE
+# =============================================================================
+# Architecture: Node.js 20+ / Express 5 API + React 19 SPA on Render Free Web Service
+# Database: External Persistent PostgreSQL (e.g. Neon, Supabase, Aiven)
+# Storage: External S3/R2 Object Storage (e.g. Cloudflare R2, AWS S3, Supabase)
+# Real-Time: Socket.IO WebSockets & WebRTC Signaling
+# Payments: Razorpay (Server-Side Order Creation & HMAC SHA-256 Verification)
+# Email: Resend HTTPS API (Ports 25/465/587 are blocked on Render Free)
+# Monitoring: External Uptime Monitor pinging GET /api/health every 5 minutes
+# =============================================================================
 
-**Product Version:** v2.4 (Production Release)  
-**Lead Designer & Developer:** Vishal Chaudhary  
-**Last Updated:** August 28, 2026  
+## 1. Architecture Overview (Render Free Safe)
 
----
+Because Render Free Web Services feature an **ephemeral filesystem** that resets on container sleep and redeployments, the application is engineered for zero-local-state persistence:
 
-## 1. Quick Deploy on Render (Recommended)
-
-HireByMinutes is fully configured for **1-Click Render Blueprint Deployment** using [`render.yaml`](file:///D:/Hirebyminutes/render.yaml).
-
-### Option A: 1-Click Blueprint Deploy (Single Web Service with Persistent Disk)
-1. Push your repository to GitHub / GitLab.
-2. In the [Render Dashboard](https://dashboard.render.com), click **New +** → **Blueprint**.
-3. Connect your repository. Render will automatically parse `render.yaml` and configure:
-   * **Node.js Web Service** (compiles React frontend + starts Express backend).
-   * **Persistent Disk (`/var/data`, 10GB)** (persists SQLite database `hirebyminutes.db` & uploads).
-   * **Health Check Path** (`/api/health`).
-4. Set your production secrets in the Render Environment Variables tab:
-   * `ADMIN_PASSWORD`: Your chosen strong master admin password.
-   * `JWT_SECRET`: Random 64-character secret key.
-   * `EMAIL_API_KEY`: API key for Resend or SendGrid (optional in dev, required for live transactional emails).
-
----
-
-## 2. Manual Render Web Service Setup
-
-If you prefer setting up manually without a Blueprint:
-
-| Setting | Value |
-| :--- | :--- |
-| **Service Type** | **Web Service** |
-| **Environment** | `Node` |
-| **Region** | Any (e.g. `Oregon (US West)` or `Frankfurt (EU)`) |
-| **Branch** | `main` |
-| **Build Command** | `npm install && npm --prefix client install && npm run build` |
-| **Start Command** | `npm start` |
-| **Health Check Path** | `/api/health` |
-| **Auto-Deploy** | `Yes` |
-
-### Adding Persistent Disk on Render:
-1. Under your Web Service settings, scroll to **Disks** → click **Add Disk**.
-2. **Name**: `hirebyminutes-data`
-3. **Mount Path**: `/var/data`
-4. **Size**: `10 GB` (or larger based on expected consultation file uploads)
-5. Add Environment Variables:
-   * `DATABASE_PATH`: `/var/data/hirebyminutes.db`
-   * `UPLOADS_PATH`: `/var/data/uploads`
-
----
-
-## 3. Production Environment Variables Reference
-
-| Variable | Required | Default / Example | Purpose |
-| :--- | :---: | :--- | :--- |
-| `NODE_ENV` | Yes | `production` | Enables production security, strips dev origins, disables test fixtures. |
-| `PORT` | Yes | `5000` | Server listening port (Render automatically provides `PORT=10000`). |
-| `CLIENT_ORIGIN` | Optional | `https://hirebyminutes.onrender.com` | Allowed frontend origin for CORS (defaults to same-origin in single service). |
-| `ALLOWED_ORIGINS` | Optional | `https://hirebyminutes.com,https://www.hirebyminutes.com` | Comma-separated list of additional allowed CORS domains. |
-| `DATABASE_PATH` | Recommended | `/var/data/hirebyminutes.db` | Absolute path to SQLite database on persistent disk. |
-| `UPLOADS_PATH` | Recommended | `/var/data/uploads` | Directory for avatar photos and consultation attachments. |
-| `JWT_SECRET` | Yes | `7b612c0985f1...` (64 hex chars) | Secret key for signing session tokens and password reset hashes. |
-| `ADMIN_EMAIL` | Yes | `vishalkumar75912@gmail.com` | Master administrative user email. |
-| `ADMIN_PASSWORD` | Yes | `1Agust@1999` (Use strong secret) | Master administrative user password. |
-| `PLATFORM_NAME` | No | `HireByMinutes` | Brand name displayed across receipts and emails. |
-| `LISTING_FEE_USD` | No | `2.00` | One-time service listing catalog activation fee. |
-| `PLATFORM_FEE_PERCENT` | No | `15` | Percentage commission on completed consultation sessions (85% to provider). |
-| `EMAIL_ENABLED` | No | `true` | Enables transactional email notifications. |
-| `EMAIL_PROVIDER` | No | `resend` (or `sendgrid` / `smtp` / `development_console`) | Email delivery provider adapter. |
-| `EMAIL_API_KEY` | Optional | `re_...` | API key for Resend or SendGrid. |
-| `EMAIL_FROM` | No | `HireByMinutes <no-reply@hirebyminutes.com>` | Sender identity. |
-| `EMAIL_REPLY_TO` | No | `support@hirebyminutes.com` | Reply-to address for user inquiries. |
-
----
-
-## 4. External Health Monitoring Setup
-
-HireByMinutes provides a high-throughput, low-latency health monitoring endpoint supporting both **GET** and **HEAD** requests:
-
-* **Primary Endpoint**: `https://your-app.onrender.com/api/health`
-* **Alternative Root Endpoint**: `https://your-app.onrender.com/health`
-
-### Expected HTTP 200 OK Response Payload:
-```json
-{
-  "status": "healthy",
-  "platform": "HireByMinutes",
-  "version": "2.4.0",
-  "environment": "production",
-  "database": "connected",
-  "uptimeSeconds": 8420,
-  "timestamp": "2026-08-28T05:00:00.000Z",
-  "memory": {
-    "rssMb": 48,
-    "heapUsedMb": 24,
-    "heapTotalMb": 32
-  }
-}
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                   RENDER FREE CLOUD TOPOLOGY                          │
+├────────────────────────────────────────────────────────────────────────┤
+│                                                                        │
+│   Client Browser / Mobile PWA                                         │
+│        │                                                               │
+│        ▼                                                               │
+│   [ Render Free Web Service (Node.js 20 / Express 5) ]                │
+│        │                 │                  │                          │
+│        ▼                 ▼                  ▼                          │
+│   External PG      External S3/R2      Razorpay & Resend              │
+│   (Neon / Supabase) (Cloudflare R2)    (Payments & Transactional)      │
+│   [All Tables]      [Avatars/Files]    [HMAC & HTTPS APIs]             │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Configuring External Monitors:
+---
 
-#### 1. UptimeRobot (Free / 5-min intervals)
-* **Monitor Type**: `HTTP(s)`
-* **Friendly Name**: `HireByMinutes Production Health`
-* **URL (or IP)**: `https://your-app.onrender.com/api/health`
-* **Monitoring Interval**: `5 minutes`
-* **HTTP Method**: `HEAD` (or `GET`)
-* **Expected Status**: `200`
+## 2. Prerequisites & Free Service Accounts
 
-#### 2. BetterStack (Better Uptime)
-* **URL to monitor**: `https://your-app.onrender.com/api/health`
-* **Check frequency**: `3 minutes`
-* **Keyword to look for**: `"status":"healthy"`
-
-#### 3. Render Built-in Health Checks
-* In your Web Service dashboard → **Settings** → **Health Check Path** → Set to `/api/health`.
-* Render automatically pings this endpoint before shifting live traffic during zero-downtime deploys.
+1. **GitHub / GitLab Repository**: Push the HireByMinutes codebase to a private/public repo.
+2. **Render Account**: [https://render.com](https://render.com) (Free tier).
+3. **Free PostgreSQL Database**:
+   - [Neon.tech](https://neon.tech) (Free 0.5GB compute & storage, instant setup)
+   - [Supabase](https://supabase.com) (Free tier PostgreSQL)
+   - [Aiven](https://aiven.io) (Free tier PostgreSQL)
+4. **Free S3-Compatible Storage (Optional but Recommended for persistent avatars)**:
+   - [Cloudflare R2](https://www.cloudflare.com/developer-platform/r2/) (Free 10GB storage/month, 0 egress fees)
+   - [AWS S3](https://aws.amazon.com/s3/) (Free 5GB tier)
+5. **Razorpay Account**: [https://dashboard.razorpay.com](https://dashboard.razorpay.com)
+6. **Resend Email Account**: [https://resend.com](https://resend.com) (Free 3,000 emails/month)
+7. **External Health Monitor**: [UptimeRobot](https://uptimerobot.com) or [BetterStack](https://betterstack.com) (Free 5-minute HTTP monitors).
 
 ---
 
-## 5. Reverse Proxy & Standalone VPS Deployment (Alternative to Render)
+## 3. Step-by-Step Deployment Instructions
 
-If deploying to a self-hosted Ubuntu/Debian VPS with Nginx and PM2:
+### Step A: Initialize PostgreSQL Schema
+Obtain your PostgreSQL connection string from Neon, Supabase, or Aiven:
+`postgresql://user:password@ep-sample-123456.us-east-2.aws.neon.tech/neondb?sslmode=require`
 
+Initialize all tables, categories, and master admin account by running locally:
 ```bash
-# 1. Clone and install
-git clone https://github.com/your-org/hirebyminutes.git /var/www/hirebyminutes
-cd /var/www/hirebyminutes
-npm install --omit=dev
-npm --prefix client install
-npm --prefix client run build
-
-# 2. Start daemon with PM2
-npm install -g pm2
-pm2 start server/index.js --name "hirebyminutes"
-pm2 save
-pm2 startup
+# Set DATABASE_URL and ADMIN credentials in .env, then run:
+node server/scripts/initPostgres.js
 ```
+*(Optional) If you have existing local SQLite data you wish to migrate to PostgreSQL, run:*
+```bash
+node server/scripts/migrateSqliteToPostgres.js
+```
+
+### Step B: Deploy on Render via Blueprint (Recommended)
+1. Go to [Render Dashboard](https://dashboard.render.com/) ➔ **New +** ➔ **Blueprint**.
+2. Connect your GitHub repository.
+3. Render will read `render.yaml` and configure the **Free Web Service**.
+4. In the environment configuration step, input your environment variables (see Section 4).
+5. Click **Apply**. Render will run `npm install && npm --prefix client install && npm run build` and launch the service.
 
 ---
 
-## 6. Live Verification & Smoke Testing Checklist
+## 4. Required Production Environment Variables
 
-After deployment to Render or your production server:
-1. Verify `/api/health` returns `200 OK` and `"database": "connected"`.
-2. Open `https://yourdomain.com/` in a browser. Confirm layout renders cleanly with Alice Blue background and Deep Midnight typography.
-3. Browse `https://yourdomain.com/services` and test language/country/skill filters.
-4. Log in as Administrator at `https://yourdomain.com/auth` and verify access to `https://yourdomain.com/admin`.
-5. Verify public legal routes: `/about`, `/how-it-works`, `/terms`, `/privacy`, `/refund-policy`, `/expert-policy`, `/acceptable-use`, `/contact`.
+Configure these in Render Dashboard ➔ **Environment**:
+
+| Variable | Recommended / Example Value | Notes |
+| :--- | :--- | :--- |
+| `NODE_ENV` | `production` | Enables production security & optimizations |
+| `PORT` | `5000` (or `10000`) | Listening port |
+| `DATABASE_URL` | `postgresql://user:pass@host/db?sslmode=require` | **Required**: Remote PostgreSQL connection |
+| `JWT_SECRET` | *(64-char random string)* | Cryptographic signing key |
+| `ADMIN_EMAIL` | `vishalkumar75912@gmail.com` | Master admin email |
+| `ADMIN_PASSWORD` | *(Your secure password)* | Master admin initial password |
+| `CLIENT_ORIGIN` | `https://hirebyminutes.onrender.com` | CORS origin protection |
+| `STORAGE_PROVIDER` | `s3` (or `r2`) | External object storage type |
+| `STORAGE_BUCKET` | `hirebyminutes-uploads` | S3 / R2 bucket name |
+| `STORAGE_ACCESS_KEY`| *(Your Access Key ID)* | Object storage access key |
+| `STORAGE_SECRET_KEY`| *(Your Secret Access Key)* | Object storage secret key |
+| `STORAGE_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` | Custom endpoint for R2/Supabase |
+| `STORAGE_PUBLIC_URL`| `https://pub-<id>.r2.dev` | Public URL prefix for uploaded files |
+| `RAZORPAY_KEY_ID` | `rzp_live_xxxxxxxxxxxxxxxx` | Live Razorpay Key ID |
+| `RAZORPAY_KEY_SECRET`| *(Your Razorpay Secret Key)* | Live Razorpay Secret |
+| `EMAIL_ENABLED` | `true` | Enables transactional email |
+| `EMAIL_PROVIDER` | `resend` | HTTPS API email provider |
+| `RESEND_API_KEY` | `re_123456789_abcdef...` | Resend API key |
+| `EMAIL_FROM` | `HireByMinutes <no-reply@yourdomain.com>` | Verified sender domain |
+
+---
+
+## 5. Health Monitoring & External Keep-Alive Setup
+
+Render Free Web Services spin down after 15 minutes of inbound inactivity. To keep the service responsive:
+
+1. Create a free account at [UptimeRobot](https://uptimerobot.com/).
+2. Click **Add New Monitor**:
+   - **Monitor Type:** `HTTP(s)`
+   - **Friendly Name:** `HireByMinutes Production API`
+   - **URL:** `https://your-service.onrender.com/api/health`
+   - **Monitoring Interval:** `5 minutes`
+3. Save the monitor.
+4. **Behavior**:
+   - UptimeRobot will ping `GET /api/health` every 5 minutes.
+   - Endpoint returns HTTP `200 OK` with `{ status: "healthy", database: "connected" }`.
+   - If the database is disconnected or unreachable, the endpoint returns HTTP `503 Service Unavailable`.
+   - UptimeRobot alerts you immediately if the service goes down.
+
+---
+
+## 6. Cold Start & Restart Tolerant Design
+
+- The frontend (`api.ts`) contains built-in bounded retries for transient 502/503 responses during container wakeups.
+- Timers in `TimerEngine` store timestamps in ISO 8601 strings and dynamically calculate elapsed minutes based on `Date.now() - session.actual_start`, making session tracking resilient to container restarts.
+- Session states are persisted in PostgreSQL, ensuring zero data loss across container lifecycle events.

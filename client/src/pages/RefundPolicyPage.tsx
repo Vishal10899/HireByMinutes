@@ -25,7 +25,7 @@ export const RefundPolicyPage: React.FC = () => {
         <div className="space-y-3 border-b border-timberwolf/60 pb-6">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-moonstone/10 text-moonstone-dark text-xs font-bold border border-moonstone/30">
             <RotateCcw className="w-3.5 h-3.5 text-moonstone" />
-            <span>Escrow & Payment Protections</span>
+            <span>Payment & Cancellation Protections</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-midnight">
             Refund & Cancellation Policy
@@ -39,7 +39,7 @@ export const RefundPolicyPage: React.FC = () => {
         <div className="p-4 rounded-xl bg-white border border-timberwolf/70 shadow-subtle flex items-start gap-3 text-xs text-midnight/80">
           <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            All consultation payments on HireByMinutes are backed by server-authoritative escrow. Funds are held securely upon client payment and are only disbursed to the provider once the agreed consultation minutes have successfully concluded.
+            All consultation payments on HireByMinutes follow a server-authoritative hold and release workflow. Funds are held securely upon client payment authorization and are only disbursed to the provider once the agreed consultation minutes have successfully concluded.
           </p>
         </div>
 
@@ -66,10 +66,10 @@ export const RefundPolicyPage: React.FC = () => {
           <section className="space-y-3">
             <h2 className="text-base sm:text-lg font-bold text-midnight flex items-center gap-2">
               <CreditCard className="w-4 h-4 text-moonstone" />
-              <span>2. Post-Payment Escrow & Refund Eligibility</span>
+              <span>2. Post-Payment Hold & Refund Eligibility</span>
             </h2>
             <p>
-              Once an Expert accepts a request and the Client completes payment, the session enters the <code>ACTIVE</code> status and funds are held in platform escrow.
+              Once an Expert accepts a request and the Client completes payment, the session enters the <code>ACTIVE</code> status and funds are held securely.
             </p>
             
             <div className="space-y-3 pt-2">
@@ -93,7 +93,7 @@ export const RefundPolicyPage: React.FC = () => {
                 <ul className="list-disc pl-4 text-xs text-midnight/75 space-y-1 pt-1">
                   <li><strong>Completed Consultations:</strong> Sessions that have fully concluded with both parties present for the booked duration are settled irrevocably to the Expert (85%) and Platform (15%).</li>
                   <li><strong>Client No-Show:</strong> If a Client fails to join the consultation room after the Expert has joined and made themselves available for the agreed duration.</li>
-                  <li><strong>Subjective Satisfaction Disputes:</strong> Dissatisfaction with consultative feedback that was delivered professionally and within the agreed scope is not grounds for an automatic escrow refund.</li>
+                  <li><strong>Subjective Satisfaction Disputes:</strong> Dissatisfaction with consultative feedback that was delivered professionally and within the agreed scope is not grounds for an automatic refund.</li>
                 </ul>
               </div>
             </div>
@@ -126,7 +126,7 @@ export const RefundPolicyPage: React.FC = () => {
             <ol className="list-decimal pl-5 space-y-1.5 text-midnight/80">
               <li><strong>In-Room Communication:</strong> Communicate immediately via in-room messaging to attempt reconnection.</li>
               <li><strong>Submit a Support Ticket:</strong> If the issue cannot be resolved, contact our support team within 24 hours of session conclusion at <span className="font-mono text-moonstone-dark font-semibold">support@hirebyminutes.com</span>.</li>
-              <li><strong>Audit Log Review:</strong> Our administrative team reviews the session duration logs, connection timestamps, and chat transcripts to issue an objective ruling (e.g. full refund, partial credit, or escrow disbursement).</li>
+              <li><strong>Audit Log Review:</strong> Our administrative team reviews the session duration logs, connection timestamps, and chat transcripts to issue an objective ruling (e.g. full refund, partial credit, or payment release).</li>
             </ol>
           </section>
 
@@ -146,10 +146,10 @@ export const RefundPolicyPage: React.FC = () => {
               6. Contact Support for Payment Inquiries
             </h2>
             <p>
-              To report a duplicate charge, request an escrow dispute review, or ask a billing question:
+              To report a duplicate charge, request a payment dispute review, or ask a billing question:
             </p>
             <div className="p-4 bg-aliceblue rounded-xl border border-timberwolf/50 space-y-1">
-              <div className="font-bold text-midnight">HireByMinutes Billing & Escrow Support</div>
+              <div className="font-bold text-midnight">HireByMinutes Billing & Payment Support</div>
               <div className="text-xs text-midnight/70 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-moonstone" />
                 <span>support@hirebyminutes.com</span>

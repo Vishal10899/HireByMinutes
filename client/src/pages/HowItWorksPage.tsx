@@ -114,10 +114,10 @@ export const HowItWorksPage: React.FC = () => {
               </div>
               <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
                 <CreditCard className="w-4 h-4 text-moonstone" />
-                <span>Complete Escrow Payment</span>
+                <span>Complete Payment Authorization</span>
               </h3>
               <p className="text-xs text-midnight/70 leading-relaxed">
-                Once the expert accepts, pay securely. Funds are held in escrow and your private consultation room is generated immediately.
+                Once the expert accepts, pay securely. Funds are held safely and your private consultation room is generated immediately.
               </p>
             </div>
           </div>
@@ -147,7 +147,7 @@ export const HowItWorksPage: React.FC = () => {
                 <span>Session Completion</span>
               </h3>
               <p className="text-xs text-midnight/70 leading-relaxed">
-                The session concludes when the timer completes or participants end the meeting. Escrow funds settle authoritatively.
+                The session concludes when the timer completes or participants end the meeting. Payment release settles authoritatively.
               </p>
             </div>
 
@@ -311,9 +311,9 @@ export const HowItWorksPage: React.FC = () => {
             </div>
 
             <div className="space-y-1.5">
-              <h4 className="font-bold text-midnight">Dispute & Escrow Protection</h4>
+              <h4 className="font-bold text-midnight">Dispute & Payment Protection</h4>
               <p className="text-midnight/70 leading-relaxed">
-                If a technical interruption or non-attendance occurs, administrative logs provide objective audit records for full or partial escrow refunds.
+                If a technical interruption or non-attendance occurs, administrative logs provide objective audit records for full or partial payment adjustments and refunds.
               </p>
             </div>
           </div>

@@ -76,7 +76,7 @@ export const ExpertPolicyPage: React.FC = () => {
               <li><strong>Explicit Per-Minute Rates:</strong> Rates must be clearly set (e.g. $1.50/min, $3.00/min) and reflect the total cost of consultative delivery during the session.</li>
               <li><strong>No Hidden Upcharges:</strong> You may not demand off-platform payments, hidden retainers, or unauthorized follow-up fees.</li>
               <li><strong>Listing Activation Fee ($2.00):</strong> Each published service requires a $2.00 cataloging activation fee (unless waived by platform administrator exception), which is non-refundable upon activation.</li>
-              <li><strong>85% Payout Economics:</strong> Providers receive 85% of total completed session fees; the platform retains 15% for signaling infrastructure, payment escrow, and dispute moderation.</li>
+              <li><strong>85% Payout Economics:</strong> Providers receive 85% of total completed session fees; the platform retains 15% for signaling infrastructure, payment processing, and dispute moderation.</li>
             </ul>
           </section>
 
@@ -90,7 +90,7 @@ export const ExpertPolicyPage: React.FC = () => {
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li><strong>10-Minute SLA Window:</strong> Review pending briefs promptly. If you cannot accommodate the client's timing or scope, decline the request so the client can find another expert without delay.</li>
-              <li><strong>Punctuality:</strong> Once you accept a request and the client completes escrow payment, you are expected to enter the consultation room at the agreed time. Repeated no-shows will result in listing de-ranking or suspension.</li>
+              <li><strong>Punctuality:</strong> Once you accept a request and the client completes payment authorization, you are expected to enter the consultation room at the agreed time. Repeated no-shows will result in listing de-ranking or suspension.</li>
             </ul>
           </section>
 
@@ -149,7 +149,7 @@ export const ExpertPolicyPage: React.FC = () => {
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li>Temporary or permanent revocation of the verified expert badge.</li>
               <li>Deactivation or removal of published service listings.</li>
-              <li>Temporary holding of pending escrow disbursements during active dispute investigation.</li>
+              <li>Temporary holding of pending payout disbursements during active dispute investigation.</li>
               <li>Permanent account suspension across the HireByMinutes platform.</li>
             </ul>
           </section>

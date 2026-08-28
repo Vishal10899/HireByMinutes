@@ -58,7 +58,7 @@ export const AcceptableUsePage: React.FC = () => {
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li><strong>Impersonation:</strong> Creating accounts claiming to represent another individual, company, organization, or authority without explicit written authorization.</li>
               <li><strong>Fake Reviews & Ratings:</strong> Creating dummy accounts, engaging in review swapping, or purchasing artificial positive ratings.</li>
-              <li><strong>Payment Circumvention:</strong> Soliciting or accepting off-platform payments (e.g. crypto, cash, direct bank wires) to circumvent platform escrow protections and fees.</li>
+              <li><strong>Payment Circumvention:</strong> Soliciting or accepting off-platform payments (e.g. crypto, cash, direct bank wires) to circumvent platform protections and fees.</li>
               <li><strong>Marketplace Deception:</strong> Creating misleading service titles or inflated rates with intent to defraud consultation participants.</li>
             </ul>
           </section>
@@ -139,7 +139,7 @@ export const AcceptableUsePage: React.FC = () => {
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li>Formal warning and required remediation of profile content.</li>
               <li>Immediate deactivation or permanent removal of offending service listings.</li>
-              <li>Freezing of escrow balances involved in disputed or fraudulent consultations.</li>
+              <li>Freezing of pending payment balances involved in disputed or fraudulent consultations.</li>
               <li>Permanent account suspension and IP-level network blocking.</li>
               <li>Referral to relevant law enforcement agencies in cases of severe cybercrime, extortion, or physical threats.</li>
             </ul>

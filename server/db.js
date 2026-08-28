@@ -4,15 +4,27 @@ const fs = require('fs');
 const bcrypt = require('bcryptjs');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-// Resolve database path from environment variable (Render persistent disk) or local default
-const configuredDbPath = process.env.DATABASE_PATH || process.env.DATABASE_URL;
-const dbPath = configuredDbPath
-  ? path.resolve(configuredDbPath)
-  : path.join(__dirname, 'hirebyminutes.db');
+// Database Path Configuration (supports custom path via DATABASE_PATH or default local SQLite)
+const isProduction = process.env.NODE_ENV === 'production';
+const databaseUrl = process.env.DATABASE_URL;
+const customDbPath = process.env.DATABASE_PATH;
+
+let dbPath;
+if (customDbPath) {
+  dbPath = path.resolve(customDbPath);
+} else {
+  dbPath = path.join(__dirname, 'hirebyminutes.db');
+}
 
 const dbDir = path.dirname(dbPath);
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
+}
+
+// Log honest storage notice on Render Free
+if (isProduction && !databaseUrl) {
+  console.log('[Render Free Storage Notice] Running with embedded SQLite on ephemeral filesystem.');
+  console.log('[Render Free Storage Notice] Data persists during container execution but resets on redeployment.');
 }
 
 const db = new Database(dbPath);
@@ -516,6 +528,9 @@ function ensureSettingsAndAdmin() {
 }
 
 function seedInitialData() {
+  if (process.env.NODE_ENV === 'production') {
+    return; // Never seed demo/sample data in production
+  }
   const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
   if (userCount > 1) { // Admin was just created, check if other users exist
     return;

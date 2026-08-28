@@ -1724,7 +1724,7 @@ export const AdminPage: React.FC = () => {
                     Consultation Requests & 10-Minute SLA Timers
                   </h1>
                   <p className="text-xs text-midnight/70 mt-1">
-                    Monitor stage 1 requests, 10-minute expert response countdowns, acceptance rates, and stage 3 escrow payments.
+                    Monitor stage 1 requests, 10-minute expert response countdowns, acceptance rates, and stage 3 payments.
                   </p>
                 </div>
               </div>
@@ -1787,7 +1787,7 @@ export const AdminPage: React.FC = () => {
                   Financial Ledger & Platform Economics
                 </h1>
                 <p className="text-xs text-midnight/70 mt-1">
-                  15% platform take, 85% expert share, verified escrow transactions, and refund audit records.
+                  15% platform take, 85% expert share, verified payment transactions, and refund audit records.
                 </p>
               </div>
 
