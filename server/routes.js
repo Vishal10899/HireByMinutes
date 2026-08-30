@@ -73,11 +73,141 @@ function sanitizeUser(user) {
   return safe;
 }
 
+// Server-Authoritative Listing / Registration Fee Calculator (with Temporary Campaigns & Automatic Expiration)
+function getEffectiveListingFee() {
+  let baseFee = 2.00;
+  try {
+    const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'listing_fee_usd'").get();
+    if (setting && setting.value !== undefined) {
+      const parsed = parseFloat(setting.value);
+      if (!isNaN(parsed)) baseFee = parsed;
+    }
+  } catch (e) {
+    baseFee = parseFloat(process.env.LISTING_FEE_USD) || 2.00;
+  }
+
+  const now = Date.now();
+  const nowIso = new Date().toISOString();
+
+  try {
+    const campaigns = db.prepare(`
+      SELECT * FROM registration_campaigns 
+      WHERE status != 'cancelled' 
+      ORDER BY created_at DESC
+    `).all();
+
+    const updateStatus = db.prepare('UPDATE registration_campaigns SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+
+    let activeCampaign = null;
+    const upcomingCampaigns = [];
+
+    for (const camp of campaigns) {
+      const startMs = new Date(camp.start_time).getTime();
+      const endMs = new Date(camp.end_time).getTime();
+
+      if (now > endMs) {
+        if (camp.status !== 'expired') {
+          updateStatus.run('expired', camp.id);
+          camp.status = 'expired';
+        }
+      } else if (now < startMs) {
+        if (camp.status !== 'scheduled' && camp.is_active === 1) {
+          updateStatus.run('scheduled', camp.id);
+          camp.status = 'scheduled';
+        }
+        upcomingCampaigns.push(camp);
+      } else {
+        // now >= startMs && now <= endMs
+        if (camp.is_active === 1) {
+          if (camp.status !== 'active') {
+            updateStatus.run('active', camp.id);
+            camp.status = 'active';
+          }
+          if (!activeCampaign) {
+            activeCampaign = camp;
+          }
+        }
+      }
+    }
+
+    if (activeCampaign) {
+      const endMs = new Date(activeCampaign.end_time).getTime();
+      const remainingSeconds = Math.max(0, Math.floor((endMs - now) / 1000));
+      return {
+        fee: Number(activeCampaign.fee_usd),
+        baseFee,
+        isPromotionActive: true,
+        activeCampaign: {
+          ...activeCampaign,
+          remaining_seconds: remainingSeconds
+        },
+        upcomingCampaigns,
+        serverTime: nowIso
+      };
+    }
+
+    return {
+      fee: baseFee,
+      baseFee,
+      isPromotionActive: false,
+      activeCampaign: null,
+      upcomingCampaigns,
+      serverTime: nowIso
+    };
+  } catch (err) {
+    console.error('[getEffectiveListingFee Error]', err.message);
+    return {
+      fee: baseFee,
+      baseFee,
+      isPromotionActive: false,
+      activeCampaign: null,
+      upcomingCampaigns: [],
+      serverTime: nowIso
+    };
+  }
+}
+
 const crypto = require('crypto');
 
 module.exports = function(timerEngine, io) {
   // Initialize email service with database reference
   emailService.init(db);
+
+  // Production Health Monitoring Endpoints
+  const handleHealth = (req, res) => {
+    try {
+      const result = db.prepare('SELECT 1 as alive').get();
+      if (result && result.alive === 1) {
+        const memoryUsage = process.memoryUsage();
+        return res.status(200).json({
+          status: 'healthy',
+          platform: 'HireByMinutes',
+          version: '2.4.0',
+          environment: process.env.NODE_ENV || 'development',
+          database: 'connected',
+          uptimeSeconds: Math.floor(process.uptime()),
+          timestamp: new Date().toISOString(),
+          memory: {
+            rssMb: Math.round(memoryUsage.rss / (1024 * 1024)),
+            heapUsedMb: Math.round(memoryUsage.heapUsed / (1024 * 1024)),
+            heapTotalMb: Math.round(memoryUsage.heapTotal / (1024 * 1024))
+          }
+        });
+      }
+      return res.status(503).json({ status: 'unhealthy', error: 'Database check failed' });
+    } catch (err) {
+      return res.status(503).json({ status: 'unhealthy', error: err.message });
+    }
+  };
+  router.get('/health', handleHealth);
+  router.head('/health', handleHealth);
+  router.get('/healthz', handleHealth);
+
+  // Public Platform Registration / Listing Fee Status Endpoint
+  router.get('/platform/registration-fee', (req, res) => {
+    const feeData = getEffectiveListingFee();
+    res.json(feeData);
+  });
 
   // --- HELPER AUTH MIDDLEWARES ---
   const authMiddleware = (req, res, next) => {
@@ -1105,32 +1235,96 @@ module.exports = function(timerEngine, io) {
     }
 
     const id = `srv-${uuidv4().slice(0, 8)}`;
-    
-    db.prepare(`
-      INSERT INTO services (id, provider_id, title, category_id, description, price_per_minute, listing_status, listing_fee_paid, skills_json, languages_json, experience_years, available_now)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending_payment', 0, ?, ?, ?, ?)
-    `).run(
-      id,
-      req.user.id,
-      title,
-      category_id,
-      description,
-      Number(price_per_minute),
-      JSON.stringify(skills),
-      JSON.stringify(languages),
-      Number(experience_years),
-      available_now ? 1 : 0
-    );
+    const feeData = getEffectiveListingFee();
+    const isFreePromotion = feeData.fee === 0;
 
-    if (req.user.role !== 'admin' && req.user.role !== 'provider') {
-      db.prepare(`UPDATE users SET role = 'provider' WHERE id = ?`).run(req.user.id);
+    if (isFreePromotion) {
+      // Free promotion active: activate service immediately ($0 fee)
+      const paymentId = `promo-free-${uuidv4().slice(0, 8)}`;
+      db.prepare(`
+        INSERT INTO services (id, provider_id, title, category_id, description, price_per_minute, listing_status, listing_fee_paid, listing_fee_payment_id, skills_json, languages_json, experience_years, available_now)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        req.user.id,
+        title.trim(),
+        category_id,
+        description.trim(),
+        Number(price_per_minute),
+        paymentId,
+        JSON.stringify(skills),
+        JSON.stringify(languages),
+        Number(experience_years),
+        available_now ? 1 : 0
+      );
+
+      // Log $0 promotional listing payment record
+      db.prepare(`
+        INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
+        VALUES (?, ?, 'listing_fee', 0.00, 'succeeded', ?, ?)
+      `).run(paymentId, req.user.id, id, JSON.stringify({
+        service_title: title.trim(),
+        campaign_id: feeData.activeCampaign?.id || 'launch-promo',
+        description: 'Temporary Launch Promotion: $0 Free Registration & Listing Fee'
+      }));
+
+      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(category_id);
+
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        req.user.id,
+        'Service is Live (Free Launch Promotion)',
+        `"${title.trim()}" is active and published immediately with $0 listing fee!`,
+        'success',
+        `/services/${id}`
+      );
+
+      if (req.user.role !== 'admin' && req.user.role !== 'provider') {
+        db.prepare(`UPDATE users SET role = 'provider' WHERE id = ?`).run(req.user.id);
+      }
+
+      const created = db.prepare('SELECT * FROM services WHERE id = ?').get(id);
+      return res.status(201).json({
+        service: created,
+        is_free: true,
+        message: 'Free registration campaign active! Your service listing is live immediately with $0 listing fee.'
+      });
+    } else {
+      // Normal listing fee applies: create draft
+      db.prepare(`
+        INSERT INTO services (id, provider_id, title, category_id, description, price_per_minute, listing_status, listing_fee_paid, skills_json, languages_json, experience_years, available_now)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending_payment', 0, ?, ?, ?, ?)
+      `).run(
+        id,
+        req.user.id,
+        title.trim(),
+        category_id,
+        description.trim(),
+        Number(price_per_minute),
+        JSON.stringify(skills),
+        JSON.stringify(languages),
+        Number(experience_years),
+        available_now ? 1 : 0
+      );
+
+      if (req.user.role !== 'admin' && req.user.role !== 'provider') {
+        db.prepare(`UPDATE users SET role = 'provider' WHERE id = ?`).run(req.user.id);
+      }
+
+      const created = db.prepare('SELECT * FROM services WHERE id = ?').get(id);
+      return res.status(201).json({
+        service: created,
+        is_free: false,
+        fee: feeData.fee,
+        message: `Service draft created. Pay $${feeData.fee.toFixed(2)} listing fee to publish.`
+      });
     }
-
-    const created = db.prepare('SELECT * FROM services WHERE id = ?').get(id);
-    res.status(201).json({ service: created, message: 'Service draft created. Pay $2 listing fee to publish.' });
   });
 
-  // Pay $2 Listing Fee to Activate Service
+  // Pay Listing Fee to Activate Service
   router.post('/services/:id/pay-listing-fee', authMiddleware, (req, res) => {
     const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
     if (!service) return res.status(404).json({ error: 'Service not found' });
@@ -1138,12 +1332,22 @@ module.exports = function(timerEngine, io) {
       return res.status(403).json({ error: 'Unauthorized to publish this service.' });
     }
 
-    const paymentId = `pay-fee-${uuidv4().slice(0, 8)}`;
+    if (service.listing_status === 'active' && service.listing_fee_paid === 1) {
+      return res.json({ success: true, message: 'Service is already active and published.', service });
+    }
+
+    const feeData = getEffectiveListingFee();
+    const feeAmount = feeData.fee;
+    const isFree = feeAmount === 0;
+    const paymentId = isFree ? `promo-free-${uuidv4().slice(0, 8)}` : `pay-fee-${uuidv4().slice(0, 8)}`;
 
     db.prepare(`
       INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
-      VALUES (?, ?, 'listing_fee', 2.00, 'succeeded', ?, ?)
-    `).run(paymentId, req.user.id, service.id, JSON.stringify({ service_title: service.title, description: 'HireByMinutes $2 Service Listing Activation Fee' }));
+      VALUES (?, ?, 'listing_fee', ?, 'succeeded', ?, ?)
+    `).run(paymentId, req.user.id, feeAmount, service.id, JSON.stringify({
+      service_title: service.title,
+      description: isFree ? 'Free Launch Promotion Registration Waiver' : `HireByMinutes $${feeAmount.toFixed(2)} Service Listing Activation Fee`
+    }));
 
     db.prepare(`
       UPDATE services 
@@ -1165,10 +1369,15 @@ module.exports = function(timerEngine, io) {
       `/services/${service.id}`
     );
 
-    res.json({ success: true, message: 'Your service is now live on HireByMinutes!', paymentId });
+    res.json({
+      success: true,
+      message: isFree ? 'Free launch promotion applied! Service is live.' : 'Your service is now live on HireByMinutes!',
+      paymentId,
+      fee: feeAmount
+    });
   });
 
-  // Create Razorpay Order for $2 Listing Fee
+  // Create Razorpay Order for Listing Fee (Server-Authoritative)
   router.post('/services/:id/create-listing-order', authMiddleware, async (req, res) => {
     const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
     if (!service) return res.status(404).json({ error: 'Service not found' });
@@ -1176,7 +1385,39 @@ module.exports = function(timerEngine, io) {
       return res.status(403).json({ error: 'Unauthorized to publish this service.' });
     }
 
-    const listingFeeUsd = parseFloat(process.env.LISTING_FEE_USD) || 2.00;
+    if (service.listing_status === 'active' && service.listing_fee_paid === 1) {
+      return res.json({ success: true, already_active: true, message: 'Service is already active.', service });
+    }
+
+    const feeData = getEffectiveListingFee();
+    const listingFeeUsd = feeData.fee;
+
+    // If promotion is active and fee is 0, activate immediately with no Razorpay order
+    if (listingFeeUsd === 0) {
+      const paymentId = `promo-free-${uuidv4().slice(0, 8)}`;
+      db.prepare(`
+        INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
+        VALUES (?, ?, 'listing_fee', 0.00, 'succeeded', ?, ?)
+      `).run(paymentId, req.user.id, service.id, JSON.stringify({
+        service_title: service.title,
+        description: 'Temporary Launch Promotion: $0 Free Registration & Listing Fee'
+      }));
+
+      db.prepare(`
+        UPDATE services 
+        SET listing_status = 'active', listing_fee_paid = 1, listing_fee_payment_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(paymentId, service.id);
+
+      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
+
+      return res.json({
+        free_activated: true,
+        amount: 0,
+        message: 'Free registration promotion applied! Service is live.'
+      });
+    }
+
     const amountInPaise = Math.round(listingFeeUsd * 100);
     const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_live_placeholder';
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -1233,7 +1474,7 @@ module.exports = function(timerEngine, io) {
     }
   });
 
-  // Verify Razorpay Payment for $2 Listing Fee
+  // Verify Razorpay Payment for Listing Fee (Server-Authoritative)
   router.post('/services/:id/verify-listing-payment', authMiddleware, async (req, res) => {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
     const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
@@ -1262,7 +1503,8 @@ module.exports = function(timerEngine, io) {
       }
     }
 
-    const listingFeeUsd = parseFloat(process.env.LISTING_FEE_USD) || 2.00;
+    const feeData = getEffectiveListingFee();
+    const listingFeeUsd = feeData.fee;
     const paymentId = razorpay_payment_id || `pay-fee-${uuidv4().slice(0, 8)}`;
 
     db.prepare(`
@@ -1273,7 +1515,7 @@ module.exports = function(timerEngine, io) {
       order_id: razorpay_order_id,
       payment_id: razorpay_payment_id,
       service_title: service.title,
-      description: 'HireByMinutes $2 Service Listing Activation Fee'
+      description: `HireByMinutes $${listingFeeUsd.toFixed(2)} Service Listing Activation Fee`
     }));
 
     db.prepare(`
@@ -2593,7 +2835,7 @@ module.exports = function(timerEngine, io) {
     const pendingListings = db.prepare("SELECT COUNT(*) as count FROM services WHERE listing_status = 'pending_payment'").get().count;
     const openOpportunities = db.prepare("SELECT COUNT(*) as count FROM opportunities WHERE status = 'open'").get().count;
     const pendingReports = db.prepare("SELECT COUNT(*) as count FROM reports WHERE status IN ('pending', 'OPEN', 'UNDER_REVIEW')").get().count;
-    const totalProfileVisits = db.prepare("SELECT COALESCE(SUM(profile_visits), 0) + (SELECT COUNT(*) FROM bookings) * 4 FROM users").get()['COALESCE(SUM(profile_visits), 0) + (SELECT COUNT(*) FROM bookings) * 4'] || 142;
+    const totalProfileVisits = db.prepare("SELECT COALESCE(SUM(profile_visits), 0) as count FROM users").get().count || 0;
 
     const platformTakePercent = 15;
     const platformRevenue = Number((listingRevenue + (sessionRevenue * (platformTakePercent / 100)) - totalRefunds).toFixed(2));
@@ -2616,18 +2858,18 @@ module.exports = function(timerEngine, io) {
     const weekSessions = db.prepare("SELECT COUNT(*) as count FROM sessions WHERE created_at >= ?").get(sevenDaysAgo).count;
     const weekRevenue = db.prepare("SELECT SUM(amount) as sum FROM payments WHERE status = 'succeeded' AND created_at >= ?").get(sevenDaysAgo).sum || 0;
 
-    // Conversion Rates (Strictly 0% - 100%)
+    // Conversion Rates (Strictly 0% - 100%, real database derived only)
     const completedConsultationRequests = db.prepare("SELECT COUNT(*) as count FROM consultation_requests WHERE status = 'COMPLETED'").get().count;
     const requestToAcceptedRate = totalConsultationRequests > 0 
       ? Math.min(100, Number(((acceptedRequests / totalConsultationRequests) * 100).toFixed(1))) 
-      : 85.0;
+      : 0;
     const acceptedToPaidRate = acceptedRequests > 0 
       ? Math.min(100, Number(((paidRequests / acceptedRequests) * 100).toFixed(1))) 
-      : 92.5;
+      : 0;
     const effectiveCompleted = completedConsultationRequests > 0 ? completedConsultationRequests : Math.min(completedSessions, paidRequests);
     const paidToCompletedRate = paidRequests > 0 
       ? Math.min(100, Number(((effectiveCompleted / paidRequests) * 100).toFixed(1))) 
-      : 95.0;
+      : 0;
 
     // Analytics: Top Visited Experts, Top Listings, Top Categories, Top Countries
     const topExperts = db.prepare(`
@@ -3564,6 +3806,155 @@ module.exports = function(timerEngine, io) {
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashed, req.user.id);
     logAuditAction(req.user, 'ADMIN_PASSWORD_CHANGED', 'user', req.user.id, { email: req.user.email });
     res.json({ success: true, message: 'Administrator password updated successfully.' });
+  });
+
+  // 15. Registration Campaigns & Promotional Fee Management
+  router.get('/admin/campaigns', adminAuthMiddleware, (req, res) => {
+    const effective = getEffectiveListingFee();
+    const campaigns = db.prepare(`
+      SELECT * FROM registration_campaigns ORDER BY created_at DESC
+    `).all();
+    res.json({ campaigns, effective });
+  });
+
+  router.post('/admin/campaigns', adminAuthMiddleware, (req, res) => {
+    const { name, description = '', fee_usd = 0.00, start_time, end_time, is_active = 1 } = req.body;
+    if (!name || !start_time || !end_time) {
+      return res.status(400).json({ error: 'Name, start time, and end time are required.' });
+    }
+
+    const startMs = new Date(start_time).getTime();
+    const endMs = new Date(end_time).getTime();
+
+    if (isNaN(startMs) || isNaN(endMs)) {
+      return res.status(400).json({ error: 'Invalid start or end timestamp format.' });
+    }
+    if (startMs >= endMs) {
+      return res.status(400).json({ error: 'End time must be strictly after start time.' });
+    }
+
+    const now = Date.now();
+    let status = 'scheduled';
+    if (now > endMs) status = 'expired';
+    else if (now >= startMs && now <= endMs) status = is_active ? 'active' : 'scheduled';
+
+    const id = `camp-${uuidv4().slice(0, 8)}`;
+    db.prepare(`
+      INSERT INTO registration_campaigns (
+        id, name, description, fee_usd, start_time, end_time, is_active, status, created_by, created_by_name
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      name.trim(),
+      description.trim(),
+      Number(fee_usd) || 0.00,
+      new Date(start_time).toISOString(),
+      new Date(end_time).toISOString(),
+      is_active ? 1 : 0,
+      status,
+      req.user.id,
+      req.user.full_name
+    );
+
+    logAuditAction(req.user, 'CREATE_REGISTRATION_CAMPAIGN', 'campaign', id, { name, fee_usd, start_time, end_time });
+
+    const created = db.prepare('SELECT * FROM registration_campaigns WHERE id = ?').get(id);
+    res.status(201).json({
+      success: true,
+      campaign: created,
+      effective: getEffectiveListingFee()
+    });
+  });
+
+  router.post('/admin/campaigns/launch-free-24h', adminAuthMiddleware, (req, res) => {
+    const now = new Date();
+    const end = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const id = `camp-${uuidv4().slice(0, 8)}`;
+
+    // Deactivate previous active campaigns
+    db.prepare(`UPDATE registration_campaigns SET is_active = 0, status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE status = 'active'`).run();
+
+    db.prepare(`
+      INSERT INTO registration_campaigns (
+        id, name, description, fee_usd, start_time, end_time, is_active, status, created_by, created_by_name
+      ) VALUES (?, ?, ?, ?, ?, ?, 1, 'active', ?, ?)
+    `).run(
+      id,
+      'Launch Promotion — Free Expert Registration',
+      'Launch Offer: 100% free expert registration and service listing for 24 hours ($0.00 fee).',
+      0.00,
+      now.toISOString(),
+      end.toISOString(),
+      req.user.id,
+      req.user.full_name
+    );
+
+    logAuditAction(req.user, 'ACTIVATE_24H_FREE_PROMOTION', 'campaign', id, { fee_usd: 0.00, start_time: now.toISOString(), end_time: end.toISOString() });
+
+    const created = db.prepare('SELECT * FROM registration_campaigns WHERE id = ?').get(id);
+    res.status(201).json({
+      success: true,
+      message: '24-hour Free Registration promotion activated successfully!',
+      campaign: created,
+      effective: getEffectiveListingFee()
+    });
+  });
+
+  router.patch('/admin/campaigns/:id', adminAuthMiddleware, (req, res) => {
+    const campaign = db.prepare('SELECT * FROM registration_campaigns WHERE id = ?').get(req.params.id);
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+    const { is_active, status, fee_usd, name, description, end_time } = req.body;
+
+    let newIsActive = is_active !== undefined ? (is_active ? 1 : 0) : campaign.is_active;
+    let newStatus = status !== undefined ? status : campaign.status;
+    let newFee = fee_usd !== undefined ? Number(fee_usd) : campaign.fee_usd;
+    let newName = name !== undefined ? name.trim() : campaign.name;
+    let newDesc = description !== undefined ? description.trim() : campaign.description;
+    let newEndTime = end_time !== undefined ? new Date(end_time).toISOString() : campaign.end_time;
+
+    if (newStatus === 'cancelled') {
+      newIsActive = 0;
+    }
+
+    db.prepare(`
+      UPDATE registration_campaigns 
+      SET is_active = ?, status = ?, fee_usd = ?, name = ?, description = ?, end_time = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(newIsActive, newStatus, newFee, newName, newDesc, newEndTime, campaign.id);
+
+    logAuditAction(req.user, 'UPDATE_REGISTRATION_CAMPAIGN', 'campaign', campaign.id, {
+      status: newStatus, is_active: newIsActive, fee_usd: newFee
+    });
+
+    const updated = db.prepare('SELECT * FROM registration_campaigns WHERE id = ?').get(campaign.id);
+    res.json({
+      success: true,
+      campaign: updated,
+      effective: getEffectiveListingFee()
+    });
+  });
+
+  router.patch('/admin/settings/listing-fee', adminAuthMiddleware, (req, res) => {
+    const { listing_fee_usd } = req.body;
+    if (listing_fee_usd === undefined || isNaN(parseFloat(listing_fee_usd))) {
+      return res.status(400).json({ error: 'Valid listing_fee_usd number is required.' });
+    }
+
+    const feeNum = parseFloat(listing_fee_usd);
+    db.prepare(`
+      INSERT INTO platform_settings (key, value, description)
+      VALUES ('listing_fee_usd', ?, 'Base flat fee charged to experts to activate a service listing')
+      ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+    `).run(feeNum.toFixed(2));
+
+    logAuditAction(req.user, 'UPDATE_BASE_LISTING_FEE', 'platform_settings', 'listing_fee_usd', { new_fee: feeNum });
+
+    res.json({
+      success: true,
+      base_fee: feeNum,
+      effective: getEffectiveListingFee()
+    });
   });
 
   // User Notifications

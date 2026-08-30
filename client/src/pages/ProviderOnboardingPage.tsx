@@ -38,20 +38,35 @@ export const ProviderOnboardingPage: React.FC = () => {
   // Listing creation state
   const [createdServiceId, setCreatedServiceId] = useState<string | null>(null);
   const [isPublished, setIsPublished] = useState(false);
+  const [feeInfo, setFeeInfo] = useState<{ fee: number; isPromotionActive: boolean; baseFee: number }>({
+    fee: 0,
+    isPromotionActive: false,
+    baseFee: 2.00
+  });
 
   useEffect(() => {
-    async function loadCats() {
+    async function loadData() {
       try {
-        const res = await api.getCategories();
-        setCategories(res.categories || []);
-        if (res.categories && res.categories.length > 0) {
-          setCategoryId(res.categories[0].id);
+        const [resCats, resFee] = await Promise.all([
+          api.getCategories(),
+          api.getRegistrationFee().catch(() => ({ fee: 0, isPromotionActive: true, baseFee: 2.00 }))
+        ]);
+        setCategories(resCats.categories || []);
+        if (resCats.categories && resCats.categories.length > 0) {
+          setCategoryId(resCats.categories[0].id);
+        }
+        if (resFee) {
+          setFeeInfo({
+            fee: resFee.fee !== undefined ? resFee.fee : 0,
+            isPromotionActive: !!resFee.isPromotionActive,
+            baseFee: resFee.baseFee || 2.00
+          });
         }
       } catch (e) {
         console.error(e);
       }
     }
-    loadCats();
+    loadData();
   }, []);
 
   const handleCreateDraft = async (e: React.FormEvent) => {
@@ -75,7 +90,15 @@ export const ProviderOnboardingPage: React.FC = () => {
       });
 
       setCreatedServiceId(res.service.id);
-      setStep(3); // Advance to $2 listing fee payment step
+      
+      // If service is already active (e.g. via $0 promo waiver), mark published immediately!
+      if (res.service.listing_status === 'active' || res.is_free) {
+        setIsPublished(true);
+        await refreshUser();
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+      } else {
+        setStep(3); // Advance to listing fee payment step
+      }
     } catch (err: any) {
       alert(err.message || 'Failed to create service listing');
     } finally {
@@ -98,6 +121,8 @@ export const ProviderOnboardingPage: React.FC = () => {
     }
   };
 
+  const isFree = feeInfo.fee === 0;
+
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
       
@@ -113,104 +138,104 @@ export const ProviderOnboardingPage: React.FC = () => {
           Create a clear listing for what you can help people with and set your exact rate.
         </p>
 
+        {isFree && (
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold mt-2">
+            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Launch Promotion: $0 Free Registration & Listing Active</span>
+          </div>
+        )}
+
         {/* Step indicator */}
         <div className="flex items-center justify-center gap-3 pt-4">
           <div className={`flex items-center gap-1.5 text-xs font-bold ${step === 1 ? 'text-midnight' : 'text-midnight/40'}`}>
             <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step === 1 ? 'bg-midnight text-aliceblue' : 'bg-timberwolf text-midnight'}`}>1</span>
             <span>Profile & Scope</span>
           </div>
-          <div className="w-8 h-0.5 bg-timberwolf" />
+          <div className="w-8 h-[1px] bg-timberwolf" />
           <div className={`flex items-center gap-1.5 text-xs font-bold ${step === 2 ? 'text-midnight' : 'text-midnight/40'}`}>
             <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step === 2 ? 'bg-midnight text-aliceblue' : 'bg-timberwolf text-midnight'}`}>2</span>
-            <span>Rate & Schedule</span>
+            <span>Rates & Skills</span>
           </div>
-          <div className="w-8 h-0.5 bg-timberwolf" />
-          <div className={`flex items-center gap-1.5 text-xs font-bold ${step === 3 ? 'text-midnight' : 'text-midnight/40'}`}>
-            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step === 3 ? 'bg-midnight text-aliceblue' : 'bg-timberwolf text-midnight'}`}>3</span>
-            <span>$2 Listing Fee</span>
-          </div>
+          {!isFree && (
+            <>
+              <div className="w-8 h-[1px] bg-timberwolf" />
+              <div className={`flex items-center gap-1.5 text-xs font-bold ${step === 3 ? 'text-midnight' : 'text-midnight/40'}`}>
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step === 3 ? 'bg-midnight text-aliceblue' : 'bg-timberwolf text-midnight'}`}>3</span>
+                <span>Activation</span>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Main Container */}
-      <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 sm:p-10 shadow-subtle">
+      {/* Main Form Box */}
+      <div className="bg-white border border-timberwolf/60 rounded-3xl p-6 sm:p-8 shadow-card">
         
-        {/* SUCCESS PUBLISHED VIEW */}
         {isPublished ? (
+          
+          /* PUBLISHED SUCCESS STATE */
           <div className="text-center py-8 space-y-5 animate-fade-in">
-            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto flex items-center justify-center">
+            <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto border-2 border-emerald-200">
               <CheckCircle2 className="w-8 h-8" />
             </div>
-            <div className="space-y-1">
-              <h2 className="text-2xl font-bold text-midnight">Your Service is Now Live!</h2>
-              <p className="text-sm text-midnight/70 max-w-md mx-auto">
-                "{title}" has been published to the HireByMinutes marketplace. Clients can now book your time.
+            <div className="space-y-1.5">
+              <h2 className="text-xl font-extrabold text-midnight">You're officially live on HireByMinutes!</h2>
+              <p className="text-xs text-midnight/70 max-w-md mx-auto">
+                Your service listing is published and visible to clients worldwide. Clients can request consultations directly based on your per-minute rate.
               </p>
             </div>
 
-            <div className="bg-aliceblue p-4 rounded-xl border border-timberwolf/40 max-w-sm mx-auto text-xs space-y-1 text-left">
+            <div className="bg-aliceblue p-4 rounded-2xl border border-timberwolf/40 max-w-sm mx-auto text-left text-xs space-y-2">
               <div className="flex justify-between">
-                <span className="text-midnight/60">Listing Fee Paid:</span>
-                <span className="font-mono font-bold text-emerald-600">$2.00 (One-time)</span>
+                <span className="text-midnight/60">Service</span>
+                <span className="font-bold text-midnight truncate max-w-[180px]">{title}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-midnight/60">Rate:</span>
-                <span className="font-mono font-bold text-midnight">${pricePerMinute.toFixed(2)} / min</span>
+                <span className="text-midnight/60">Rate</span>
+                <span className="font-mono font-bold text-midnight">${pricePerMinute.toFixed(2)}/min</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-midnight/60">Listing Fee</span>
+                <span className="font-bold text-emerald-600">{isFree ? '$0.00 (Promotion Waiver)' : `$${feeInfo.fee.toFixed(2)} (Paid)`}</span>
               </div>
             </div>
 
-            <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Link
-                to={`/services/${createdServiceId}`}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle"
-              >
-                View Public Profile
-              </Link>
+            <div className="pt-4 flex items-center justify-center gap-3">
               <Link
                 to="/provider"
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-aliceblue text-midnight text-xs font-semibold hover:bg-white border border-timberwolf"
+                className="px-6 py-3 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover transition-all shadow-subtle flex items-center gap-2 cursor-pointer"
               >
-                Go to Provider Hub
+                <span>Go to Provider Dashboard</span>
+                <ArrowRight className="w-4 h-4 text-moonstone" />
               </Link>
             </div>
           </div>
+
         ) : step === 1 ? (
           
-          /* STEP 1: SERVICE TITLE, CATEGORY & DESCRIPTION */
+          /* STEP 1: SCOPE & TITLE */
           <div className="space-y-6">
             <div className="space-y-1">
-              <h3 className="text-lg font-bold text-midnight">What service do you provide?</h3>
+              <h3 className="text-lg font-bold text-midnight">Service Scope & Expertise</h3>
               <p className="text-xs text-midnight/70">
-                Be clear and concise so clients understand what they can achieve in a 15–60 minute session.
+                Define the specific domain or problem area where clients can hire you for quick 1-on-1 consultations.
               </p>
             </div>
 
             <div className="space-y-4 text-xs">
               <div className="space-y-1.5">
-                <label className="font-semibold text-midnight block">Your Headline / Role</label>
+                <label className="font-semibold text-midnight block">Listing Title</label>
                 <input
                   type="text"
-                  value={headline}
-                  onChange={(e) => setHeadline(e.target.value)}
-                  placeholder="e.g. Senior Backend Engineer / Figma UI Specialist"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Python & FastAPI Code Review and Live Debugging"
                   className="w-full p-3 bg-aliceblue/30 border border-timberwolf/70 rounded-xl text-xs text-midnight focus:outline-none focus:border-moonstone"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="font-semibold text-midnight block">Listing Title *</label>
-                <input
-                  type="text"
-                  required
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Python & FastAPI Architecture Review & Live Debugging"
-                  className="w-full p-3 bg-aliceblue/30 border border-timberwolf/70 rounded-xl text-xs text-midnight focus:outline-none focus:border-moonstone font-medium"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="font-semibold text-midnight block">Primary Category *</label>
+                <label className="font-semibold text-midnight block">Primary Category</label>
                 <select
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
@@ -225,14 +250,13 @@ export const ProviderOnboardingPage: React.FC = () => {
               </div>
 
               <div className="space-y-1.5">
-                <label className="font-semibold text-midnight block">Listing Description *</label>
+                <label className="font-semibold text-midnight block">Detailed Description</label>
                 <textarea
                   rows={4}
-                  required
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Describe what problems you solve, how you structure the live session, and what materials clients should prepare..."
-                  className="w-full p-3 bg-aliceblue/30 border border-timberwolf/70 rounded-xl text-xs text-midnight focus:outline-none focus:border-moonstone leading-relaxed"
+                  placeholder="Describe exactly how you conduct the minute-by-minute session, what prep clients should bring (e.g. repos, Figma files), and typical outcomes..."
+                  className="w-full p-3 bg-aliceblue/30 border border-timberwolf/70 rounded-xl text-xs text-midnight focus:outline-none focus:border-moonstone"
                 />
               </div>
             </div>
@@ -242,7 +266,7 @@ export const ProviderOnboardingPage: React.FC = () => {
                 type="button"
                 onClick={() => {
                   if (!title || !description) {
-                    alert('Please fill in title and description');
+                    alert('Please fill out the title and description.');
                     return;
                   }
                   setStep(2);
@@ -347,19 +371,19 @@ export const ProviderOnboardingPage: React.FC = () => {
                 disabled={loading}
                 className="px-6 py-3 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover transition-all flex items-center gap-2 cursor-pointer shadow-subtle disabled:opacity-50"
               >
-                {loading ? 'Saving draft...' : 'Review & Continue to $2 Listing Fee'}
+                {loading ? 'Publishing...' : isFree ? 'Publish Service ($0.00 Free Launch Offer)' : `Review & Continue to $${feeInfo.fee.toFixed(2)} Listing Fee`}
                 <ArrowRight className="w-4 h-4 text-moonstone" />
               </button>
             </div>
           </form>
         ) : (
           
-          /* STEP 3: $2 LISTING FEE PAYMENT STEP */
+          /* STEP 3: LISTING FEE PAYMENT STEP */
           <div className="space-y-6 animate-fade-in">
             <div className="space-y-1">
-              <h3 className="text-lg font-bold text-midnight">Activate Your Listing ($2.00)</h3>
+              <h3 className="text-lg font-bold text-midnight">Activate Your Listing (${feeInfo.fee.toFixed(2)})</h3>
               <p className="text-xs text-midnight/70">
-                A nominal $2 listing fee helps maintain a high-signal marketplace free of spam.
+                A nominal listing fee helps maintain a high-signal marketplace free of spam.
               </p>
             </div>
 
@@ -379,7 +403,7 @@ export const ProviderOnboardingPage: React.FC = () => {
             <div className="border border-timberwolf/60 rounded-xl p-4 text-xs space-y-2">
               <div className="flex justify-between text-midnight/70">
                 <span>Service Listing Activation Fee</span>
-                <span className="font-mono font-semibold text-midnight">$2.00</span>
+                <span className="font-mono font-semibold text-midnight">${feeInfo.fee.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-midnight/70">
                 <span>Listing Duration</span>
@@ -387,7 +411,7 @@ export const ProviderOnboardingPage: React.FC = () => {
               </div>
               <div className="border-t border-timberwolf/40 pt-2 flex justify-between items-baseline font-bold text-midnight text-sm">
                 <span>Total Due Now</span>
-                <span className="font-mono text-base">$2.00</span>
+                <span className="font-mono text-base">${feeInfo.fee.toFixed(2)}</span>
               </div>
             </div>
 
@@ -420,7 +444,7 @@ export const ProviderOnboardingPage: React.FC = () => {
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4 text-moonstone" />
-                    <span>Pay $2.00 & Publish Service</span>
+                    <span>Pay ${feeInfo.fee.toFixed(2)} & Publish Service</span>
                   </>
                 )}
               </button>

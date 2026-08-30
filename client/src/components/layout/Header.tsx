@@ -120,7 +120,7 @@ export const Header: React.FC = () => {
                         className="flex items-center gap-2 px-4 py-2 text-midnight hover:bg-aliceblue transition-colors"
                       >
                         <PlusCircle className="w-4 h-4 text-moonstone" />
-                        <span>Add New Service ($2 Fee)</span>
+                        <span>Add New Service</span>
                       </Link>
                     )}
 

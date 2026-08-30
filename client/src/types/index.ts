@@ -253,3 +253,29 @@ export interface ProviderAvailability {
   end_time: string;
   is_active: number | boolean;
 }
+
+export interface RegistrationCampaign {
+  id: string;
+  name: string;
+  description?: string;
+  fee_usd: number;
+  start_time: string;
+  end_time: string;
+  is_active: number;
+  status: 'scheduled' | 'active' | 'expired' | 'cancelled';
+  created_by: string;
+  created_by_name?: string;
+  created_at: string;
+  updated_at: string;
+  remaining_seconds?: number;
+}
+
+export interface RegistrationFeeResponse {
+  fee: number;
+  baseFee: number;
+  isPromotionActive: boolean;
+  activeCampaign: RegistrationCampaign | null;
+  upcomingCampaigns?: RegistrationCampaign[];
+  serverTime: string;
+}
+

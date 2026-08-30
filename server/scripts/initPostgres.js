@@ -6,18 +6,6 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
-const connectionString = process.env.DATABASE_URL;
-
-if (!connectionString) {
-  console.error('[Error] DATABASE_URL environment variable is required to initialize PostgreSQL.');
-  process.exit(1);
-}
-
-const pool = new Pool({
-  connectionString,
-  ssl: connectionString.includes('localhost') ? false : { rejectUnauthorized: false }
-});
-
 const postgresSchemaSql = `
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(64) PRIMARY KEY,
@@ -30,7 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   bio TEXT,
   headline TEXT,
   location TEXT,
-  country VARCHAR(128),
+  country VARCHAR(128) DEFAULT 'United States',
   state_region VARCHAR(128),
   city VARCHAR(128),
   area VARCHAR(128),
@@ -43,6 +31,11 @@ CREATE TABLE IF NOT EXISTS users (
   verified INTEGER DEFAULT 0,
   is_suspended INTEGER DEFAULT 0,
   email_verified INTEGER DEFAULT 1,
+  profile_visits INTEGER DEFAULT 0,
+  created_by_admin INTEGER DEFAULT 0,
+  created_by_admin_id VARCHAR(64),
+  verification_rejection_reason TEXT,
+  last_active TIMESTAMP WITH TIME ZONE,
   response_time VARCHAR(64) DEFAULT 'Within 15 mins',
   member_since VARCHAR(64) DEFAULT 'August 2026',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -74,6 +67,9 @@ CREATE TABLE IF NOT EXISTS services (
   experience_years INTEGER DEFAULT 5,
   available_now INTEGER DEFAULT 1,
   subcategory VARCHAR(128),
+  country VARCHAR(128) DEFAULT 'United States',
+  city VARCHAR(128),
+  views_count INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -146,14 +142,17 @@ CREATE TABLE IF NOT EXISTS messages (
   sender_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   sender_name VARCHAR(255) NOT NULL,
   sender_role VARCHAR(32) NOT NULL,
-  content TEXT NOT NULL,
-  attachments_json TEXT DEFAULT '[]',
+  content TEXT,
+  file_url TEXT,
+  file_name VARCHAR(255),
+  file_size INTEGER,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS reviews (
   id VARCHAR(64) PRIMARY KEY,
-  session_id VARCHAR(64) UNIQUE NOT NULL,
+  booking_id VARCHAR(64) UNIQUE NOT NULL,
+  session_id VARCHAR(64) NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   client_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   provider_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   service_id VARCHAR(64) NOT NULL REFERENCES services(id) ON DELETE CASCADE,
@@ -178,9 +177,14 @@ CREATE TABLE IF NOT EXISTS opportunities (
   creator_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title VARCHAR(255) NOT NULL,
   category_id VARCHAR(64) NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
+  subcategory VARCHAR(128),
   description TEXT NOT NULL,
   duration_minutes INTEGER NOT NULL,
   budget NUMERIC(10,2) NOT NULL,
+  location VARCHAR(128) DEFAULT 'Worldwide',
+  languages_json TEXT DEFAULT '["English"]',
+  deadline TIMESTAMP WITH TIME ZONE,
+  short_description TEXT,
   status VARCHAR(32) NOT NULL DEFAULT 'open',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -189,7 +193,10 @@ CREATE TABLE IF NOT EXISTS applications (
   id VARCHAR(64) PRIMARY KEY,
   opportunity_id VARCHAR(64) NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
   provider_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  proposal TEXT NOT NULL,
+  message TEXT NOT NULL,
+  relevant_experience TEXT NOT NULL,
+  proposed_rate NUMERIC(10,2),
+  availability VARCHAR(128) NOT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'pending',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -201,7 +208,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   message TEXT NOT NULL,
   type VARCHAR(64) NOT NULL,
   link TEXT,
-  is_read INTEGER DEFAULT 0,
+  read INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -225,6 +232,8 @@ CREATE TABLE IF NOT EXISTS reports (
   reported_name VARCHAR(255) NOT NULL,
   reason TEXT NOT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  admin_notes TEXT,
+  action_taken TEXT,
   resolution TEXT,
   resolved_by VARCHAR(64),
   resolved_at TIMESTAMP WITH TIME ZONE,
@@ -244,6 +253,7 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
   email VARCHAR(255) NOT NULL,
   code_hash VARCHAR(128) NOT NULL,
   attempts INTEGER DEFAULT 0,
+  resend_count INTEGER DEFAULT 0,
   expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
   used_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -276,10 +286,41 @@ CREATE TABLE IF NOT EXISTS profile_visits (
   visitor_ip VARCHAR(64),
   visited_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS registration_campaigns (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  fee_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  start_time TIMESTAMP WITH TIME ZONE NOT NULL,
+  end_time TIMESTAMP WITH TIME ZONE NOT NULL,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  created_by VARCHAR(64) NOT NULL,
+  created_by_name VARCHAR(255),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
-async function initPostgres() {
+async function initPostgres(customPool = null) {
   console.log('[PostgreSQL] Initializing tables...');
+  let pool = customPool;
+  let shouldClosePool = false;
+
+  if (!pool) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      console.error('[Error] DATABASE_URL environment variable is required to initialize PostgreSQL.');
+      process.exit(1);
+    }
+    pool = new Pool({
+      connectionString,
+      ssl: connectionString.includes('localhost') || connectionString.includes('127.0.0.1') ? false : { rejectUnauthorized: false }
+    });
+    shouldClosePool = true;
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -329,9 +370,26 @@ async function initPostgres() {
       `, [key, value, description]);
     }
 
+    // Insert Default 24-Hour Free Registration Campaign (CRITICAL: ON CONFLICT DO NOTHING to preserve persistent end_time)
+    const now = new Date();
+    const end = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    await client.query(`
+      INSERT INTO registration_campaigns (
+        id, name, description, fee_usd, start_time, end_time, is_active, status, created_by, created_by_name
+      ) VALUES ($1, $2, $3, $4, $5, $6, 1, 'active', 'system', 'Platform Launch')
+      ON CONFLICT (id) DO NOTHING
+    `, [
+      'camp-launch-free-24h',
+      'Launch Promotion — Free Expert Registration',
+      'Launch Offer: 100% free expert registration and service listing for 24 hours ($0.00 fee).',
+      0.00,
+      now.toISOString(),
+      end.toISOString()
+    ]);
+
     // Ensure Master Admin Account
     const adminEmail = (process.env.ADMIN_EMAIL || 'vishalkumar75912@gmail.com').trim().toLowerCase();
-    const adminPassword = process.env.ADMIN_PASSWORD;
+    const adminPassword = process.env.ADMIN_PASSWORD || 'HBM-Adm!n#2026$Secur3';
 
     if (adminPassword) {
       const hashedPassword = bcrypt.hashSync(adminPassword, 10);
@@ -341,7 +399,7 @@ async function initPostgres() {
         await client.query(`
           INSERT INTO users (id, email, username, password_hash, full_name, role, bio, headline, verified, email_verified, is_suspended, member_since)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, 1, 0, 'August 2026')
-        `, ['usr-admin-vishal', adminEmail, 'vishalkumar', hashedPassword, 'Vishal Kumar (Admin)', 'admin', 'Platform Administrator & System Architect', 'System Administrator']);
+        `, ['usr-admin-vishal', adminEmail, 'admin_vishal', hashedPassword, 'Vishal Kumar (Admin)', 'admin', 'Platform Administrator & System Architect', 'System Administrator']);
         console.log(`[PostgreSQL] Master Admin created: ${adminEmail}`);
       } else {
         await client.query(`
@@ -359,7 +417,9 @@ async function initPostgres() {
     throw err;
   } finally {
     client.release();
-    await pool.end();
+    if (shouldClosePool) {
+      await pool.end();
+    }
   }
 }
 

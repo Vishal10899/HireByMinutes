@@ -961,5 +961,85 @@ export const api = {
     });
     if (!res.ok) throw new Error('Failed to fetch notification logs');
     return res.json();
+  },
+
+  // Registration Fee & Campaign Management
+  getRegistrationFee: async () => {
+    const res = await fetch(`${API_BASE}/platform/registration-fee`);
+    if (!res.ok) throw new Error('Failed to fetch registration fee');
+    return res.json();
+  },
+
+  getAdminCampaigns: async () => {
+    const res = await fetch(`${API_BASE}/admin/campaigns`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch campaigns');
+    return res.json();
+  },
+
+  createAdminCampaign: async (data: {
+    name: string;
+    description?: string;
+    fee_usd: number;
+    start_time: string;
+    end_time: string;
+    is_active?: number;
+  }) => {
+    const res = await fetch(`${API_BASE}/admin/campaigns`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create campaign');
+    }
+    return res.json();
+  },
+
+  launchFree24hCampaign: async () => {
+    const res = await fetch(`${API_BASE}/admin/campaigns/launch-free-24h`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to activate 24h launch promotion');
+    }
+    return res.json();
+  },
+
+  updateAdminCampaign: async (id: string, data: {
+    is_active?: number;
+    status?: string;
+    fee_usd?: number;
+    name?: string;
+    description?: string;
+    end_time?: string;
+  }) => {
+    const res = await fetch(`${API_BASE}/admin/campaigns/${id}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update campaign');
+    }
+    return res.json();
+  },
+
+  updateAdminListingFee: async (listing_fee_usd: number) => {
+    const res = await fetch(`${API_BASE}/admin/settings/listing-fee`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ listing_fee_usd })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update base listing fee');
+    }
+    return res.json();
   }
 };

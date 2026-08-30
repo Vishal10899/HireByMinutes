@@ -88,25 +88,51 @@ async function runProductionDeploymentAudit() {
     const unauthStats = await request('http://localhost:5000/api/admin/stats');
     assert(unauthStats.status === 401, 'Unauthenticated request to /admin/stats rejected with 401');
 
-    const clientLogin = await request('http://localhost:5000/api/auth/login', {
+    // Dynamic client test registration
+    const testAuditClientEmail = `audit.client.${Date.now()}@testaudit.local`;
+    const clientReg = await request('http://localhost:5000/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: { email: 'sarah@hirebyminutes.com', password: 'demo123' }
+      body: { email: testAuditClientEmail, password: 'Password123!', full_name: 'Audit Client', role: 'client' }
     });
-    if (clientLogin.status === 200) {
-      const clientStats = await request('http://localhost:5000/api/admin/stats', {
-        headers: { 'Authorization': `Bearer ${clientLogin.data.token}` }
-      });
-      assert(clientStats.status === 403, 'Client token to /admin/stats blocked with 403 Forbidden');
-    }
+    assert(clientReg.status === 201, 'Dynamic audit client registered');
+    const clientToken = clientReg.data.token;
+
+    const clientStats = await request('http://localhost:5000/api/admin/stats', {
+      headers: { 'Authorization': `Bearer ${clientToken}` }
+    });
+    assert(clientStats.status === 403, 'Client token to /admin/stats blocked with 403 Forbidden');
+
+    // Dynamic expert registration & service creation for test
+    const testAuditExpertEmail = `audit.expert.${Date.now()}@testaudit.local`;
+    const expertReg = await request('http://localhost:5000/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { email: testAuditExpertEmail, password: 'Password123!', full_name: 'Audit Expert', role: 'provider' }
+    });
+    const expertToken = expertReg.data.token;
+
+    const createSrv = await request('http://localhost:5000/api/services', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${expertToken}` },
+      body: {
+        title: 'Audit Production Consultation Service',
+        category_id: 'cat-tech',
+        description: 'Live production debugging session.',
+        price_per_minute: 2.00,
+        skills: ['Node.js', 'PostgreSQL'],
+        languages: ['English'],
+        experience_years: 5,
+        available_now: 1
+      }
+    });
 
     // 3. Approval-First Booking & 10-Minute SLA Audit
     console.log('\n3. Approval-First Booking Flow & 10-Minute SLA Audit...');
     const servicesRes = await request('http://localhost:5000/api/services');
     assert(servicesRes.status === 200 && servicesRes.data.services.length > 0, 'Public services catalog available');
 
-    const targetService = servicesRes.data.services[0];
-    const clientToken = clientLogin.data ? clientLogin.data.token : 'usr-sarah';
+    const targetService = createSrv.data.service;
 
     const createReq = await request('http://localhost:5000/api/consultation-requests', {
       method: 'POST',

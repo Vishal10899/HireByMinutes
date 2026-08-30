@@ -64,38 +64,55 @@ async function runTests() {
   console.log('--- TESTING HIREBYMINUTES APPROVAL-FIRST BOOKING FLOW ---');
   console.log('======================================================\n');
 
-  // 1. Authenticate Client (Sarah Chen) and Provider (Elena Rostova / Arjun Sharma)
+  // 1. Authenticate Client and Provider
   console.log('1. Authenticating test users...');
-  const clientLogin = await post('http://localhost:5000/api/auth/login', {
-    email: 'sarah@hirebyminutes.com',
-    password: 'demo123'
+  const testClientEmail = `client.booking.${Date.now()}@testbooking.local`;
+  const clientLogin = await post('http://localhost:5000/api/auth/register', {
+    email: testClientEmail,
+    password: 'Password123!',
+    full_name: 'Sarah Chen (Test)',
+    role: 'client'
   });
-  if (clientLogin.status !== 200) throw new Error(`Client login failed: ${JSON.stringify(clientLogin.data)}`);
+  if (clientLogin.status !== 201) throw new Error(`Client register failed: ${JSON.stringify(clientLogin.data)}`);
   const clientToken = clientLogin.data.token;
   const clientId = clientLogin.data.user.id;
   console.log(`   ✓ Authenticated Client: ${clientLogin.data.user.full_name} (${clientId})`);
 
-  const providerLogin = await post('http://localhost:5000/api/auth/login', {
-    email: 'elena@hirebyminutes.com',
-    password: 'demo123'
+  const testProviderEmail = `provider.booking.${Date.now()}@testbooking.local`;
+  const providerLogin = await post('http://localhost:5000/api/auth/register', {
+    email: testProviderEmail,
+    password: 'Password123!',
+    full_name: 'Dr. Elena Rostova (Test)',
+    role: 'provider'
   });
-  if (providerLogin.status !== 200) throw new Error(`Provider login failed: ${JSON.stringify(providerLogin.data)}`);
+  if (providerLogin.status !== 201) throw new Error(`Provider register failed: ${JSON.stringify(providerLogin.data)}`);
   const providerToken = providerLogin.data.token;
   const providerId = providerLogin.data.user.id;
   console.log(`   ✓ Authenticated Provider: ${providerLogin.data.user.full_name} (${providerId})`);
 
   // Another client for unauthorized payment tests
-  const otherClientLogin = await post('http://localhost:5000/api/auth/login', {
-    email: 'marcus@hirebyminutes.com',
-    password: 'demo123'
+  const testOtherClientEmail = `other.booking.${Date.now()}@testbooking.local`;
+  const otherClientLogin = await post('http://localhost:5000/api/auth/register', {
+    email: testOtherClientEmail,
+    password: 'Password123!',
+    full_name: 'Marcus Brody (Test)',
+    role: 'client'
   });
-  if (otherClientLogin.status !== 200) throw new Error(`Other client login failed: ${JSON.stringify(otherClientLogin.data)}`);
+  if (otherClientLogin.status !== 201) throw new Error(`Other client register failed: ${JSON.stringify(otherClientLogin.data)}`);
   const otherClientToken = otherClientLogin.data.token;
 
-  // Get a service owned by Elena
-  const servicesRes = await get('http://localhost:5000/api/services');
-  const elenaService = servicesRes.data.services.find(s => s.provider_id === providerId);
-  if (!elenaService) throw new Error('Could not find active service for Elena Rostova');
+  // Create active service for provider
+  const createServiceRes = await post('http://localhost:5000/api/services', {
+    title: 'High-Load Architecture Review & Next.js Debugging',
+    category_id: 'cat-tech',
+    description: 'Direct deep-dive architecture inspection and live tracing.',
+    price_per_minute: 2.00,
+    skills: ['Next.js', 'System Architecture'],
+    languages: ['English'],
+    experience_years: 10,
+    available_now: 1
+  }, providerToken);
+  const elenaService = createServiceRes.data.service;
   console.log(`   ✓ Found service: "${elenaService.title}" ($${elenaService.price_per_minute}/min)`);
 
   // 2. Client sends consultation request (Stage 1)
@@ -210,6 +227,13 @@ async function runTests() {
   console.log('\n======================================================');
   console.log('✅ ALL 10 APPROVAL-FIRST BOOKING FLOW TESTS PASSED 100%!');
   console.log('======================================================\n');
+
+  // Clean up test booking records
+  db.prepare("DELETE FROM consultation_requests WHERE client_id IN (SELECT id FROM users WHERE email LIKE '%@testbooking.local') OR provider_id IN (SELECT id FROM users WHERE email LIKE '%@testbooking.local')").run();
+  db.prepare("DELETE FROM sessions WHERE client_id IN (SELECT id FROM users WHERE email LIKE '%@testbooking.local') OR provider_id IN (SELECT id FROM users WHERE email LIKE '%@testbooking.local')").run();
+  db.prepare("DELETE FROM payments WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@testbooking.local')").run();
+  db.prepare("DELETE FROM services WHERE provider_id IN (SELECT id FROM users WHERE email LIKE '%@testbooking.local')").run();
+  db.prepare("DELETE FROM users WHERE email LIKE '%@testbooking.local'").run();
 }
 
 runTests().catch(err => {

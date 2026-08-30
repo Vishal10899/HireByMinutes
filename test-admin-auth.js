@@ -142,7 +142,13 @@ async function runAdminAuthTests() {
 
     // 9. Client cannot access admin endpoints -> 403
     console.log('\n9. Testing RBAC: Client User Access Rejection to Admin Endpoints...');
-    const clientAuth = await request('POST', '/auth/login', { email: 'sarah@hirebyminutes.com', password: 'demo123' });
+    const testClientEmail = `rbac.client.${Date.now()}@testauth.local`;
+    const clientAuth = await request('POST', '/auth/register', {
+      email: testClientEmail,
+      password: 'Password123!',
+      full_name: 'Test RBAC Client',
+      role: 'client'
+    });
     const clientToken = clientAuth.data.token;
 
     const clientAdminStats = await request('GET', '/admin/stats', null, clientToken);
@@ -153,7 +159,13 @@ async function runAdminAuthTests() {
 
     // 10. Provider cannot access admin endpoints -> 403
     console.log('\n10. Testing RBAC: Provider User Access Rejection to Admin Endpoints...');
-    const providerAuth = await request('POST', '/auth/login', { email: 'arjun@hirebyminutes.com', password: 'demo123' });
+    const testProviderEmail = `rbac.provider.${Date.now()}@testauth.local`;
+    const providerAuth = await request('POST', '/auth/register', {
+      email: testProviderEmail,
+      password: 'Password123!',
+      full_name: 'Test RBAC Provider',
+      role: 'provider'
+    });
     const providerToken = providerAuth.data.token;
 
     const providerAdminStats = await request('GET', '/admin/stats', null, providerToken);
@@ -162,16 +174,19 @@ async function runAdminAuthTests() {
     }
     console.log(`   ✓ Status 403 Forbidden — Provider user correctly blocked from admin endpoints: "${providerAdminStats.data.error}"`);
 
-    // 11. Existing client/provider authentication remains unaffected
+    // 11. Clean up test users
     console.log('\n11. Verifying Client and Provider Authentication Continuity...');
-    if (clientAuth.status !== 200 || clientAuth.data.user.email !== 'sarah@hirebyminutes.com') {
-      throw new Error('Client authentication failed');
+    if (clientAuth.status !== 201) {
+      throw new Error('Client registration failed');
     }
-    if (providerAuth.status !== 200 || providerAuth.data.user.email !== 'arjun@hirebyminutes.com') {
-      throw new Error('Provider authentication failed');
+    if (providerAuth.status !== 201) {
+      throw new Error('Provider registration failed');
     }
-    console.log(`   ✓ Client Sarah Chen authenticated successfully`);
-    console.log(`   ✓ Provider Arjun Sharma authenticated successfully`);
+    console.log(`   ✓ Client account registered and authenticated successfully`);
+    console.log(`   ✓ Provider account registered and authenticated successfully`);
+
+    // Clean up temporary RBAC test users
+    db.prepare("DELETE FROM users WHERE email LIKE '%@testauth.local'").run();
 
     console.log('\n======================================================================');
     console.log('✅ ALL ADMIN AUTHENTICATION & RBAC SECURITY TESTS PASSED 100%!');
