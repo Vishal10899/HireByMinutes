@@ -177,7 +177,7 @@ module.exports = function(timerEngine, io) {
   const handleHealth = (req, res) => {
     try {
       const result = db.prepare('SELECT 1 as alive').get();
-      if (result && result.alive === 1) {
+      if (result && (result.alive === 1 || result.alive === '1' || result.alive === true)) {
         const memoryUsage = process.memoryUsage();
         return res.status(200).json({
           status: 'healthy',
@@ -194,9 +194,17 @@ module.exports = function(timerEngine, io) {
           }
         });
       }
-      return res.status(503).json({ status: 'unhealthy', error: 'Database check failed' });
+      return res.status(503).json({
+        status: 'unhealthy',
+        database: 'disconnected',
+        timestamp: new Date().toISOString()
+      });
     } catch (err) {
-      return res.status(503).json({ status: 'unhealthy', error: err.message });
+      return res.status(503).json({
+        status: 'unhealthy',
+        database: 'disconnected',
+        timestamp: new Date().toISOString()
+      });
     }
   };
   router.get('/health', handleHealth);
