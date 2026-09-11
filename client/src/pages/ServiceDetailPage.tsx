@@ -190,16 +190,81 @@ export const ServiceDetailPage: React.FC = () => {
     if (!activeRequest || activeRequest.status !== 'ACCEPTED') return;
     setPaying(true);
     try {
-      const res = await api.payConsultationRequest(activeRequest.id);
-      confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
-      if (res.session_id) {
-        navigate(`/session/${res.session_id}`);
-      } else {
-        navigate('/client');
+      // 1. Create server-authoritative Razorpay order
+      const orderRes = await api.createRazorpayOrder(activeRequest.id);
+
+      // Ensure Razorpay SDK is available
+      const ensureRazorpayLoaded = (): Promise<boolean> => {
+        return new Promise((resolve) => {
+          if ((window as any).Razorpay) return resolve(true);
+          const script = document.createElement('script');
+          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+          script.onload = () => resolve(true);
+          script.onerror = () => resolve(false);
+          document.body.appendChild(script);
+        });
+      };
+
+      const isLoaded = await ensureRazorpayLoaded();
+      if (!isLoaded || !(window as any).Razorpay) {
+        throw new Error('Failed to load secure Razorpay payment gateway. Please check your internet connection.');
       }
+
+      // 2. Open Razorpay Checkout modal
+      const options = {
+        key: orderRes.key_id,
+        amount: orderRes.amount_paise,
+        currency: orderRes.currency || 'USD',
+        name: 'HireByMinutes',
+        description: `Consultation: ${service?.title || 'Expert Session'} (${activeRequest.duration_minutes}m)`,
+        order_id: orderRes.order_id,
+        prefill: {
+          name: user?.full_name || '',
+          email: user?.email || ''
+        },
+        theme: {
+          color: '#004554'
+        },
+        handler: async (response: {
+          razorpay_order_id: string;
+          razorpay_payment_id: string;
+          razorpay_signature: string;
+        }) => {
+          try {
+            // 3. Cryptographic signature verification on backend
+            const verifyRes = await api.verifyRazorpayPayment(activeRequest.id, {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature
+            });
+
+            confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+            if (verifyRes.session_id) {
+              navigate(`/session/${verifyRes.session_id}`);
+            } else {
+              navigate('/client');
+            }
+          } catch (verifyErr: any) {
+            alert(verifyErr.message || 'Payment verification failed. Please contact support.');
+          } finally {
+            setPaying(false);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setPaying(false);
+          }
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', (failResp: any) => {
+        alert(failResp.error?.description || 'Payment was cancelled or failed.');
+        setPaying(false);
+      });
+      rzp.open();
     } catch (err: any) {
-      alert(err.message || 'Payment failed. Please try again.');
-    } finally {
+      alert(err.message || 'Failed to initialize payment gateway.');
       setPaying(false);
     }
   };
@@ -257,9 +322,17 @@ export const ServiceDetailPage: React.FC = () => {
                   alt={service.provider_name}
                   className="w-20 h-20 rounded-2xl object-cover border-2 border-lightblue"
                 />
-                {service.available_now && (
-                  <span className="absolute -bottom-1 -right-1 px-2 py-0.5 bg-emerald-500 text-white font-bold text-[10px] rounded-full border-2 border-white shadow-xs">
-                    LIVE
+                {service.availability_status === 'AVAILABLE NOW' || (!service.availability_status && service.available_now) ? (
+                  <span className="absolute -bottom-1 -right-1 px-2.5 py-0.5 bg-emerald-500 text-white font-bold text-[10px] rounded-full border-2 border-white shadow-xs animate-pulse">
+                    AVAILABLE NOW
+                  </span>
+                ) : service.availability_status === 'BUSY' ? (
+                  <span className="absolute -bottom-1 -right-1 px-2.5 py-0.5 bg-amber-500 text-white font-bold text-[10px] rounded-full border-2 border-white shadow-xs">
+                    IN CALL
+                  </span>
+                ) : (
+                  <span className="absolute -bottom-1 -right-1 px-2.5 py-0.5 bg-slate-400 text-white font-medium text-[10px] rounded-full border-2 border-white shadow-xs">
+                    OFFLINE
                   </span>
                 )}
               </div>
@@ -280,7 +353,7 @@ export const ServiceDetailPage: React.FC = () => {
                 </p>
 
                 {/* Rating & Stats */}
-                <div className="flex items-center gap-4 text-xs text-midnight/70 pt-1 flex-wrap">
+                <div className="flex items-center gap-3 text-xs text-midnight/70 pt-1 flex-wrap">
                   <span className="flex items-center gap-1 font-bold text-amber-600">
                     <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
                     {service.provider_rating ? service.provider_rating.toFixed(1) : '5.0'}
@@ -289,8 +362,17 @@ export const ServiceDetailPage: React.FC = () => {
                   <span>•</span>
                   <span className="flex items-center gap-1">
                     <Zap className="w-3.5 h-3.5 text-moonstone" />
-                    {service.sessions_completed || 0} consultations completed
+                    {service.sessions_completed || 0} sessions ({service.total_session_minutes || 0} mins)
                   </span>
+                  {service.experience_years ? (
+                    <>
+                      <span>•</span>
+                      <span className="flex items-center gap-1">
+                        <Award className="w-3.5 h-3.5 text-moonstone" />
+                        {service.experience_years} yrs exp
+                      </span>
+                    </>
+                  ) : null}
                   <span>•</span>
                   <span className="flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5 text-moonstone" />
@@ -528,7 +610,7 @@ export const ServiceDetailPage: React.FC = () => {
                     </span>
                   ) : (
                     <>
-                      <span>Pay & Confirm Session</span>
+                      <span>PAY & START SESSION</span>
                       <ArrowRight className="w-4 h-4 text-moonstone" />
                     </>
                   )}
@@ -742,7 +824,7 @@ export const ServiceDetailPage: React.FC = () => {
                     </span>
                   ) : (
                     <>
-                      <span>Request Consultation</span>
+                      <span>SEND REQUEST (HIRE NOW)</span>
                       <ArrowRight className="w-4 h-4 text-moonstone" />
                     </>
                   )}

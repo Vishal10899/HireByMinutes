@@ -85,8 +85,16 @@ class StorageService {
           provider: config.provider
         };
       } catch (err) {
-        console.error('[StorageService] S3/R2 upload error, falling back to local:', err.message);
+        console.error('[StorageService] S3/R2 upload error:', err.message);
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Durable upload failed: ${err.message}`);
+        }
       }
+    }
+
+    // In production, strictly require external storage to prevent ephemeral data loss on Render Free
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('External object storage (AWS S3 or Cloudflare R2) is required in production on Render Free. Local ephemeral disk storage is disabled.');
     }
 
     // 2. Local Filesystem (Local Development / Testing fallback)

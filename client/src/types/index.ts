@@ -21,6 +21,7 @@ export interface User {
   review_count?: number;
   sessions_completed?: number;
   verified?: number | boolean;
+  email_verified?: number | boolean;
   response_time?: string;
   member_since?: string;
   created_at?: string;
@@ -72,6 +73,8 @@ export interface Service {
   provider_verified?: number | boolean;
   provider_response_time?: string;
   sessions_completed?: number;
+  total_session_minutes?: number;
+  availability_status?: 'AVAILABLE NOW' | 'BUSY' | 'OFFLINE';
   created_at?: string;
 }
 
@@ -195,7 +198,7 @@ export interface Payment {
   user_id: string;
   user_name?: string;
   user_email?: string;
-  type: 'listing_fee' | 'session_payment' | 'payout' | 'refund';
+  type: 'listing_fee' | 'session_payment' | 'payout' | 'refund' | 'application_fee';
   amount: number;
   status: 'succeeded' | 'pending' | 'refunded';
   reference_id?: string;
@@ -231,6 +234,7 @@ export interface Application {
   proposed_rate?: number;
   availability: string;
   status: 'pending' | 'accepted' | 'rejected';
+  payment_id?: string;
   created_at: string;
 }
 

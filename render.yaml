@@ -11,8 +11,8 @@ services:
     env: node
     plan: free # Free Tier Web Service on Render
     region: oregon # or frankfurt, ohio, singapore
-    buildCommand: npm install && npm --prefix client install && npm run build
-    startCommand: npm start
+    buildCommand: npm install && npm --prefix client install --include=dev && npm --prefix client run build
+    startCommand: node server/index.js
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:

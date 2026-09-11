@@ -5,6 +5,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const fs = require('fs');
+const jwt = require('jsonwebtoken');
 const TimerEngine = require('./timerEngine');
 const createRoutes = require('./routes');
 const db = require('./db');
@@ -123,7 +124,12 @@ setInterval(() => {
   }
 }, 300000);
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 
 // Uploads directory setup (supports Render persistent disk path via UPLOADS_PATH)
 const uploadsDir = process.env.UPLOADS_PATH
@@ -224,25 +230,71 @@ if (fs.existsSync(clientDistPath)) {
   });
 }
 
+// Socket.io JWT authentication middleware
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev-jwt-secret-hirebyminutes-key' : null);
+
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token || 
+                (socket.handshake.headers?.authorization ? socket.handshake.headers.authorization.replace(/^Bearer\s+/i, '') : null) ||
+                socket.handshake.query?.token;
+
+  if (!token) {
+    return next(new Error('Authentication error: Token required'));
+  }
+
+  if (!JWT_SECRET) {
+    return next(new Error('Server configuration error: JWT_SECRET missing'));
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (!decoded || !decoded.id) {
+      return next(new Error('Authentication error: Invalid token payload'));
+    }
+
+    const user = db.prepare('SELECT id, full_name, role, is_suspended FROM users WHERE id = ?').get(decoded.id);
+    if (!user) {
+      return next(new Error('Authentication error: User account not found'));
+    }
+    if (user.is_suspended) {
+      return next(new Error('Authentication error: User account is suspended'));
+    }
+
+    socket.user = user;
+    next();
+  } catch (err) {
+    return next(new Error('Authentication error: Invalid or expired token'));
+  }
+});
+
 // Real-time WebSocket connection handling
 io.on('connection', (socket) => {
-  // Join user room for personal notifications
-  socket.on('join_user', (userId) => {
-    if (userId) {
-      socket.join(`user_${userId}`);
-    }
+  // Automatically join the authenticated user's private room
+  socket.join(`user_${socket.user.id}`);
+
+  // Safe join_user: strictly joins authenticated user's own room, ignoring any spoofed userId
+  socket.on('join_user', () => {
+    socket.join(`user_${socket.user.id}`);
   });
 
-  // Join live session room
-  socket.on('join_session', ({ sessionId, userId, userName }) => {
+  // Join live session room - strictly verified
+  socket.on('join_session', ({ sessionId }) => {
     if (!sessionId) return;
+
+    // Authorization check: Verify authenticated user is client, provider, or admin of this session
+    const session = db.prepare('SELECT client_id, provider_id, status FROM sessions WHERE id = ?').get(sessionId);
+    if (!session) return;
+    if (session.client_id !== socket.user.id && session.provider_id !== socket.user.id && socket.user.role !== 'admin') {
+      return; // Unauthorized: Not a participant in this session
+    }
+
     const room = `session_${sessionId}`;
     socket.join(room);
 
-    // Notify other participant that a user joined the session
+    // Notify other participant using server-verified authenticated identity
     socket.to(room).emit('user_joined_session', {
-      userId,
-      userName,
+      userId: socket.user.id,
+      userName: socket.user.full_name,
       timestamp: new Date().toISOString()
     });
 
@@ -254,33 +306,38 @@ io.on('connection', (socket) => {
   });
 
   // Leave live session room
-  socket.on('leave_session', ({ sessionId, userId }) => {
+  socket.on('leave_session', ({ sessionId }) => {
     if (!sessionId) return;
     const room = `session_${sessionId}`;
     socket.leave(room);
-    socket.to(room).emit('user_left_session', { userId });
+    socket.to(room).emit('user_left_session', { userId: socket.user.id });
   });
 
   // WebRTC Audio/Video Signaling during active session
-  socket.on('webrtc_offer', ({ sessionId, offer, senderId }) => {
-    if (!timerEngine.isCommunicationAllowed(sessionId, senderId)) return;
-    socket.to(`session_${sessionId}`).emit('webrtc_offer', { offer, senderId });
+  socket.on('webrtc_offer', ({ sessionId, offer }) => {
+    if (!timerEngine.isCommunicationAllowed(sessionId, socket.user.id)) return;
+    socket.to(`session_${sessionId}`).emit('webrtc_offer', { offer, senderId: socket.user.id });
   });
 
-  socket.on('webrtc_answer', ({ sessionId, answer, senderId }) => {
-    if (!timerEngine.isCommunicationAllowed(sessionId, senderId)) return;
-    socket.to(`session_${sessionId}`).emit('webrtc_answer', { answer, senderId });
+  socket.on('webrtc_answer', ({ sessionId, answer }) => {
+    if (!timerEngine.isCommunicationAllowed(sessionId, socket.user.id)) return;
+    socket.to(`session_${sessionId}`).emit('webrtc_answer', { answer, senderId: socket.user.id });
   });
 
-  socket.on('webrtc_ice_candidate', ({ sessionId, candidate, senderId }) => {
-    if (!timerEngine.isCommunicationAllowed(sessionId, senderId)) return;
-    socket.to(`session_${sessionId}`).emit('webrtc_ice_candidate', { candidate, senderId });
+  socket.on('webrtc_ice_candidate', ({ sessionId, candidate }) => {
+    if (!timerEngine.isCommunicationAllowed(sessionId, socket.user.id)) return;
+    socket.to(`session_${sessionId}`).emit('webrtc_ice_candidate', { candidate, senderId: socket.user.id });
   });
 
   // Call status toggles (audio on/off, video on/off, screen sharing)
-  socket.on('call_media_state', ({ sessionId, senderId, audio, video, screenSharing }) => {
-    if (!timerEngine.isCommunicationAllowed(sessionId, senderId)) return;
-    socket.to(`session_${sessionId}`).emit('call_media_state', { senderId, audio, video, screenSharing });
+  socket.on('call_media_state', ({ sessionId, audio, video, screenSharing }) => {
+    if (!timerEngine.isCommunicationAllowed(sessionId, socket.user.id)) return;
+    socket.to(`session_${sessionId}`).emit('call_media_state', { 
+      senderId: socket.user.id, 
+      audio, 
+      video, 
+      screenSharing 
+    });
   });
 
   socket.on('disconnect', () => {
@@ -323,6 +380,23 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 const PORT = parseInt(process.env.PORT, 10) || 5000;
 const HOST = '0.0.0.0';
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ [HireByMinutes Server] Port Conflict: Port ${PORT} is already in use.`);
+    console.error(`   Another instance of HireByMinutes or another application is currently listening on port ${PORT}.`);
+    console.error(`   Troubleshooting & Resolution:`);
+    console.error(`   1. Terminate the existing process on port ${PORT}:`);
+    console.error(`      - Windows (PowerShell): Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force`);
+    console.error(`      - macOS / Linux:        kill -9 $(lsof -ti :${PORT})  [or disable AirPlay Receiver in macOS System Settings]`);
+    console.error(`   2. Or start the server on another port:`);
+    console.error(`      PORT=${PORT === 5000 ? 5001 : 5000} npm run dev\n`);
+    process.exit(1);
+  } else {
+    console.error('[HireByMinutes Server] Server error:', err.message);
+    process.exit(1);
+  }
+});
 
 server.listen(PORT, HOST, () => {
   console.log(`[HireByMinutes Server] Listening on ${HOST}:${PORT} (NODE_ENV: ${process.env.NODE_ENV || 'development'})`);

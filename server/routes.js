@@ -6,8 +6,30 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const emailService = require('./services/emailService');
 const storageService = require('./services/storageService');
+
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev-jwt-secret-hirebyminutes-key' : null);
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET environment variable is required in production.');
+}
+
+function generateToken(user) {
+  if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is missing. Cannot sign token.');
+  }
+  return jwt.sign(
+    {
+      id: user.id,
+      role: user.role
+    },
+    JWT_SECRET,
+    {
+      expiresIn: '7d'
+    }
+  );
+}
 
 // Multer memory storage adapter (enables streaming to Cloudflare R2 / AWS S3 / Object Storage on Render Free)
 const memoryStorage = multer.memoryStorage();
@@ -220,17 +242,37 @@ module.exports = function(timerEngine, io) {
   // --- HELPER AUTH MIDDLEWARES ---
   const authMiddleware = (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    const userId = authHeader ? authHeader.replace('Bearer ', '') : req.query.user_id;
-    if (!userId) {
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Authentication required. Please sign in.' });
     }
+
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication token is missing.' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      if (err.name === 'TokenExpiredError') {
+        return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+      }
+      return res.status(401).json({ error: 'Invalid authentication token.' });
+    }
+
+    if (!decoded || !decoded.id) {
+      return res.status(401).json({ error: 'Invalid token payload.' });
+    }
+
     const user = db.prepare(`
       SELECT id, email, username, full_name, role, avatar_url, bio, headline, location,
              country, state_region, city, area,
              languages_json, skills_json, experience_years, rating, review_count, 
              sessions_completed, verified, email_verified, is_suspended, response_time, member_since, created_at 
       FROM users WHERE id = ?
-    `).get(userId);
+    `).get(decoded.id);
+
     if (!user) {
       return res.status(401).json({ error: 'User account not found.' });
     }
@@ -304,7 +346,7 @@ module.exports = function(timerEngine, io) {
 
     res.json({
       user: sanitizeUser(user),
-      token: user.id,
+      token: generateToken(user),
       message: `Welcome back, ${user.full_name}`
     });
   });
@@ -347,19 +389,30 @@ module.exports = function(timerEngine, io) {
       return res.status(409).json({ error: 'An account with this email address already exists.' });
     }
 
-    // Auto-generate or sanitize permanent username
-    let username = req.body.username ? req.body.username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') : '';
-    if (!username) {
+    // Auto-generate or validate case-insensitive permanent username
+    const explicitUsername = req.body.username && req.body.username.trim();
+    let username = '';
+    if (explicitUsername) {
+      username = explicitUsername.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      if (username.length < 3) {
+        return res.status(400).json({ error: 'Username must be at least 3 characters long.' });
+      }
+      const existingUserWithUsername = db.prepare('SELECT id FROM users WHERE LOWER(username) = ?').get(username);
+      if (existingUserWithUsername) {
+        return res.status(409).json({ error: 'This username is already taken. Please choose another username.' });
+      }
+    } else {
       username = (full_name.trim() || cleanEmail.split('@')[0])
         .toLowerCase()
         .replace(/[^a-z0-9_]/g, '_')
         .replace(/^_+|_+$/g, '');
-    }
-
-    // Ensure username uniqueness
-    const existingUserWithUsername = db.prepare('SELECT id FROM users WHERE LOWER(username) = ?').get(username);
-    if (existingUserWithUsername) {
-      username = `${username}_${Math.floor(100 + Math.random() * 900)}`;
+      if (!username) username = `user_${uuidv4().slice(0, 6)}`;
+      let candidate = username;
+      let suffix = 100;
+      while (db.prepare('SELECT id FROM users WHERE LOWER(username) = ?').get(candidate)) {
+        candidate = `${username}_${suffix++}`;
+      }
+      username = candidate;
     }
 
     // Hash password with bcrypt (salt rounds = 10)
@@ -379,32 +432,43 @@ module.exports = function(timerEngine, io) {
     const experience_years = req.body.experience_years ? parseInt(req.body.experience_years, 10) : 5;
 
     // Accounts start UNVERIFIED (email_verified = 0)
-    db.prepare(`
-      INSERT INTO users (
-        id, email, username, password_hash, full_name, role, avatar_url, bio, headline, location,
-        country, state_region, city, area,
-        languages_json, skills_json, experience_years, verified, email_verified
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
-    `).run(
-      id,
-      cleanEmail,
-      username,
-      passwordHash,
-      full_name.trim(),
-      assignedRole,
-      avatar_url,
-      bio.trim(),
-      headline.trim(),
-      location,
-      country,
-      state_region,
-      city,
-      area,
-      languages,
-      skills,
-      experience_years
-    );
+    try {
+      db.prepare(`
+        INSERT INTO users (
+          id, email, username, password_hash, full_name, role, avatar_url, bio, headline, location,
+          country, state_region, city, area,
+          languages_json, skills_json, experience_years, verified, email_verified
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+      `).run(
+        id,
+        cleanEmail,
+        username,
+        passwordHash,
+        full_name.trim(),
+        assignedRole,
+        avatar_url,
+        bio.trim(),
+        headline.trim(),
+        location,
+        country,
+        state_region,
+        city,
+        area,
+        languages,
+        skills,
+        experience_years
+      );
+    } catch (insertErr) {
+      const errStr = (insertErr.message || '').toLowerCase();
+      if (errStr.includes('unique') || insertErr.code === '23505') {
+        if (errStr.includes('email') || errStr.includes('idx_users_email_lower')) {
+          return res.status(409).json({ error: 'An account with this email address already exists.' });
+        }
+        return res.status(409).json({ error: 'This username is already taken. Please choose another username.' });
+      }
+      throw insertErr;
+    }
 
     // Cryptographically secure 6-digit OTP generation
     const rawOtp = crypto.randomInt(100000, 1000000).toString();
@@ -431,7 +495,7 @@ module.exports = function(timerEngine, io) {
 
     res.status(201).json({
       user: sanitizeUser(newUser),
-      token: newUser.id,
+      token: generateToken(newUser),
       requires_verification: true,
       email: cleanEmail,
       message: 'Account created. We have sent a 6-digit verification code to your email.'
@@ -446,11 +510,18 @@ module.exports = function(timerEngine, io) {
 
     // Extract from auth token if provided
     const authHeader = req.headers['authorization'];
-    if (authHeader) {
-      const tokenUser = db.prepare('SELECT * FROM users WHERE id = ?').get(authHeader.replace('Bearer ', ''));
-      if (tokenUser) {
-        targetEmail = targetEmail || tokenUser.email;
-        userId = tokenUser.id;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const decoded = jwt.verify(authHeader.replace(/^Bearer\s+/i, '').trim(), JWT_SECRET);
+        if (decoded && decoded.id) {
+          const tokenUser = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
+          if (tokenUser) {
+            targetEmail = targetEmail || tokenUser.email;
+            userId = tokenUser.id;
+          }
+        }
+      } catch {
+        // Fall back to email parameter
       }
     }
 
@@ -510,6 +581,7 @@ module.exports = function(timerEngine, io) {
       success: true,
       verified: true,
       user: sanitizeUser(updatedUser),
+      token: generateToken(updatedUser),
       message: 'Email verified successfully! Welcome to HireByMinutes.'
     });
   });
@@ -520,10 +592,17 @@ module.exports = function(timerEngine, io) {
     let targetEmail = email ? email.trim().toLowerCase() : null;
 
     const authHeader = req.headers['authorization'];
-    if (authHeader) {
-      const tokenUser = db.prepare('SELECT * FROM users WHERE id = ?').get(authHeader.replace('Bearer ', ''));
-      if (tokenUser) {
-        targetEmail = targetEmail || tokenUser.email;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const decoded = jwt.verify(authHeader.replace(/^Bearer\s+/i, '').trim(), JWT_SECRET);
+        if (decoded && decoded.id) {
+          const tokenUser = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
+          if (tokenUser) {
+            targetEmail = targetEmail || tokenUser.email;
+          }
+        }
+      } catch {
+        // Fall back to email from body
       }
     }
 
@@ -1050,53 +1129,58 @@ module.exports = function(timerEngine, io) {
   });
 
   router.get('/services', (req, res) => {
-    const { category, subcategory, search, minPrice, maxPrice, rating, verified, availableNow, language, country, city } = req.query;
+    const { category, subcategory, search, minPrice, maxPrice, rating, verified, availableNow, language, country, city, skill, experience, minCompletedSessions, sort } = req.query;
 
-    let query = `
-      SELECT s.*, 
-             u.full_name as provider_name, u.avatar_url as provider_avatar, 
-             u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating, 
-             u.review_count as provider_review_count, u.verified as provider_verified,
-             u.response_time as provider_response_time, u.sessions_completed,
-             u.country as provider_country, u.state_region as provider_state_region,
-             u.city as provider_city, u.area as provider_area,
-             u.languages_json as provider_languages_json,
-             c.name as category_name, c.slug as category_slug
-      FROM services s
-      JOIN users u ON s.provider_id = u.id
-      JOIN categories c ON s.category_id = c.id
-      WHERE s.listing_status = 'active' AND u.is_suspended = 0
-    `;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 24));
+    const offset = (page - 1) * limit;
+
+    let whereClause = ` WHERE s.listing_status = 'active' AND u.is_suspended = 0`;
     const params = [];
 
     if (category && category !== 'all') {
-      query += ` AND (c.slug = ? OR c.id = ?)`;
+      whereClause += ` AND (c.slug = ? OR c.id = ?)`;
       params.push(category, category);
     }
 
     if (subcategory && subcategory !== 'all') {
-      query += ` AND (s.subcategory = ? OR s.subcategory LIKE ?)`;
+      whereClause += ` AND (s.subcategory = ? OR s.subcategory LIKE ?)`;
       params.push(subcategory, `%${subcategory}%`);
     }
 
     if (country && country !== 'all') {
-      query += ` AND (u.country = ? OR s.country = ? OR u.country LIKE ?)`;
+      whereClause += ` AND (u.country = ? OR s.country = ? OR u.country LIKE ?)`;
       params.push(country, country, `%${country}%`);
     }
 
     if (city && city !== 'all') {
-      query += ` AND (u.city LIKE ? OR u.area LIKE ? OR u.state_region LIKE ? OR u.location LIKE ?)`;
+      whereClause += ` AND (u.city LIKE ? OR u.area LIKE ? OR u.state_region LIKE ? OR u.location LIKE ?)`;
       const cityTerm = `%${city}%`;
       params.push(cityTerm, cityTerm, cityTerm, cityTerm);
     }
 
     if (language && language !== 'all') {
-      query += ` AND (s.languages_json LIKE ? OR u.languages_json LIKE ?)`;
+      whereClause += ` AND (s.languages_json LIKE ? OR u.languages_json LIKE ?)`;
       params.push(`%${language}%`, `%${language}%`);
     }
 
+    if (skill && skill.trim()) {
+      whereClause += ` AND (s.skills_json LIKE ? OR u.skills_json LIKE ?)`;
+      params.push(`%${skill.trim()}%`, `%${skill.trim()}%`);
+    }
+
+    if (experience) {
+      whereClause += ` AND (s.experience_years >= ? OR u.experience_years >= ?)`;
+      params.push(Number(experience), Number(experience));
+    }
+
+    if (minCompletedSessions) {
+      whereClause += ` AND u.sessions_completed >= ?`;
+      params.push(Number(minCompletedSessions));
+    }
+
     if (search) {
-      query += ` AND (
+      whereClause += ` AND (
         s.title LIKE ? OR 
         s.description LIKE ? OR 
         s.subcategory LIKE ? OR
@@ -1124,31 +1208,82 @@ module.exports = function(timerEngine, io) {
     }
 
     if (minPrice) {
-      query += ` AND s.price_per_minute >= ?`;
+      whereClause += ` AND s.price_per_minute >= ?`;
       params.push(Number(minPrice));
     }
 
     if (maxPrice) {
-      query += ` AND s.price_per_minute <= ?`;
+      whereClause += ` AND s.price_per_minute <= ?`;
       params.push(Number(maxPrice));
     }
 
     if (rating) {
-      query += ` AND u.rating >= ?`;
+      whereClause += ` AND u.rating >= ?`;
       params.push(Number(rating));
     }
 
     if (verified === 'true' || verified === '1') {
-      query += ` AND u.verified = 1`;
+      whereClause += ` AND u.verified = 1`;
     }
 
     if (availableNow === 'true' || availableNow === '1') {
-      query += ` AND s.available_now = 1`;
+      whereClause += ` AND s.available_now = 1`;
     }
 
-    query += ` ORDER BY u.rating DESC, u.sessions_completed DESC`;
+    // Dynamic sorting
+    let orderByClause = '';
+    if (sort === 'rating') {
+      orderByClause = ` ORDER BY u.rating DESC, u.review_count DESC, u.sessions_completed DESC`;
+    } else if (sort === 'price_asc') {
+      orderByClause = ` ORDER BY s.price_per_minute ASC, u.rating DESC`;
+    } else if (sort === 'price_desc') {
+      orderByClause = ` ORDER BY s.price_per_minute DESC, u.rating DESC`;
+    } else if (sort === 'experience') {
+      orderByClause = ` ORDER BY s.experience_years DESC, u.rating DESC`;
+    } else if (sort === 'available_now') {
+      orderByClause = ` ORDER BY s.available_now DESC, u.rating DESC, u.sessions_completed DESC`;
+    } else {
+      // Default: Best match
+      orderByClause = ` ORDER BY s.available_now DESC, u.rating DESC, u.sessions_completed DESC`;
+    }
 
-    const services = db.prepare(query).all(...params);
+    // Count total matching services for pagination
+    const countSql = `
+      SELECT COUNT(*) as total
+      FROM services s
+      JOIN users u ON s.provider_id = u.id
+      JOIN categories c ON s.category_id = c.id
+      ${whereClause}
+    `;
+    const totalRow = db.prepare(countSql).get(...params);
+    const total = totalRow ? (typeof totalRow.total === 'number' ? totalRow.total : parseInt(totalRow.total, 10)) : 0;
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    // Fetch paginated slice
+    const query = `
+      SELECT s.*, 
+             u.full_name as provider_name, u.avatar_url as provider_avatar, 
+             u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating, 
+             u.review_count as provider_review_count, u.verified as provider_verified,
+             u.response_time as provider_response_time, u.sessions_completed,
+             u.country as provider_country, u.state_region as provider_state_region,
+             u.city as provider_city, u.area as provider_area,
+             u.languages_json as provider_languages_json,
+             c.name as category_name, c.slug as category_slug
+      FROM services s
+      JOIN users u ON s.provider_id = u.id
+      JOIN categories c ON s.category_id = c.id
+      ${whereClause}
+      ${orderByClause}
+      LIMIT ? OFFSET ?
+    `;
+
+    const services = db.prepare(query).all(...params, limit, offset);
+
+    // Efficiently query active sessions for all providers
+    const activeSessionRows = db.prepare(`SELECT provider_id FROM sessions WHERE status = 'ACTIVE'`).all();
+    const busyProviders = new Set(activeSessionRows.map(r => r.provider_id));
+
     const formatted = services.map(s => {
       let parsedLangs = [];
       try {
@@ -1156,6 +1291,12 @@ module.exports = function(timerEngine, io) {
       } catch {
         parsedLangs = ['English'];
       }
+
+      let availability_status = 'OFFLINE';
+      if (s.available_now === 1) {
+        availability_status = busyProviders.has(s.provider_id) ? 'BUSY' : 'AVAILABLE NOW';
+      }
+
       return {
         ...s,
         country: s.country || s.provider_country || 'United States',
@@ -1163,11 +1304,19 @@ module.exports = function(timerEngine, io) {
         state_region: s.provider_state_region || '',
         area: s.provider_area || '',
         skills: JSON.parse(s.skills_json || '[]'),
-        languages: parsedLangs
+        languages: parsedLangs,
+        availability_status
       };
     });
 
-    res.json({ services: formatted, count: formatted.length });
+    res.json({
+      services: formatted,
+      count: formatted.length,
+      total,
+      page,
+      limit,
+      totalPages
+    });
   });
 
   router.get('/services/:id', (req, res) => {
@@ -1198,6 +1347,25 @@ module.exports = function(timerEngine, io) {
       parsedLangs = ['English'];
     }
 
+    const totalMinutesRow = db.prepare(`
+      SELECT COALESCE(SUM(duration_minutes), 0) as total_minutes 
+      FROM sessions 
+      WHERE provider_id = ? AND status = 'COMPLETED'
+    `).get(service.provider_id);
+    const total_session_minutes = totalMinutesRow ? totalMinutesRow.total_minutes : 0;
+
+    const activeSessionRow = db.prepare(`
+      SELECT COUNT(*) as count 
+      FROM sessions 
+      WHERE provider_id = ? AND status = 'ACTIVE'
+    `).get(service.provider_id);
+    const isBusy = (activeSessionRow?.count || 0) > 0;
+
+    let availability_status = 'OFFLINE';
+    if (service.available_now === 1) {
+      availability_status = isBusy ? 'BUSY' : 'AVAILABLE NOW';
+    }
+
     const formattedService = {
       ...service,
       country: service.country || service.provider_country || 'United States',
@@ -1205,12 +1373,10 @@ module.exports = function(timerEngine, io) {
       state_region: service.provider_state_region || '',
       area: service.provider_area || '',
       skills: JSON.parse(service.skills_json || '[]'),
-      languages: parsedLangs
+      languages: parsedLangs,
+      total_session_minutes,
+      availability_status
     };
-
-    if (!service) {
-      return res.status(404).json({ error: 'Service listing not found.' });
-    }
 
     // Availability
     const availability = db.prepare(`
@@ -1332,7 +1498,7 @@ module.exports = function(timerEngine, io) {
     }
   });
 
-  // Pay Listing Fee to Activate Service
+  // Pay Listing Fee to Activate Service (Secured: strictly allows only valid $0 free promotional activations)
   router.post('/services/:id/pay-listing-fee', authMiddleware, (req, res) => {
     const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
     if (!service) return res.status(404).json({ error: 'Service not found' });
@@ -1346,15 +1512,25 @@ module.exports = function(timerEngine, io) {
 
     const feeData = getEffectiveListingFee();
     const feeAmount = feeData.fee;
-    const isFree = feeAmount === 0;
-    const paymentId = isFree ? `promo-free-${uuidv4().slice(0, 8)}` : `pay-fee-${uuidv4().slice(0, 8)}`;
+
+    // If fee > 0, direct activation without verified payment gateway processing is strictly prohibited
+    if (feeAmount > 0) {
+      return res.status(400).json({
+        error: `Payment of $${feeAmount.toFixed(2)} is required to activate this listing. Please complete payment via Razorpay.`,
+        requires_checkout: true,
+        fee: feeAmount
+      });
+    }
+
+    // Free activation exclusively allowed when server-authoritative effective fee is $0
+    const paymentId = `promo-free-${uuidv4().slice(0, 8)}`;
 
     db.prepare(`
       INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
-      VALUES (?, ?, 'listing_fee', ?, 'succeeded', ?, ?)
-    `).run(paymentId, req.user.id, feeAmount, service.id, JSON.stringify({
+      VALUES (?, ?, 'listing_fee', 0.00, 'succeeded', ?, ?)
+    `).run(paymentId, req.user.id, service.id, JSON.stringify({
       service_title: service.title,
-      description: isFree ? 'Free Launch Promotion Registration Waiver' : `HireByMinutes $${feeAmount.toFixed(2)} Service Listing Activation Fee`
+      description: 'Temporary Launch Promotion: $0 Free Registration & Listing Fee'
     }));
 
     db.prepare(`
@@ -1371,7 +1547,7 @@ module.exports = function(timerEngine, io) {
     `).run(
       `notif-${uuidv4().slice(0, 8)}`,
       req.user.id,
-      'Service is Live!',
+      'Service is Live (Free Promotion)',
       `"${service.title}" is now active and ready for bookings.`,
       'success',
       `/services/${service.id}`
@@ -1379,9 +1555,10 @@ module.exports = function(timerEngine, io) {
 
     res.json({
       success: true,
-      message: isFree ? 'Free launch promotion applied! Service is live.' : 'Your service is now live on HireByMinutes!',
+      free_activated: true,
+      message: 'Free launch promotion applied! Service is live.',
       paymentId,
-      fee: feeAmount
+      fee: 0
     });
   });
 
@@ -1495,8 +1672,11 @@ module.exports = function(timerEngine, io) {
       return res.json({ success: true, message: 'Service is already active and published.', service });
     }
 
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    if (process.env.NODE_ENV === 'production' && keySecret) {
+    const keySecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    if (process.env.NODE_ENV === 'production') {
+      if (!keySecret) {
+        return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required in production.' });
+      }
       if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
         return res.status(400).json({ error: 'Missing Razorpay signature verification parameters.' });
       }
@@ -1508,6 +1688,34 @@ module.exports = function(timerEngine, io) {
 
       if (generatedSignature !== razorpay_signature) {
         return res.status(400).json({ error: 'Invalid Razorpay payment signature. Verification failed.' });
+      }
+    } else {
+      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+        return res.status(400).json({ error: 'Missing Razorpay signature verification parameters.' });
+      }
+      const generatedSignature = crypto
+        .createHmac('sha256', keySecret)
+        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+        .digest('hex');
+
+      if (generatedSignature !== razorpay_signature) {
+        return res.status(400).json({ error: 'Invalid Razorpay payment signature. Verification failed.' });
+      }
+    }
+
+    // Replay Protection & Idempotency check for payment ID
+    if (razorpay_payment_id) {
+      const existingPayment = db.prepare('SELECT * FROM payments WHERE id = ?').get(razorpay_payment_id);
+      if (existingPayment) {
+        if (existingPayment.reference_id === service.id) {
+          return res.json({
+            success: true,
+            message: 'Payment was already verified. Service is active.',
+            service: db.prepare('SELECT * FROM services WHERE id = ?').get(service.id),
+            paymentId: razorpay_payment_id
+          });
+        }
+        return res.status(409).json({ error: 'Payment ID has already been recorded for another transaction.' });
       }
     }
 
@@ -1552,7 +1760,8 @@ module.exports = function(timerEngine, io) {
       success: true,
       message: 'Razorpay payment verified. Your service is now live on HireByMinutes!',
       service: updatedService,
-      paymentId
+      paymentId,
+      fee: listingFeeUsd
     });
   });
 
@@ -1573,11 +1782,11 @@ module.exports = function(timerEngine, io) {
   // CONSULTATION REQUESTS (APPROVAL-FIRST FLOW)
   // ==========================================
 
-  // Auto-expiration sweeper (runs in background and on query)
-  function checkAndExpireRequests(ioInstance) {
+  // Auto-expiration sweeper (runs asynchronously in background and on query)
+  async function checkAndExpireRequests(ioInstance) {
     try {
       const nowIso = new Date().toISOString();
-      const expiredList = db.prepare(`
+      const sqlQuery = `
         SELECT cr.*, s.title as service_title, c.full_name as client_name, c.email as client_email,
                p.full_name as provider_name, p.email as provider_email
         FROM consultation_requests cr
@@ -1585,17 +1794,26 @@ module.exports = function(timerEngine, io) {
         JOIN users c ON cr.client_id = c.id
         JOIN users p ON cr.provider_id = p.id
         WHERE cr.status = 'PENDING_EXPERT' AND cr.response_deadline <= ?
-      `).all(nowIso);
+      `;
+      const expiredList = typeof db.allAsync === 'function'
+        ? await db.allAsync(sqlQuery, nowIso)
+        : db.prepare(sqlQuery).all(nowIso);
 
-      if (expiredList.length > 0) {
-        const updateStmt = db.prepare(`
-          UPDATE consultation_requests 
-          SET status = 'EXPIRED', expired_at = CURRENT_TIMESTAMP 
-          WHERE id = ?
-        `);
-
+      if (expiredList && expiredList.length > 0) {
         for (const reqItem of expiredList) {
-          updateStmt.run(reqItem.id);
+          if (typeof db.runAsync === 'function') {
+            await db.runAsync(`
+              UPDATE consultation_requests 
+              SET status = 'EXPIRED', expired_at = CURRENT_TIMESTAMP 
+              WHERE id = ?
+            `, reqItem.id);
+          } else {
+            db.prepare(`
+              UPDATE consultation_requests 
+              SET status = 'EXPIRED', expired_at = CURRENT_TIMESTAMP 
+              WHERE id = ?
+            `).run(reqItem.id);
+          }
           
           // Emit socket events
           if (ioInstance) {
@@ -2029,126 +2247,11 @@ module.exports = function(timerEngine, io) {
       });
     }
 
-    // Strict validation: Must be in ACCEPTED status to pay!
-    if (request.status !== 'ACCEPTED') {
-      return res.status(400).json({
-        error: `Payment is not allowed for requests in ${request.status} status. The expert must accept first.`
-      });
-    }
-
-    // Recalculate price server-side
-    const totalPrice = request.total_price;
-    const paymentId = `pay-sess-${uuidv4().slice(0, 8)}`;
-    const sessionId = `ses-${uuidv4().slice(0, 8)}`;
-
-    const startTime = request.connect_type === 'now' ? new Date() : new Date(request.scheduled_start);
-    const endTime = new Date(startTime.getTime() + request.duration_minutes * 60 * 1000);
-    const sessionStatus = request.connect_type === 'now' ? 'ACTIVE' : 'SCHEDULED';
-    const actualStart = request.connect_type === 'now' ? startTime.toISOString() : null;
-
-    // Database updates in atomic sequence
-    db.prepare(`
-      INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
-      VALUES (?, ?, 'session_payment', ?, 'succeeded', ?, ?)
-    `).run(
-      paymentId,
-      request.client_id,
-      totalPrice,
-      request.id,
-      JSON.stringify({
-        service_id: request.service_id,
-        service_title: request.service_title,
-        duration_minutes: request.duration_minutes,
-        provider_id: request.provider_id,
-        connect_type: request.connect_type
-      })
-    );
-
-    // Ensure bookings record exists and is marked COMPLETED
-    db.prepare(`
-      INSERT INTO bookings (id, client_id, provider_id, service_id, duration_minutes, total_price, scheduled_start, scheduled_end, status, payment_id, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
-      ON CONFLICT(id) DO UPDATE SET status = 'COMPLETED', payment_id = excluded.payment_id
-    `).run(
-      request.id,
-      request.client_id,
-      request.provider_id,
-      request.service_id,
-      request.duration_minutes,
-      totalPrice,
-      startTime.toISOString(),
-      endTime.toISOString(),
-      paymentId,
-      request.problem_description || ''
-    );
-
-    const actualEnd = request.connect_type === 'now' ? endTime.toISOString() : null;
-
-    db.prepare(`
-      INSERT INTO sessions (id, booking_id, client_id, provider_id, service_id, scheduled_start, scheduled_end, actual_start, actual_end, duration_minutes, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      sessionId,
-      request.id,
-      request.client_id,
-      request.provider_id,
-      request.service_id,
-      startTime.toISOString(),
-      endTime.toISOString(),
-      actualStart,
-      actualEnd,
-      request.duration_minutes,
-      sessionStatus
-    );
-
-    db.prepare(`
-      UPDATE consultation_requests 
-      SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, payment_id = ?, session_id = ?
-      WHERE id = ?
-    `).run(paymentId, sessionId, request.id);
-
-    // Notifications
-    db.prepare(`
-      INSERT INTO notifications (id, user_id, title, message, type, link)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      `notif-${uuidv4().slice(0, 8)}`,
-      request.provider_id,
-      'Payment Confirmed!',
-      `${request.client_name} confirmed payment for ${request.duration_minutes}m consultation. Room is live!`,
-      'success',
-      `/session/${sessionId}`
-    );
-
-    // Socket.IO real-time notification to Provider
-    io.to(`user_${request.provider_id}`).emit('consultation_payment_completed', {
-      requestId: request.id,
-      sessionId,
-      clientName: request.client_name,
-      serviceTitle: request.service_title,
-      durationMinutes: request.duration_minutes
-    });
-
-    // Email notification to both
-    emailService.sendPaymentReceipt({
-      clientEmail: request.client_email,
-      clientName: request.client_name,
-      expertEmail: request.provider_email,
-      expertName: request.provider_name,
-      serviceTitle: request.service_title,
-      durationMinutes: request.duration_minutes,
-      totalPrice,
-      sessionId
-    }).catch(err => console.error('Failed to send payment receipt email', err));
-
-    const createdSession = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
-
-    res.json({
-      success: true,
-      session_id: sessionId,
-      session: createdSession,
-      payment_id: paymentId,
-      message: 'Payment confirmed. Consultation session is ready!'
+    // Strict security: Direct unverified payments are completely eliminated.
+    // Callers must use the Razorpay checkout flow (create order -> checkout -> verify payment).
+    return res.status(400).json({
+      error: 'Unverified direct payments are disabled. Please complete payment via Razorpay checkout to enter the session.',
+      requires_checkout: true
     });
   });
 
@@ -2278,8 +2381,11 @@ module.exports = function(timerEngine, io) {
     }
 
     // Strict HMAC SHA-256 Signature Verification
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    if (process.env.NODE_ENV === 'production' && keySecret) {
+    const keySecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    if (process.env.NODE_ENV === 'production') {
+      if (!keySecret) {
+        return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required in production.' });
+      }
       if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
         return res.status(400).json({ error: 'Missing Razorpay signature verification parameters.' });
       }
@@ -2291,6 +2397,36 @@ module.exports = function(timerEngine, io) {
 
       if (generatedSignature !== razorpay_signature) {
         return res.status(400).json({ error: 'Invalid Razorpay payment signature. Verification failed.' });
+      }
+    } else {
+      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+        return res.status(400).json({ error: 'Missing Razorpay signature verification parameters.' });
+      }
+      const generatedSignature = crypto
+        .createHmac('sha256', keySecret)
+        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+        .digest('hex');
+
+      if (generatedSignature !== razorpay_signature) {
+        return res.status(400).json({ error: 'Invalid Razorpay payment signature. Verification failed.' });
+      }
+    }
+
+    // Replay Protection & Idempotency check for payment ID
+    if (razorpay_payment_id) {
+      const existingPayment = db.prepare('SELECT * FROM payments WHERE id = ?').get(razorpay_payment_id);
+      if (existingPayment) {
+        if (existingPayment.reference_id === request.id) {
+          const existingSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(request.session_id);
+          return res.json({
+            success: true,
+            session_id: request.session_id,
+            session: existingSession,
+            payment_id: razorpay_payment_id,
+            message: 'Payment was already verified. Connected to active session.'
+          });
+        }
+        return res.status(409).json({ error: 'Payment ID has already been recorded for another transaction.' });
       }
     }
 
@@ -2403,6 +2539,360 @@ module.exports = function(timerEngine, io) {
       payment_id: paymentId,
       message: 'Razorpay payment verified successfully. Consultation workspace ready!'
     });
+  });
+
+  // ==========================================
+  // RAZORPAY PRODUCTION WEBHOOK HANDLER
+  // ==========================================
+  router.post('/payments/razorpay-webhook', (req, res) => {
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || (process.env.NODE_ENV !== 'production' ? 'whsec_test_secret_for_razorpay_98765' : null);
+    if (!webhookSecret) {
+      console.warn('[Razorpay Webhook] RAZORPAY_WEBHOOK_SECRET is not configured on server.');
+      return res.status(500).json({ error: 'Webhook secret not configured on server' });
+    }
+
+    const signature = req.headers['x-razorpay-signature'];
+    if (!signature || !req.rawBody) {
+      return res.status(400).json({ error: 'Missing webhook signature or raw payload body' });
+    }
+
+    // Cryptographic signature verification over raw request bytes
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(req.rawBody)
+      .digest('hex');
+
+    if (expectedSignature !== signature) {
+      console.warn('[Razorpay Webhook] Invalid webhook signature. Discarding payload.');
+      return res.status(400).json({ error: 'Invalid webhook signature' });
+    }
+
+    const event = req.body;
+    const eventId = event.id || req.headers['x-razorpay-event-id'];
+    const eventType = event.event;
+
+    // Webhook Idempotency: Check if event was already processed
+    if (eventId) {
+      try {
+        const existingEvent = db.prepare('SELECT event_id FROM processed_webhook_events WHERE event_id = ?').get(eventId);
+        if (existingEvent) {
+          return res.status(200).json({ status: 'ok', message: 'Event already processed' });
+        }
+      } catch {
+        // Continue if table read error
+      }
+    }
+
+    try {
+      if (eventType === 'payment.captured' || eventType === 'order.paid') {
+        const paymentEntity = event.payload?.payment?.entity;
+        const orderEntity = event.payload?.order?.entity;
+        const notes = paymentEntity?.notes || orderEntity?.notes || {};
+        const receipt = orderEntity?.receipt || '';
+        const paymentId = paymentEntity?.id;
+        const orderId = paymentEntity?.order_id || orderEntity?.id;
+        const amountUsd = paymentEntity?.amount ? Number((paymentEntity.amount / 100).toFixed(2)) : 0;
+
+        // Case A: Consultation Request Payment
+        const requestId = notes.request_id || (receipt.startsWith('cr-') ? receipt : null);
+        if (requestId) {
+          const request = db.prepare(`
+            SELECT cr.*, s.title as service_title, s.price_per_minute as service_ppm,
+                   c.full_name as client_name, c.email as client_email,
+                   p.full_name as provider_name, p.email as provider_email
+            FROM consultation_requests cr
+            JOIN services s ON cr.service_id = s.id
+            JOIN users c ON cr.client_id = c.id
+            JOIN users p ON cr.provider_id = p.id
+            WHERE cr.id = ?
+          `).get(requestId);
+
+          if (request && request.status !== 'PAID') {
+            const sessionId = `ses-${uuidv4().slice(0, 8)}`;
+            const startTime = request.connect_type === 'now' ? new Date() : new Date(request.scheduled_start);
+            const endTime = new Date(startTime.getTime() + request.duration_minutes * 60 * 1000);
+            const sessionStatus = request.connect_type === 'now' ? 'ACTIVE' : 'SCHEDULED';
+            const actualStart = request.connect_type === 'now' ? startTime.toISOString() : null;
+            const actualEnd = request.connect_type === 'now' ? endTime.toISOString() : null;
+            const pId = paymentId || `pay-wh-${uuidv4().slice(0, 8)}`;
+
+            // Idempotently record payment
+            const existingPay = db.prepare('SELECT id FROM payments WHERE id = ?').get(pId);
+            if (!existingPay) {
+              db.prepare(`
+                INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
+                VALUES (?, ?, 'session_payment', ?, 'succeeded', ?, ?)
+              `).run(pId, request.client_id, request.total_price, request.id, JSON.stringify({
+                gateway: 'razorpay_webhook',
+                order_id: orderId,
+                payment_id: pId,
+                event_id: eventId
+              }));
+            }
+
+            db.prepare(`
+              INSERT INTO bookings (id, client_id, provider_id, service_id, duration_minutes, total_price, scheduled_start, scheduled_end, status, payment_id, notes)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
+              ON CONFLICT(id) DO UPDATE SET status = 'COMPLETED', payment_id = excluded.payment_id
+            `).run(
+              request.id,
+              request.client_id,
+              request.provider_id,
+              request.service_id,
+              request.duration_minutes,
+              request.total_price,
+              startTime.toISOString(),
+              endTime.toISOString(),
+              pId,
+              request.problem_description || ''
+            );
+
+            db.prepare(`
+              INSERT INTO sessions (id, booking_id, client_id, provider_id, service_id, scheduled_start, scheduled_end, actual_start, actual_end, duration_minutes, status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(id) DO NOTHING
+            `).run(
+              sessionId,
+              request.id,
+              request.client_id,
+              request.provider_id,
+              request.service_id,
+              startTime.toISOString(),
+              endTime.toISOString(),
+              actualStart,
+              actualEnd,
+              request.duration_minutes,
+              sessionStatus
+            );
+
+            db.prepare(`
+              UPDATE consultation_requests 
+              SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, payment_id = ?, session_id = ?
+              WHERE id = ?
+            `).run(pId, sessionId, request.id);
+
+            db.prepare(`
+              INSERT INTO notifications (id, user_id, title, message, type, link)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `).run(
+              `notif-${uuidv4().slice(0, 8)}`,
+              request.provider_id,
+              'Payment Verified (Webhook)',
+              `${request.client_name} confirmed payment for ${request.duration_minutes}m consultation. Room is live!`,
+              'success',
+              `/session/${sessionId}`
+            );
+
+            io.to(`user_${request.provider_id}`).emit('consultation_payment_completed', {
+              requestId: request.id,
+              sessionId,
+              clientName: request.client_name,
+              serviceTitle: request.service_title,
+              durationMinutes: request.duration_minutes
+            });
+
+            emailService.sendPaymentReceipt({
+              clientEmail: request.client_email,
+              clientName: request.client_name,
+              expertEmail: request.provider_email,
+              expertName: request.provider_name,
+              serviceTitle: request.service_title,
+              durationMinutes: request.duration_minutes,
+              totalPrice: request.total_price,
+              sessionId
+            }).catch(err => console.error('[Webhook Receipt Email Error]:', err.message));
+          }
+        }
+
+        // Case B: Listing Fee Payment
+        const serviceId = notes.service_id || (receipt.startsWith('fee_') ? receipt.replace('fee_', '') : null);
+        if (serviceId) {
+          const service = db.prepare('SELECT * FROM services WHERE id = ?').get(serviceId);
+          if (service && service.listing_status !== 'active') {
+            const pId = paymentId || `pay-fee-wh-${uuidv4().slice(0, 8)}`;
+            const existingPay = db.prepare('SELECT id FROM payments WHERE id = ?').get(pId);
+            if (!existingPay) {
+              db.prepare(`
+                INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
+                VALUES (?, ?, 'listing_fee', ?, 'succeeded', ?, ?)
+              `).run(pId, service.provider_id, amountUsd || 2.00, service.id, JSON.stringify({
+                gateway: 'razorpay_webhook',
+                order_id: orderId,
+                payment_id: pId,
+                event_id: eventId
+              }));
+            }
+
+            db.prepare(`
+              UPDATE services 
+              SET listing_status = 'active', listing_fee_paid = 1, listing_fee_payment_id = ?, updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?
+            `).run(pId, service.id);
+
+            db.prepare('UPDATE categories SET service_count = service_count + 1 WHERE id = ?').run(service.category_id);
+
+            db.prepare(`
+              INSERT INTO notifications (id, user_id, title, message, type, link)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `).run(
+              `notif-${uuidv4().slice(0, 8)}`,
+              service.provider_id,
+              'Service Published (Webhook Verified)',
+              `"${service.title}" is now active and ready for bookings.`,
+              'success',
+              `/services/${service.id}`
+            );
+          }
+        }
+
+        // Case C: Session Extension Payment
+        const extensionSessionId = notes.session_id || (receipt.startsWith('ext_') ? receipt.split('_')[1] : null);
+        if (extensionSessionId && !requestId && !serviceId) {
+          const session = db.prepare('SELECT * FROM sessions WHERE id = ? OR id LIKE ?').get(extensionSessionId, `%${extensionSessionId}%`);
+          if (session && session.status === 'ACTIVE') {
+            const pId = paymentId || `pay-ext-wh-${uuidv4().slice(0, 8)}`;
+            const existingPay = db.prepare('SELECT id FROM payments WHERE id = ?').get(pId);
+            if (!existingPay) {
+              const addMins = notes.additional_minutes ? parseInt(notes.additional_minutes, 10) : (
+                amountUsd > 0 ? Math.round(amountUsd / (db.prepare('SELECT price_per_minute FROM services WHERE id = ?').get(session.service_id)?.price_per_minute || 1)) : 15
+              );
+              const extensionAmount = amountUsd || Number((addMins * 1.00).toFixed(2));
+
+              db.prepare(`
+                INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
+                VALUES (?, ?, 'session_payment', ?, 'succeeded', ?, ?)
+              `).run(pId, session.client_id, extensionAmount, session.id, JSON.stringify({
+                extension: true,
+                additional_minutes: addMins,
+                session_id: session.id,
+                order_id: orderId,
+                payment_id: pId,
+                gateway: 'razorpay_webhook',
+                event_id: eventId
+              }));
+
+              db.prepare(`
+                UPDATE bookings
+                SET duration_minutes = duration_minutes + ?, total_price = total_price + ?
+                WHERE id = ?
+              `).run(addMins, extensionAmount, session.booking_id);
+
+              const updatedSession = timerEngine.extendSession(session.id, addMins);
+
+              io.to(`session_${session.id}`).emit('session_extended', {
+                sessionId: session.id,
+                additionalMinutes: addMins,
+                newDurationMinutes: updatedSession ? updatedSession.duration_minutes : session.duration_minutes + addMins,
+                newActualEnd: updatedSession ? updatedSession.actual_end : null,
+                remainingSeconds: updatedSession ? updatedSession.remainingSeconds : 0,
+                message: `Session extended by +${addMins} minutes! (Webhook verified)`
+              });
+
+              db.prepare(`
+                INSERT INTO notifications (id, user_id, title, message, type, link)
+                VALUES (?, ?, 'Session Extended (Webhook)', ?, 'info', ?)
+              `).run(
+                `notif-${uuidv4().slice(0, 8)}`,
+                session.provider_id,
+                `Client has extended the live consultation by +${addMins} minutes.`,
+                `/session/${session.id}`
+              );
+            }
+          }
+        }
+
+        // Case D: Opportunity Application Fee
+        const oppId = notes.opportunity_id || (receipt.startsWith('app_') ? receipt.split('_')[1] : null);
+        if (oppId && !requestId && !serviceId) {
+          const opp = db.prepare('SELECT * FROM opportunities WHERE id = ? OR id LIKE ?').get(oppId, `%${oppId}%`);
+          if (opp) {
+            const pId = paymentId || `pay-app-wh-${uuidv4().slice(0, 8)}`;
+            const existingPay = db.prepare('SELECT id FROM payments WHERE id = ?').get(pId);
+            if (!existingPay) {
+              const providerId = notes.provider_id || notes.user_id;
+              db.prepare(`
+                INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
+                VALUES (?, ?, 'application_fee', ?, 'succeeded', ?, ?)
+              `).run(pId, providerId || opp.creator_id, amountUsd || 2.00, opp.id, JSON.stringify({
+                opportunity_id: opp.id,
+                opportunity_title: opp.title,
+                order_id: orderId,
+                payment_id: pId,
+                gateway: 'razorpay_webhook',
+                event_id: eventId
+              }));
+
+              if (providerId) {
+                db.prepare(`
+                  UPDATE applications 
+                  SET payment_id = ? 
+                  WHERE opportunity_id = ? AND provider_id = ? AND payment_id IS NULL
+                `).run(pId, opp.id, providerId);
+              }
+
+              db.prepare(`
+                INSERT INTO notifications (id, user_id, title, message, type, link)
+                VALUES (?, ?, 'New Application Submitted', ?, 'info', ?)
+              `).run(
+                `notif-${uuidv4().slice(0, 8)}`,
+                opp.creator_id,
+                `A provider submitted an application for "${opp.title}" (Fee Verified).`,
+                `/opportunities/${opp.id}`
+              );
+            }
+          }
+        }
+      }
+
+      // Mark event as processed in idempotency ledger
+      if (eventId) {
+        try {
+          db.prepare('INSERT INTO processed_webhook_events (event_id, event_type) VALUES (?, ?) ON CONFLICT DO NOTHING').run(eventId, eventType);
+        } catch {
+          // Non-blocking
+        }
+      }
+    } catch (whErr) {
+      console.error('[Razorpay Webhook Error]:', whErr.message);
+      return res.status(500).json({ error: 'Webhook processing error' });
+    }
+
+    res.status(200).json({ status: 'ok', processed: true });
+  });
+
+  // ==========================================
+  // WEBRTC ICE & TURN SERVER ENDPOINTS
+  // ==========================================
+  const getIceConfig = () => {
+    const stunUrls = (process.env.STUN_SERVER_URL || 'stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const iceServers = [{ urls: stunUrls }];
+
+    if (process.env.TURN_SERVER_URL) {
+      const turnUrls = process.env.TURN_SERVER_URL.split(',').map(s => s.trim()).filter(Boolean);
+      const turnConfig = { urls: turnUrls };
+      if (process.env.TURN_USERNAME) turnConfig.username = process.env.TURN_USERNAME;
+      if (process.env.TURN_CREDENTIAL) turnConfig.credential = process.env.TURN_CREDENTIAL;
+      iceServers.push(turnConfig);
+    }
+
+    return iceServers;
+  };
+
+  router.get('/webrtc/ice-servers', authMiddleware, (req, res) => {
+    res.json({ iceServers: getIceConfig() });
+  });
+
+  router.get('/sessions/:id/ice-servers', authMiddleware, (req, res) => {
+    const session = db.prepare('SELECT client_id, provider_id FROM sessions WHERE id = ?').get(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    if (session.client_id !== req.user.id && session.provider_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized to access ICE configuration for this session.' });
+    }
+    res.json({ iceServers: getIceConfig(), sessionId: req.params.id });
   });
 
   // Legacy Bookings list (for dashboard backwards compatibility)
@@ -2591,6 +3081,215 @@ module.exports = function(timerEngine, io) {
     res.status(201).json({ success: true, message: 'Thank you for your feedback!' });
   });
 
+  // End session manually by client or expert
+  router.post('/sessions/:id/end', authMiddleware, (req, res) => {
+    const session = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Session not found.' });
+    if (session.client_id !== req.user.id && session.provider_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized: You are not a participant in this session.' });
+    }
+    if (session.status === 'COMPLETED' || session.status === 'EXPIRED') {
+      return res.json({ success: true, message: 'Session already completed.', session });
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE sessions 
+      SET status = 'COMPLETED', actual_end = ? 
+      WHERE id = ?
+    `).run(now, session.id);
+
+    db.prepare(`UPDATE bookings SET status = 'COMPLETED' WHERE id = ?`).run(session.booking_id);
+    db.prepare(`UPDATE users SET sessions_completed = sessions_completed + 1 WHERE id IN (?, ?)`).run(session.provider_id, session.client_id);
+
+    io.to(`session_${session.id}`).emit('session_expired', {
+      sessionId: session.id,
+      message: 'Session has been concluded by participant.'
+    });
+    io.to(`session_${session.id}`).emit('session_completed', {
+      sessionId: session.id,
+      bookingId: session.booking_id
+    });
+
+    const updatedSession = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(session.id);
+    res.json({ success: true, session: updatedSession, message: 'Session concluded successfully.' });
+  });
+
+  // Create Razorpay Order for Live Session Extension (Server-Authoritative)
+  router.post('/sessions/:id/create-extension-order', authMiddleware, async (req, res) => {
+    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Session not found.' });
+    if (session.client_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized: Only the client can extend this session.' });
+    }
+    if (session.status !== 'ACTIVE') {
+      return res.status(400).json({ error: 'Only active live sessions can be extended.' });
+    }
+
+    const additionalMinutes = parseInt(req.body.additional_minutes, 10);
+    if (isNaN(additionalMinutes) || additionalMinutes < 1 || additionalMinutes > 120) {
+      return res.status(400).json({ error: 'Additional minutes must be between 1 and 120.' });
+    }
+
+    const service = db.prepare('SELECT price_per_minute, title FROM services WHERE id = ?').get(session.service_id);
+    const ratePerMinute = service ? service.price_per_minute : 1.00;
+    const extensionAmount = Number((additionalMinutes * ratePerMinute).toFixed(2));
+    const amountInPaise = Math.round(extensionAmount * 100);
+
+    const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_live_placeholder';
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    try {
+      if (process.env.NODE_ENV === 'production' && keySecret && !keyId.includes('placeholder')) {
+        const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+        const rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
+          method: 'POST',
+          headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: amountInPaise,
+            currency: 'USD',
+            receipt: `ext_${session.id.slice(0, 8)}_${Date.now()}`,
+            notes: {
+              session_id: session.id,
+              additional_minutes: additionalMinutes,
+              client_id: req.user.id
+            }
+          })
+        });
+        if (!rzpRes.ok) {
+          const rzpErr = await rzpRes.json();
+          throw new Error(rzpErr.error?.description || 'Razorpay extension order creation failed');
+        }
+        const rzpOrder = await rzpRes.json();
+        return res.json({
+          order_id: rzpOrder.id,
+          amount: extensionAmount,
+          amount_paise: amountInPaise,
+          currency: rzpOrder.currency || 'USD',
+          key_id: keyId,
+          additional_minutes: additionalMinutes,
+          rate_per_minute: ratePerMinute
+        });
+      } else {
+        const simulatedOrderId = `order_ext_${uuidv4().replace(/-/g, '').slice(0, 14)}`;
+        return res.json({
+          order_id: simulatedOrderId,
+          amount: extensionAmount,
+          amount_paise: amountInPaise,
+          currency: 'USD',
+          key_id: keyId,
+          additional_minutes: additionalMinutes,
+          rate_per_minute: ratePerMinute
+        });
+      }
+    } catch (err) {
+      console.error('[Session Extension Order Error]', err.message);
+      return res.status(500).json({ error: `Payment gateway error: ${err.message}` });
+    }
+  });
+
+  // Verify Razorpay Payment for Live Session Extension
+  router.post('/sessions/:id/verify-extension-payment', authMiddleware, async (req, res) => {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, additional_minutes } = req.body;
+    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Session not found.' });
+    if (session.client_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized: Only the client can extend this session.' });
+    }
+    if (session.status !== 'ACTIVE') {
+      return res.status(400).json({ error: 'Cannot extend an inactive or completed session.' });
+    }
+
+    const addMins = parseInt(additional_minutes, 10);
+    if (isNaN(addMins) || addMins < 1 || addMins > 120) {
+      return res.status(400).json({ error: 'Invalid extension duration.' });
+    }
+
+    const keySecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    if (!keySecret) {
+      return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required.' });
+    }
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ error: 'Missing Razorpay signature verification parameters.' });
+    }
+
+    const generatedSignature = crypto
+      .createHmac('sha256', keySecret)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
+
+    if (generatedSignature !== razorpay_signature) {
+      return res.status(400).json({ error: 'Invalid Razorpay payment signature. Verification failed.' });
+    }
+
+    // Replay Protection & Idempotency check
+    const existingPayment = db.prepare('SELECT * FROM payments WHERE id = ?').get(razorpay_payment_id);
+    if (existingPayment) {
+      return res.status(409).json({ error: 'Payment ID has already been processed for this or another transaction.' });
+    }
+
+    const service = db.prepare('SELECT price_per_minute, title FROM services WHERE id = ?').get(session.service_id);
+    const ratePerMinute = service ? service.price_per_minute : 1.00;
+    const extensionAmount = Number((addMins * ratePerMinute).toFixed(2));
+
+    // Record payment
+    db.prepare(`
+      INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
+      VALUES (?, ?, 'session_payment', ?, 'succeeded', ?, ?)
+    `).run(
+      razorpay_payment_id,
+      req.user.id,
+      extensionAmount,
+      session.id,
+      JSON.stringify({
+        extension: true,
+        additional_minutes: addMins,
+        session_id: session.id,
+        order_id: razorpay_order_id,
+        payment_id: razorpay_payment_id,
+        service_title: service?.title
+      })
+    );
+
+    // Update booking total
+    db.prepare(`
+      UPDATE bookings
+      SET duration_minutes = duration_minutes + ?, total_price = total_price + ?
+      WHERE id = ?
+    `).run(addMins, extensionAmount, session.booking_id);
+
+    // Use timerEngine to extend the session and clear warnings
+    const updatedSession = timerEngine.extendSession(session.id, addMins);
+
+    // Real-time Socket.IO dispatch
+    io.to(`session_${session.id}`).emit('session_extended', {
+      sessionId: session.id,
+      additionalMinutes: addMins,
+      newDurationMinutes: updatedSession.duration_minutes,
+      newActualEnd: updatedSession.actual_end,
+      remainingSeconds: updatedSession.remainingSeconds,
+      message: `Session extended by +${addMins} minutes! New duration: ${updatedSession.duration_minutes} mins.`
+    });
+
+    // In-app notification for expert
+    db.prepare(`
+      INSERT INTO notifications (id, user_id, title, message, type, link)
+      VALUES (?, ?, 'Session Extended', ?, 'info', ?)
+    `).run(
+      `notif-${uuidv4().slice(0, 8)}`,
+      session.provider_id,
+      `Client has extended the live consultation by +${addMins} minutes.`,
+      `/session/${session.id}`
+    );
+
+    res.json({
+      success: true,
+      message: `Session extended by +${addMins} minutes successfully!`,
+      session: updatedSession,
+      additional_minutes: addMins
+    });
+  });
+
   // ==========================================
   // DASHBOARDS (CLIENT & PROVIDER)
   // ==========================================
@@ -2629,7 +3328,8 @@ module.exports = function(timerEngine, io) {
     `).all(userId);
 
     const pastSessions = db.prepare(`
-      SELECT s.*, srv.title as service_title, p.full_name as provider_name, p.avatar_url as provider_avatar,
+      SELECT s.*, srv.title as service_title, srv.price_per_minute, p.full_name as provider_name, p.avatar_url as provider_avatar,
+             p.headline as provider_headline, p.rating as provider_rating,
              r.id as review_id, r.rating as review_rating, r.comment as review_comment
       FROM sessions s
       JOIN services srv ON s.service_id = srv.id
@@ -2643,12 +3343,47 @@ module.exports = function(timerEngine, io) {
       SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC
     `).all(userId);
 
+    // Client overview stats
+    const totalExpertsHired = db.prepare(`
+      SELECT COUNT(DISTINCT provider_id) as count FROM sessions WHERE client_id = ? AND status = 'COMPLETED'
+    `).get(userId)?.count || 0;
+
+    const totalMinutes = db.prepare(`
+      SELECT COALESCE(SUM(duration_minutes), 0) as mins FROM sessions WHERE client_id = ? AND status = 'COMPLETED'
+    `).get(userId)?.mins || 0;
+
+    const completedCount = pastSessions.length;
+    const ratingsGiven = db.prepare(`
+      SELECT COUNT(*) as count FROM reviews WHERE client_id = ?
+    `).get(userId)?.count || 0;
+
+    // Previously hired experts for quick 1-click "Hire Again"
+    const previouslyHired = db.prepare(`
+      SELECT DISTINCT p.id as provider_id, p.full_name, p.avatar_url, p.headline, p.rating,
+             srv.id as service_id, srv.title as service_title, srv.price_per_minute,
+             COUNT(s.id) as sessions_with_expert
+      FROM sessions s
+      JOIN users p ON s.provider_id = p.id
+      JOIN services srv ON s.service_id = srv.id
+      WHERE s.client_id = ? AND s.status = 'COMPLETED'
+      GROUP BY p.id, srv.id
+      ORDER BY MAX(s.actual_end) DESC
+    `).all(userId);
+
     res.json({
       activeSession,
       consultationRequests,
       upcomingBookings,
       pastSessions,
-      payments
+      payments,
+      stats: {
+        totalExpertsHired,
+        totalSessionMinutes: totalMinutes,
+        completedSessions: completedCount,
+        ratingsGiven,
+        clientRating: req.user.rating || 5.0
+      },
+      previouslyHiredExperts: previouslyHired
     });
   });
 
@@ -2666,8 +3401,13 @@ module.exports = function(timerEngine, io) {
       LIMIT 1
     `).get(userId);
 
+    // Pending requests with client reputation data (strictly sanitized, zero private billing data)
     const pendingRequestsRaw = db.prepare(`
-      SELECT cr.*, srv.title as service_title, c.full_name as client_name, c.avatar_url as client_avatar
+      SELECT cr.*, srv.title as service_title,
+             c.full_name as client_name, c.avatar_url as client_avatar,
+             c.sessions_completed as client_sessions_completed,
+             c.member_since as client_member_since,
+             c.rating as client_rating
       FROM consultation_requests cr
       JOIN services srv ON cr.service_id = srv.id
       JOIN users c ON cr.client_id = c.id
@@ -2706,11 +3446,55 @@ module.exports = function(timerEngine, io) {
     `).all(userId);
 
     const earningsCalc = db.prepare(`
-      SELECT SUM(p.amount) as total_earnings, COUNT(s.id) as completed_count
+      SELECT COALESCE(SUM(p.amount), 0) as total_earnings, COUNT(DISTINCT s.id) as completed_count
       FROM sessions s
-      LEFT JOIN payments p ON s.booking_id = p.reference_id AND p.type = 'session_payment'
+      LEFT JOIN payments p ON s.booking_id = p.reference_id AND p.type = 'session_payment' AND p.status = 'succeeded'
       WHERE s.provider_id = ? AND s.status = 'COMPLETED'
     `).get(userId);
+
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayEarningsCalc = db.prepare(`
+      SELECT COALESCE(SUM(p.amount), 0) as today_earnings
+      FROM sessions s
+      JOIN payments p ON s.booking_id = p.reference_id AND p.type = 'session_payment' AND p.status = 'succeeded'
+      WHERE s.provider_id = ? AND s.status = 'COMPLETED' AND p.created_at >= ?
+    `).get(userId, todayIso);
+
+    const totalMinutesCalc = db.prepare(`
+      SELECT COALESCE(SUM(duration_minutes), 0) as mins FROM sessions WHERE provider_id = ? AND status = 'COMPLETED'
+    `).get(userId);
+
+    const grossEarnings = Number(earningsCalc.total_earnings || 0);
+    const platformFee15 = Number((grossEarnings * 0.15).toFixed(2));
+    const netEarnings = Number((grossEarnings * 0.85).toFixed(2));
+    const todayGross = Number(todayEarningsCalc.today_earnings || 0);
+    const todayNet = Number((todayGross * 0.85).toFixed(2));
+
+    // Completed sessions breakdown showing transparent 15% platform fee
+    const completedSessionsBreakdown = db.prepare(`
+      SELECT s.id, s.actual_end, s.duration_minutes,
+             srv.title as service_title,
+             c.full_name as client_name, c.avatar_url as client_avatar,
+             COALESCE(p.amount, b.total_price) as gross_amount
+      FROM sessions s
+      JOIN services srv ON s.service_id = srv.id
+      JOIN users c ON s.client_id = c.id
+      JOIN bookings b ON s.booking_id = b.id
+      LEFT JOIN payments p ON s.booking_id = p.reference_id AND p.type = 'session_payment' AND p.status = 'succeeded'
+      WHERE s.provider_id = ? AND s.status = 'COMPLETED'
+      ORDER BY s.actual_end DESC
+      LIMIT 20
+    `).all(userId).map(item => {
+      const gross = Number(item.gross_amount || 0);
+      const fee = Number((gross * 0.15).toFixed(2));
+      const net = Number((gross * 0.85).toFixed(2));
+      return {
+        ...item,
+        gross_amount: gross,
+        platform_fee: fee,
+        net_earned: net
+      };
+    });
 
     const reviews = db.prepare(`
       SELECT r.*, c.full_name as client_name, c.avatar_url as client_avatar, srv.title as service_title
@@ -2731,11 +3515,29 @@ module.exports = function(timerEngine, io) {
         languages: JSON.parse(s.languages_json || '[]')
       })),
       earnings: {
-        total: earningsCalc.total_earnings || 0,
-        completedSessions: earningsCalc.completed_count || 0
+        total: netEarnings,
+        gross: grossEarnings,
+        platformFee: platformFee15,
+        todayNet,
+        todayGross,
+        completedSessions: earningsCalc.completed_count || 0,
+        totalSessionMinutes: totalMinutesCalc.mins || 0
       },
+      completedSessionsBreakdown,
       reviews
     });
+  });
+
+  router.post('/provider/toggle-availability', authMiddleware, (req, res) => {
+    try {
+      const { available_now } = req.body;
+      const targetState = (available_now === undefined || available_now) ? 1 : 0;
+      db.prepare(`UPDATE services SET available_now = ? WHERE provider_id = ?`).run(targetState, req.user.id);
+      res.json({ success: true, available_now: targetState === 1 });
+    } catch (err) {
+      console.error('Failed to toggle provider availability:', err);
+      res.status(500).json({ error: 'Failed to update availability' });
+    }
   });
 
   // ==========================================
@@ -2772,6 +3574,160 @@ module.exports = function(timerEngine, io) {
     res.status(201).json({ opportunity: created, message: 'Opportunity posted successfully.' });
   });
 
+  // Create Razorpay Order for $2.00 Opportunity Application Entry Fee
+  router.post('/opportunities/:id/create-application-order', authMiddleware, async (req, res) => {
+    const opp = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(req.params.id);
+    if (!opp) return res.status(404).json({ error: 'Opportunity not found.' });
+    if (opp.status !== 'open') {
+      return res.status(400).json({ error: 'This opportunity is no longer accepting applications.' });
+    }
+    if (opp.creator_id === req.user.id) {
+      return res.status(400).json({ error: 'You cannot apply to an opportunity you created.' });
+    }
+
+    const existing = db.prepare('SELECT id FROM applications WHERE opportunity_id = ? AND provider_id = ?').get(opp.id, req.user.id);
+    if (existing) {
+      return res.status(400).json({ error: 'You have already submitted an application for this opportunity.' });
+    }
+
+    const appFee = 2.00;
+    const amountInPaise = 200;
+    const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_live_placeholder';
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    try {
+      if (process.env.NODE_ENV === 'production' && keySecret && !keyId.includes('placeholder')) {
+        const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+        const rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
+          method: 'POST',
+          headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: amountInPaise,
+            currency: 'USD',
+            receipt: `app_${opp.id.slice(0, 8)}_${Date.now()}`,
+            notes: {
+              opportunity_id: opp.id,
+              provider_id: req.user.id
+            }
+          })
+        });
+        if (!rzpRes.ok) {
+          const rzpErr = await rzpRes.json();
+          throw new Error(rzpErr.error?.description || 'Razorpay application order creation failed');
+        }
+        const rzpOrder = await rzpRes.json();
+        return res.json({
+          order_id: rzpOrder.id,
+          amount: appFee,
+          amount_paise: amountInPaise,
+          currency: rzpOrder.currency || 'USD',
+          key_id: keyId,
+          opportunity_id: opp.id
+        });
+      } else {
+        const simulatedOrderId = `order_app_${uuidv4().replace(/-/g, '').slice(0, 14)}`;
+        return res.json({
+          order_id: simulatedOrderId,
+          amount: appFee,
+          amount_paise: amountInPaise,
+          currency: 'USD',
+          key_id: keyId,
+          opportunity_id: opp.id
+        });
+      }
+    } catch (err) {
+      console.error('[Opportunity Application Order Error]', err.message);
+      return res.status(500).json({ error: `Payment gateway error: ${err.message}` });
+    }
+  });
+
+  // Verify Razorpay Payment and Submit Application for $2 Opportunity Fee
+  router.post('/opportunities/:id/verify-application-payment', authMiddleware, async (req, res) => {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, message, relevant_experience, proposed_rate, availability } = req.body;
+    const opp = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(req.params.id);
+    if (!opp) return res.status(404).json({ error: 'Opportunity not found.' });
+    if (opp.status !== 'open') {
+      return res.status(400).json({ error: 'This opportunity is no longer accepting applications.' });
+    }
+    if (opp.creator_id === req.user.id) {
+      return res.status(400).json({ error: 'You cannot apply to an opportunity you created.' });
+    }
+    if (!message || !relevant_experience || !availability) {
+      return res.status(400).json({ error: 'Message, experience, and availability are required.' });
+    }
+
+    const existing = db.prepare('SELECT id FROM applications WHERE opportunity_id = ? AND provider_id = ?').get(opp.id, req.user.id);
+    if (existing) {
+      return res.status(400).json({ error: 'You have already submitted an application for this opportunity.' });
+    }
+
+    // Verify HMAC SHA-256 signature
+    const keySecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    if (!keySecret) {
+      return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required.' });
+    }
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ error: 'Missing Razorpay signature verification parameters.' });
+    }
+
+    const generatedSignature = crypto
+      .createHmac('sha256', keySecret)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
+
+    if (generatedSignature !== razorpay_signature) {
+      return res.status(400).json({ error: 'Invalid Razorpay payment signature. Verification failed.' });
+    }
+
+    // Replay Protection & Idempotency check
+    const existingPayment = db.prepare('SELECT * FROM payments WHERE id = ?').get(razorpay_payment_id);
+    if (existingPayment) {
+      return res.status(409).json({ error: 'Payment ID has already been processed for this or another transaction.' });
+    }
+
+    const appId = `app-${uuidv4().slice(0, 8)}`;
+    db.prepare(`
+      INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
+      VALUES (?, ?, 'application_fee', 2.00, 'succeeded', ?, ?)
+    `).run(
+      razorpay_payment_id,
+      req.user.id,
+      appId,
+      JSON.stringify({
+        opportunity_id: opp.id,
+        opportunity_title: opp.title,
+        order_id: razorpay_order_id,
+        payment_id: razorpay_payment_id
+      })
+    );
+
+    db.prepare(`
+      INSERT INTO applications (id, opportunity_id, provider_id, message, relevant_experience, proposed_rate, availability, status, payment_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+    `).run(appId, opp.id, req.user.id, message, relevant_experience, proposed_rate ? Number(proposed_rate) : null, availability, razorpay_payment_id);
+
+    // Notify opportunity creator
+    db.prepare(`
+      INSERT INTO notifications (id, user_id, title, message, type, link)
+      VALUES (?, ?, 'New Application Received', ?, 'info', ?)
+    `).run(
+      `notif-${uuidv4().slice(0, 8)}`,
+      opp.creator_id,
+      `${req.user.full_name} applied for "${opp.title}".`,
+      `/opportunities`
+    );
+
+    const application = db.prepare('SELECT * FROM applications WHERE id = ?').get(appId);
+    res.status(201).json({
+      success: true,
+      application_id: appId,
+      application,
+      payment_id: razorpay_payment_id,
+      message: 'Application submitted and $2 entry fee verified successfully!'
+    });
+  });
+
+  // Direct application endpoint (falls back gracefully in non-production or for free promotions)
   router.post('/opportunities/:id/apply', authMiddleware, (req, res) => {
     const { message, relevant_experience, proposed_rate, availability } = req.body;
     const opp = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(req.params.id);
@@ -3081,17 +4037,30 @@ module.exports = function(timerEngine, io) {
       return res.status(409).json({ error: 'A user with this email address already exists.' });
     }
 
-    let username = req.body.username ? req.body.username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') : '';
-    if (!username) {
+    // Auto-generate or validate case-insensitive permanent username
+    const explicitUsername = req.body.username && req.body.username.trim();
+    let username = '';
+    if (explicitUsername) {
+      username = explicitUsername.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      if (username.length < 3) {
+        return res.status(400).json({ error: 'Username must be at least 3 characters long.' });
+      }
+      const existingUserWithUsername = db.prepare('SELECT id FROM users WHERE LOWER(username) = ?').get(username);
+      if (existingUserWithUsername) {
+        return res.status(409).json({ error: 'This username is already taken. Please choose another username.' });
+      }
+    } else {
       username = (full_name.trim() || cleanEmail.split('@')[0])
         .toLowerCase()
         .replace(/[^a-z0-9_]/g, '_')
         .replace(/^_+|_+$/g, '');
-    }
-
-    const existingUsername = db.prepare('SELECT id FROM users WHERE LOWER(username) = ?').get(username);
-    if (existingUsername) {
-      username = `${username}_${Math.floor(100 + Math.random() * 900)}`;
+      if (!username) username = `user_${uuidv4().slice(0, 6)}`;
+      let candidate = username;
+      let suffix = 100;
+      while (db.prepare('SELECT id FROM users WHERE LOWER(username) = ?').get(candidate)) {
+        candidate = `${username}_${suffix++}`;
+      }
+      username = candidate;
     }
 
     const userId = `usr-${uuidv4().slice(0, 8)}`;
@@ -3099,35 +4068,46 @@ module.exports = function(timerEngine, io) {
     const avatarUrl = req.body.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(full_name.trim())}`;
     const assignedRole = role === 'provider' ? 'provider' : (role === 'admin' ? 'admin' : 'client');
 
-    db.prepare(`
-      INSERT INTO users (
-        id, email, username, password_hash, full_name, role, avatar_url, bio, headline, location,
-        country, state_region, city, area,
-        languages_json, skills_json, experience_years, verified, email_verified,
-        created_by_admin, created_by_admin_id
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?)
-    `).run(
-      userId,
-      cleanEmail,
-      username,
-      passwordHash,
-      full_name.trim(),
-      assignedRole,
-      avatarUrl,
-      bio.trim(),
-      headline.trim(),
-      city ? `${city}, ${country}` : country,
-      country,
-      state_region,
-      city,
-      area,
-      JSON.stringify(languages),
-      JSON.stringify(skills),
-      Number(experience_years),
-      verified ? 1 : 0,
-      req.user.id
-    );
+    try {
+      db.prepare(`
+        INSERT INTO users (
+          id, email, username, password_hash, full_name, role, avatar_url, bio, headline, location,
+          country, state_region, city, area,
+          languages_json, skills_json, experience_years, verified, email_verified,
+          created_by_admin, created_by_admin_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?)
+      `).run(
+        userId,
+        cleanEmail,
+        username,
+        passwordHash,
+        full_name.trim(),
+        assignedRole,
+        avatarUrl,
+        bio.trim(),
+        headline.trim(),
+        city ? `${city}, ${country}` : country,
+        country,
+        state_region,
+        city,
+        area,
+        JSON.stringify(languages),
+        JSON.stringify(skills),
+        Number(experience_years),
+        verified ? 1 : 0,
+        req.user.id
+      );
+    } catch (insertErr) {
+      const errStr = (insertErr.message || '').toLowerCase();
+      if (errStr.includes('unique') || insertErr.code === '23505') {
+        if (errStr.includes('email') || errStr.includes('idx_users_email_lower')) {
+          return res.status(409).json({ error: 'A user with this email address already exists.' });
+        }
+        return res.status(409).json({ error: 'This username is already taken. Please choose another username.' });
+      }
+      throw insertErr;
+    }
 
     let createdService = null;
     // If expert service info provided, create active service immediately (Admin bypasses listing fee)
@@ -3485,26 +4465,104 @@ module.exports = function(timerEngine, io) {
     res.json({ bookings });
   });
 
-  router.patch('/admin/bookings/:id/cancel', adminAuthMiddleware, (req, res) => {
+  // Helper for automated Razorpay refund API dispatch
+  async function dispatchRazorpayRefund({ paymentId, amountPaise, reason = 'Administrative cancellation', notes = {} }) {
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (process.env.NODE_ENV === 'production' && keySecret && keyId && !keyId.includes('placeholder')) {
+      try {
+        const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+        const res = await fetch(`https://api.razorpay.com/v1/payments/${paymentId}/refund`, {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            amount: amountPaise,
+            notes: {
+              reason,
+              ...notes
+            }
+          })
+        });
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}));
+          console.warn(`[Razorpay Refund] Gateway returned ${res.status}:`, errJson.error?.description || res.statusText);
+          return { success: false, error: errJson.error?.description || 'Gateway refund error', simulated: false };
+        }
+        const data = await res.json();
+        return { success: true, refundId: data.id, status: data.status, raw: data, simulated: false };
+      } catch (err) {
+        console.error('[Razorpay Refund Exception]:', err.message);
+        return { success: false, error: err.message, simulated: false };
+      }
+    } else {
+      return {
+        success: true,
+        refundId: `rfnd_sim_${uuidv4().replace(/-/g, '').slice(0, 14)}`,
+        status: 'processed',
+        simulated: true
+      };
+    }
+  }
+
+  router.patch('/admin/bookings/:id/cancel', adminAuthMiddleware, async (req, res) => {
     const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
     db.prepare("UPDATE bookings SET status = 'CANCELLED' WHERE id = ?").run(booking.id);
     db.prepare("UPDATE sessions SET status = 'CANCELLED' WHERE booking_id = ?").run(booking.id);
 
-    // Process refund
+    // Process gateway refund if payment exists
+    let refundResult = null;
+    if (booking.payment_id) {
+      const amountPaise = Math.round(Number(booking.total_price) * 100);
+      refundResult = await dispatchRazorpayRefund({
+        paymentId: booking.payment_id,
+        amountPaise,
+        reason: req.body.reason || 'Administrative cancellation / dispute resolution',
+        notes: { booking_id: booking.id, client_id: booking.client_id }
+      });
+
+      // Update original payment status to refunded
+      try {
+        db.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").run(booking.payment_id);
+      } catch (e) {
+        // Continue
+      }
+    }
+
+    // Process ledger refund record
     const refundId = `ref-adm-${uuidv4().slice(0, 8)}`;
     db.prepare(`
       INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
       VALUES (?, ?, 'refund', ?, 'succeeded', ?, ?)
-    `).run(refundId, booking.client_id, booking.total_price, booking.id, JSON.stringify({ reason: 'Administrative cancellation / dispute resolution' }));
+    `).run(
+      refundId,
+      booking.client_id,
+      booking.total_price,
+      booking.id,
+      JSON.stringify({
+        reason: req.body.reason || 'Administrative cancellation / dispute resolution',
+        gateway_refund: refundResult,
+        original_payment_id: booking.payment_id || null
+      })
+    );
 
     logAuditAction(req.user, 'BOOKING_CANCELLED_REFUNDED', 'booking', booking.id, {
       amount: booking.total_price,
-      client_id: booking.client_id
+      client_id: booking.client_id,
+      gateway_refund_id: refundResult?.refundId || null
     });
 
-    res.json({ success: true, message: 'Booking cancelled and client refunded.' });
+    res.json({
+      success: true,
+      message: 'Booking cancelled and client refunded.',
+      refundId,
+      gatewayRefund: refundResult
+    });
   });
 
   // 7. Session Monitoring (Privacy Respecting)

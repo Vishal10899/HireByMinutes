@@ -15,7 +15,7 @@ const envLocations = [
 
 for (const loc of envLocations) {
   if (fs.existsSync(loc)) {
-    require('dotenv').config({ path: loc, override: true });
+    require('dotenv').config({ path: loc });
   }
 }
 
@@ -65,8 +65,7 @@ if (isPostgres) {
   }
 
   if (isProduction) {
-    console.log('[Render Free Storage Notice] Running with embedded SQLite on ephemeral filesystem.');
-    console.log('[Render Free Storage Notice] To persist data permanently on Render Free, configure DATABASE_URL pointing to external PostgreSQL.');
+    throw new Error('FATAL: DATABASE_URL is required in production (NODE_ENV=production). Ephemeral SQLite fallback is strictly prohibited on Render Free to prevent data loss.');
   } else {
     console.log(`[Database] Initializing embedded SQLite database at: ${dbPath}`);
   }
@@ -74,6 +73,22 @@ if (isPostgres) {
   db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
   db.pragma('journal_mode = WAL');
+
+  // Expose async non-blocking wrapper methods
+  db.allAsync = (sql, ...params) => Promise.resolve().then(() => {
+    const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+    return db.prepare(sql).all(...flatParams);
+  });
+  db.getAsync = (sql, ...params) => Promise.resolve().then(() => {
+    const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+    return db.prepare(sql).get(...flatParams);
+  });
+  db.runAsync = (sql, ...params) => Promise.resolve().then(() => {
+    const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+    return db.prepare(sql).run(...flatParams);
+  });
+  db.queryAsync = db.allAsync;
+
   initSqliteSchema(db);
 }
 
@@ -236,7 +251,7 @@ function initPostgresSchema(db) {
     CREATE TABLE IF NOT EXISTS payments (
       id VARCHAR(64) PRIMARY KEY,
       user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      type VARCHAR(64) NOT NULL CHECK(type IN ('listing_fee', 'session_payment', 'payout', 'refund')),
+      type VARCHAR(64) NOT NULL CHECK(type IN ('listing_fee', 'session_payment', 'payout', 'refund', 'application_fee')),
       amount NUMERIC(10,2) NOT NULL,
       status VARCHAR(32) NOT NULL DEFAULT 'succeeded' CHECK(status IN ('succeeded', 'pending', 'refunded')),
       reference_id VARCHAR(64),
@@ -270,6 +285,7 @@ function initPostgresSchema(db) {
       proposed_rate NUMERIC(10,2),
       availability VARCHAR(128) NOT NULL,
       status VARCHAR(32) NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'rejected')),
+      payment_id VARCHAR(64),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -373,6 +389,31 @@ function initPostgresSchema(db) {
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS processed_webhook_events (
+      event_id VARCHAR(128) PRIMARY KEY,
+      event_type VARCHAR(64),
+      processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Production Indexes for Performance and Integrity
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username));
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
+    CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+    CREATE INDEX IF NOT EXISTS idx_sessions_client ON sessions(client_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_booking ON sessions(booking_id);
+    CREATE INDEX IF NOT EXISTS idx_cr_status_deadline ON consultation_requests(status, response_deadline);
+    CREATE INDEX IF NOT EXISTS idx_cr_client ON consultation_requests(client_id);
+    CREATE INDEX IF NOT EXISTS idx_cr_provider ON consultation_requests(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_services_listing ON services(listing_status);
+    CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_services_category ON services(category_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_ref ON payments(reference_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
+    CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
+    CREATE INDEX IF NOT EXISTS idx_bookings_client ON bookings(client_id);
+    CREATE INDEX IF NOT EXISTS idx_bookings_provider ON bookings(provider_id);
   `;
 
   db.exec(schemaSql);
@@ -561,7 +602,7 @@ function initSqliteSchema(db) {
     CREATE TABLE IF NOT EXISTS payments (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('listing_fee', 'session_payment', 'payout', 'refund')),
+      type TEXT NOT NULL CHECK(type IN ('listing_fee', 'session_payment', 'payout', 'refund', 'application_fee')),
       amount REAL NOT NULL,
       status TEXT NOT NULL DEFAULT 'succeeded' CHECK(status IN ('succeeded', 'pending', 'refunded')),
       reference_id TEXT,
@@ -598,6 +639,7 @@ function initSqliteSchema(db) {
       proposed_rate REAL,
       availability TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'rejected')),
+      payment_id TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE,
       FOREIGN KEY (provider_id) REFERENCES users(id) ON DELETE CASCADE
@@ -714,7 +756,66 @@ function initSqliteSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_camp_status ON registration_campaigns(status);
     CREATE INDEX IF NOT EXISTS idx_camp_active ON registration_campaigns(is_active);
+
+    CREATE TABLE IF NOT EXISTS processed_webhook_events (
+      event_id TEXT PRIMARY KEY,
+      event_type TEXT,
+      processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Production Indexes for Performance and Integrity
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username));
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
+    CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+    CREATE INDEX IF NOT EXISTS idx_sessions_client ON sessions(client_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_booking ON sessions(booking_id);
+    CREATE INDEX IF NOT EXISTS idx_cr_status_deadline ON consultation_requests(status, response_deadline);
+    CREATE INDEX IF NOT EXISTS idx_cr_client ON consultation_requests(client_id);
+    CREATE INDEX IF NOT EXISTS idx_cr_provider ON consultation_requests(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_services_listing ON services(listing_status);
+    CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_services_category ON services(category_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_ref ON payments(reference_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
+    CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
+    CREATE INDEX IF NOT EXISTS idx_bookings_client ON bookings(client_id);
+    CREATE INDEX IF NOT EXISTS idx_bookings_provider ON bookings(provider_id);
   `);
+
+  try {
+    db.exec('ALTER TABLE applications ADD COLUMN payment_id TEXT');
+  } catch (e) {
+    // Column already exists
+  }
+
+  try {
+    const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='payments'").get();
+    if (tableInfo && tableInfo.sql && !tableInfo.sql.includes('application_fee')) {
+      db.exec(`
+        PRAGMA foreign_keys=off;
+        BEGIN TRANSACTION;
+        CREATE TABLE payments_migrated (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          type TEXT NOT NULL CHECK(type IN ('listing_fee', 'session_payment', 'payout', 'refund', 'application_fee')),
+          amount REAL NOT NULL,
+          status TEXT NOT NULL DEFAULT 'succeeded' CHECK(status IN ('succeeded', 'pending', 'refunded')),
+          reference_id TEXT,
+          metadata_json TEXT DEFAULT '{}',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        INSERT INTO payments_migrated SELECT * FROM payments;
+        DROP TABLE payments;
+        ALTER TABLE payments_migrated RENAME TO payments;
+        COMMIT;
+        PRAGMA foreign_keys=on;
+      `);
+    }
+  } catch (e) {
+    // Already migrated or error
+  }
 
   cleanupFakeAndDemoData(db);
   ensureDefaultCategories(db);

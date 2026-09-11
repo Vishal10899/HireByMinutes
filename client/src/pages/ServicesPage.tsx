@@ -30,18 +30,24 @@ export const ServicesPage: React.FC = () => {
   const categoryParam = searchParams.get('category') || 'all';
   const subcategoryParam = searchParams.get('subcategory') || 'all';
   const searchParam = searchParams.get('search') || '';
+  const skillParam = searchParams.get('skill') || '';
   const languageParam = searchParams.get('language') || 'all';
   const countryParam = searchParams.get('country') || 'all';
   const cityParam = searchParams.get('city') || '';
+  const sortParam = searchParams.get('sort') || 'best_match';
 
   const [selectedCategory, setSelectedCategory] = useState(categoryParam);
   const [selectedSubcategory, setSelectedSubcategory] = useState(subcategoryParam);
   const [searchQuery, setSearchQuery] = useState(searchParam);
+  const [skillQuery, setSkillQuery] = useState(skillParam);
   const [selectedLanguage, setSelectedLanguage] = useState(languageParam);
   const [selectedCountry, setSelectedCountry] = useState(countryParam);
   const [cityQuery, setCityQuery] = useState(cityParam);
+  const [sortBy, setSortBy] = useState(sortParam);
   const [maxPrice, setMaxPrice] = useState<number>(Number(searchParams.get('maxPrice')) || 5.0);
   const [minRating, setMinRating] = useState<number>(Number(searchParams.get('rating')) || 0);
+  const [minExperience, setMinExperience] = useState<number>(Number(searchParams.get('experience')) || 0);
+  const [minSessions, setMinSessions] = useState<number>(Number(searchParams.get('minCompletedSessions')) || 0);
   const [verifiedOnly, setVerifiedOnly] = useState<boolean>(searchParams.get('verified') === 'true');
   const [availableNowOnly, setAvailableNowOnly] = useState<boolean>(searchParams.get('availableNow') === 'true');
 
@@ -55,9 +61,11 @@ export const ServicesPage: React.FC = () => {
     setSelectedCategory(searchParams.get('category') || 'all');
     setSelectedSubcategory(searchParams.get('subcategory') || 'all');
     setSearchQuery(searchParams.get('search') || '');
+    setSkillQuery(searchParams.get('skill') || '');
     setSelectedLanguage(searchParams.get('language') || 'all');
     setSelectedCountry(searchParams.get('country') || 'all');
     setCityQuery(searchParams.get('city') || '');
+    setSortBy(searchParams.get('sort') || 'best_match');
   }, [searchParams]);
 
   useEffect(() => {
@@ -70,13 +78,17 @@ export const ServicesPage: React.FC = () => {
             category: selectedCategory !== 'all' ? selectedCategory : '',
             subcategory: selectedSubcategory !== 'all' ? selectedSubcategory : '',
             search: searchQuery,
+            skill: skillQuery,
             language: selectedLanguage !== 'all' ? selectedLanguage : '',
             country: selectedCountry !== 'all' ? selectedCountry : '',
             city: cityQuery,
             maxPrice,
             rating: minRating > 0 ? minRating : '',
+            experience: minExperience > 0 ? minExperience : '',
+            minCompletedSessions: minSessions > 0 ? minSessions : '',
             verified: verifiedOnly ? 'true' : '',
-            availableNow: availableNowOnly ? 'true' : ''
+            availableNow: availableNowOnly ? 'true' : '',
+            sort: sortBy
           })
         ]);
         setCategories(catsRes.categories || []);
@@ -92,13 +104,17 @@ export const ServicesPage: React.FC = () => {
     selectedCategory,
     selectedSubcategory,
     searchQuery,
+    skillQuery,
     selectedLanguage,
     selectedCountry,
     cityQuery,
     maxPrice,
     minRating,
+    minExperience,
+    minSessions,
     verifiedOnly,
-    availableNowOnly
+    availableNowOnly,
+    sortBy
   ]);
 
   const updateParam = (key: string, value: string) => {
@@ -134,6 +150,16 @@ export const ServicesPage: React.FC = () => {
     updateParam('search', val);
   };
 
+  const handleSkillChange = (val: string) => {
+    setSkillQuery(val);
+    updateParam('skill', val);
+  };
+
+  const handleSortChange = (val: string) => {
+    setSortBy(val);
+    updateParam('sort', val);
+  };
+
   const handleLanguageSelect = (lang: string) => {
     setSelectedLanguage(lang);
     updateParam('language', lang);
@@ -153,13 +179,17 @@ export const ServicesPage: React.FC = () => {
     setSelectedCategory('all');
     setSelectedSubcategory('all');
     setSearchQuery('');
+    setSkillQuery('');
     setSelectedLanguage('all');
     setSelectedCountry('all');
     setCityQuery('');
     setMaxPrice(5.0);
     setMinRating(0);
+    setMinExperience(0);
+    setMinSessions(0);
     setVerifiedOnly(false);
     setAvailableNowOnly(false);
+    setSortBy('best_match');
     setSearchParams({});
   };
 
@@ -167,13 +197,17 @@ export const ServicesPage: React.FC = () => {
     selectedCategory !== 'all',
     selectedSubcategory !== 'all',
     searchQuery !== '',
+    skillQuery !== '',
     selectedLanguage !== 'all',
     selectedCountry !== 'all',
     cityQuery !== '',
     minRating > 0,
+    minExperience > 0,
+    minSessions > 0,
     verifiedOnly,
     availableNowOnly,
-    maxPrice < 5.0
+    maxPrice < 5.0,
+    sortBy !== 'best_match'
   ].filter(Boolean).length;
 
   return (
@@ -373,7 +407,21 @@ export const ServicesPage: React.FC = () => {
             />
           </div>
 
-          {/* 4. Max Price Per Minute Slider */}
+          {/* 4. Specific Skill Filter */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-midnight block">
+              Specific Skill or Keyword
+            </label>
+            <input
+              type="text"
+              value={skillQuery}
+              onChange={(e) => handleSkillChange(e.target.value)}
+              placeholder="e.g. React, Python, Law, SEO..."
+              className="w-full px-3 py-2 rounded-xl border border-timberwolf/70 text-xs font-medium text-midnight bg-aliceblue/30 focus:outline-none focus:border-moonstone"
+            />
+          </div>
+
+          {/* 5. Max Price Per Minute Slider */}
           <div className="space-y-2 pt-2 border-t border-timberwolf/30">
             <div className="flex justify-between text-xs font-semibold text-midnight">
               <span>Max Rate / Minute</span>
@@ -394,7 +442,7 @@ export const ServicesPage: React.FC = () => {
             </div>
           </div>
 
-          {/* 5. Minimum Rating */}
+          {/* 6. Minimum Rating */}
           <div className="space-y-2 pt-2 border-t border-timberwolf/30">
             <span className="text-xs font-semibold text-midnight block">Minimum Rating</span>
             <div className="grid grid-cols-3 gap-1.5">
@@ -418,7 +466,57 @@ export const ServicesPage: React.FC = () => {
             </div>
           </div>
 
-          {/* 6. Toggles */}
+          {/* 7. Experience Filter */}
+          <div className="space-y-2 pt-2 border-t border-timberwolf/30">
+            <span className="text-xs font-semibold text-midnight block">Experience</span>
+            <div className="grid grid-cols-4 gap-1.5">
+              {[
+                { label: 'Any', value: 0 },
+                { label: '2+ yrs', value: 2 },
+                { label: '5+ yrs', value: 5 },
+                { label: '8+ yrs', value: 8 },
+              ].map((exp) => (
+                <button
+                  key={exp.label}
+                  onClick={() => setMinExperience(exp.value)}
+                  className={`py-1.5 text-xs font-medium rounded-lg border transition-all cursor-pointer ${
+                    minExperience === exp.value
+                      ? 'bg-midnight text-aliceblue border-midnight font-semibold shadow-subtle'
+                      : 'border-timberwolf/70 hover:border-moonstone text-midnight bg-aliceblue/20'
+                  }`}
+                >
+                  {exp.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 8. Minimum Sessions Filter */}
+          <div className="space-y-2 pt-2 border-t border-timberwolf/30">
+            <span className="text-xs font-semibold text-midnight block">Consultations Done</span>
+            <div className="grid grid-cols-4 gap-1.5">
+              {[
+                { label: 'Any', value: 0 },
+                { label: '5+', value: 5 },
+                { label: '10+', value: 10 },
+                { label: '25+', value: 25 },
+              ].map((s) => (
+                <button
+                  key={s.label}
+                  onClick={() => setMinSessions(s.value)}
+                  className={`py-1.5 text-xs font-medium rounded-lg border transition-all cursor-pointer ${
+                    minSessions === s.value
+                      ? 'bg-midnight text-aliceblue border-midnight font-semibold shadow-subtle'
+                      : 'border-timberwolf/70 hover:border-moonstone text-midnight bg-aliceblue/20'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 9. Toggles */}
           <div className="space-y-3 pt-2 border-t border-timberwolf/40">
             <label className="flex items-center justify-between text-xs font-medium text-midnight cursor-pointer">
               <span className="flex items-center gap-1.5">
@@ -452,16 +550,35 @@ export const ServicesPage: React.FC = () => {
         {/* ========================================================================= */}
         <div className="lg:col-span-3">
           
-          {/* Active Filter Summary Bar */}
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-semibold text-midnight/70">
-              Showing <strong className="text-midnight font-bold">{services.length}</strong> available experts
-            </span>
-            {activeFilterCount > 0 && (
-              <span className="text-xs text-moonstone font-medium hidden sm:inline">
-                Filtered by {activeFilterCount} active criteria
+          {/* Active Filter Summary & Sorting Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 p-3.5 bg-white rounded-xl border border-timberwolf/60 shadow-subtle">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-midnight">
+                Showing <strong className="font-bold text-moonstone">{services.length}</strong> available experts
               </span>
-            )}
+              {activeFilterCount > 0 && (
+                <span className="text-xs text-midnight/50 hidden sm:inline">
+                  • {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''} active
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <span className="text-xs text-midnight/60 font-medium">Sort:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => handleSortChange(e.target.value)}
+                aria-label="Sort experts by"
+                className="p-1.5 px-3 rounded-lg border border-timberwolf/70 text-xs font-semibold text-midnight bg-aliceblue/20 focus:outline-none focus:border-moonstone cursor-pointer"
+              >
+                <option value="best_match">Best Match</option>
+                <option value="rating">Highest Rating</option>
+                <option value="price_asc">Price: Low to High</option>
+                <option value="price_desc">Price: High to Low</option>
+                <option value="experience">Experience: High to Low</option>
+                <option value="available_now">Available Now First</option>
+              </select>
+            </div>
           </div>
 
           {loading ? (

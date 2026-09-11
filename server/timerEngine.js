@@ -19,83 +19,86 @@ class TimerEngine {
     }
   }
 
-  tick() {
-    const now = new Date().toISOString();
-    
-    // Check all ACTIVE sessions
-    const activeSessions = db.prepare(`
-      SELECT s.*, b.total_price, b.duration_minutes as booked_duration,
-             c.full_name as client_name, p.full_name as provider_name
-      FROM sessions s
-      JOIN bookings b ON s.booking_id = b.id
-      JOIN users c ON s.client_id = c.id
-      JOIN users p ON s.provider_id = p.id
-      WHERE s.status = 'ACTIVE'
-    `).all();
+  async tick() {
+    try {
+      const now = new Date().toISOString();
+      
+      // Check all ACTIVE sessions non-blockingly
+      const activeSessionsQuery = `
+        SELECT s.*, b.total_price, b.duration_minutes as booked_duration,
+               c.full_name as client_name, p.full_name as provider_name
+        FROM sessions s
+        JOIN bookings b ON s.booking_id = b.id
+        JOIN users c ON s.client_id = c.id
+        JOIN users p ON s.provider_id = p.id
+        WHERE s.status = 'ACTIVE'
+      `;
 
-    for (const session of activeSessions) {
-      const nowMs = Date.now();
-      const endMs = new Date(session.actual_end).getTime();
-      const remainingSeconds = Math.max(0, Math.floor((endMs - nowMs) / 1000));
+      const activeSessions = typeof db.allAsync === 'function'
+        ? await db.allAsync(activeSessionsQuery)
+        : db.prepare(activeSessionsQuery).all();
 
-      // Broadcast timer tick to session room
-      this.io.to(`session_${session.id}`).emit('session_tick', {
-        sessionId: session.id,
-        remainingSeconds,
-        status: session.status,
-        actualStart: session.actual_start,
-        actualEnd: session.actual_end
-      });
+      for (const session of activeSessions) {
+        const nowMs = Date.now();
+        const endMs = new Date(session.actual_end).getTime();
+        const remainingSeconds = Math.max(0, Math.floor((endMs - nowMs) / 1000));
 
-      // Warning at 5 minutes (300s)
-      const warn5Key = `${session.id}_300`;
-      if (remainingSeconds <= 300 && remainingSeconds > 290 && !this.notifiedWarnings.has(warn5Key)) {
-        this.notifiedWarnings.add(warn5Key);
-        this.io.to(`session_${session.id}`).emit('session_warning', {
+        // Broadcast timer tick to session room
+        this.io.to(`session_${session.id}`).emit('session_tick', {
           sessionId: session.id,
-          message: '5 minutes remaining in this session.',
-          secondsLeft: remainingSeconds
+          remainingSeconds,
+          status: session.status,
+          actualStart: session.actual_start,
+          actualEnd: session.actual_end
         });
+
+        // Warning at 5 minutes (300s)
+        const warn5Key = `${session.id}_300`;
+        if (remainingSeconds <= 300 && remainingSeconds > 290 && !this.notifiedWarnings.has(warn5Key)) {
+          this.notifiedWarnings.add(warn5Key);
+          this.io.to(`session_${session.id}`).emit('session_warning', {
+            sessionId: session.id,
+            message: '5 minutes remaining in this session.',
+            secondsLeft: remainingSeconds
+          });
+        }
+
+        // Warning at 1 minute (60s)
+        const warn1Key = `${session.id}_60`;
+        if (remainingSeconds <= 60 && remainingSeconds > 50 && !this.notifiedWarnings.has(warn1Key)) {
+          this.notifiedWarnings.add(warn1Key);
+          this.io.to(`session_${session.id}`).emit('session_warning', {
+            sessionId: session.id,
+            message: '1 minute remaining! Your session will conclude shortly.',
+            secondsLeft: remainingSeconds
+          });
+        }
+
+        // Session Expired
+        if (remainingSeconds <= 0) {
+          if (typeof db.runAsync === 'function') {
+            await db.runAsync(`UPDATE sessions SET status = 'COMPLETED', actual_end = ? WHERE id = ?`, now, session.id);
+            await db.runAsync(`UPDATE bookings SET status = 'COMPLETED' WHERE id = ?`, session.booking_id);
+            await db.runAsync(`UPDATE users SET sessions_completed = sessions_completed + 1 WHERE id IN (?, ?)`, session.provider_id, session.client_id);
+          } else {
+            db.prepare(`UPDATE sessions SET status = 'COMPLETED', actual_end = ? WHERE id = ?`).run(now, session.id);
+            db.prepare(`UPDATE bookings SET status = 'COMPLETED' WHERE id = ?`).run(session.booking_id);
+            db.prepare(`UPDATE users SET sessions_completed = sessions_completed + 1 WHERE id IN (?, ?)`).run(session.provider_id, session.client_id);
+          }
+
+          this.io.to(`session_${session.id}`).emit('session_expired', {
+            sessionId: session.id,
+            message: 'Session completed. Communication channels are now closed.'
+          });
+
+          this.io.to(`session_${session.id}`).emit('session_completed', {
+            sessionId: session.id,
+            bookingId: session.booking_id
+          });
+        }
       }
-
-      // Warning at 1 minute (60s)
-      const warn1Key = `${session.id}_60`;
-      if (remainingSeconds <= 60 && remainingSeconds > 50 && !this.notifiedWarnings.has(warn1Key)) {
-        this.notifiedWarnings.add(warn1Key);
-        this.io.to(`session_${session.id}`).emit('session_warning', {
-          sessionId: session.id,
-          message: '1 minute remaining! Your session will conclude shortly.',
-          secondsLeft: remainingSeconds
-        });
-      }
-
-      // Session Expired
-      if (remainingSeconds <= 0) {
-        db.prepare(`
-          UPDATE sessions 
-          SET status = 'COMPLETED', actual_end = ? 
-          WHERE id = ?
-        `).run(now, session.id);
-
-        db.prepare(`
-          UPDATE bookings 
-          SET status = 'COMPLETED' 
-          WHERE id = ?
-        `).run(session.booking_id);
-
-        // Increment provider & client completed sessions
-        db.prepare(`UPDATE users SET sessions_completed = sessions_completed + 1 WHERE id IN (?, ?)`).run(session.provider_id, session.client_id);
-
-        this.io.to(`session_${session.id}`).emit('session_expired', {
-          sessionId: session.id,
-          message: 'Session completed. Communication channels are now closed.'
-        });
-
-        this.io.to(`session_${session.id}`).emit('session_completed', {
-          sessionId: session.id,
-          bookingId: session.booking_id
-        });
-      }
+    } catch (tickErr) {
+      console.error('[TimerEngine Tick Error]:', tickErr.message);
     }
   }
 
@@ -176,6 +179,33 @@ class TimerEngine {
     if (!endTarget) return false;
     const endMs = new Date(endTarget).getTime();
     return nowMs < endMs;
+  }
+
+  clearSessionWarnings(sessionId) {
+    this.notifiedWarnings.delete(`${sessionId}_300`);
+    this.notifiedWarnings.delete(`${sessionId}_60`);
+  }
+
+  extendSession(sessionId, additionalMinutes) {
+    const session = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
+    if (!session) throw new Error('Session not found');
+    if (session.status !== 'ACTIVE') throw new Error('Only active sessions can be extended');
+
+    const addMins = parseInt(additionalMinutes, 10);
+    const currentEndMs = session.actual_end ? new Date(session.actual_end).getTime() : Date.now();
+    const newEndMs = Math.max(Date.now(), currentEndMs) + addMins * 60 * 1000;
+    const newActualEnd = new Date(newEndMs).toISOString();
+    const newDuration = session.duration_minutes + addMins;
+
+    db.prepare(`
+      UPDATE sessions 
+      SET duration_minutes = ?, actual_end = ?, scheduled_end = ? 
+      WHERE id = ?
+    `).run(newDuration, newActualEnd, newActualEnd, sessionId);
+
+    this.clearSessionWarnings(sessionId);
+
+    return this.getSessionDetails(sessionId);
   }
 }
 

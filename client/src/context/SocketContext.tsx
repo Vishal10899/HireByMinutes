@@ -20,22 +20,30 @@ interface SocketContextType {
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
 
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState<boolean>(false);
   const [activeNotification, setActiveNotification] = useState<SocketNotification | null>(null);
 
   useEffect(() => {
-    const socketUrl = import.meta.env.VITE_SOCKET_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1' ? window.location.origin : 'http://localhost:5000');
+    if (!token) {
+      if (socket) {
+        socket.disconnect();
+        setSocket(null);
+        setConnected(false);
+      }
+      return;
+    }
+
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5000');
     const newSocket = io(socketUrl, {
+      auth: { token },
       transports: ['websocket', 'polling']
     });
 
     newSocket.on('connect', () => {
       setConnected(true);
-      if (user?.id) {
-        newSocket.emit('join_user', user.id);
-      }
+      newSocket.emit('join_user');
     });
 
     newSocket.on('disconnect', () => {
@@ -80,14 +88,14 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => {
       newSocket.disconnect();
     };
-  }, []);
+  }, [token]);
 
-  // When user changes, join their specific user room
+  // When user changes while connected, refresh private notification room
   useEffect(() => {
-    if (socket && user?.id) {
-      socket.emit('join_user', user.id);
+    if (socket && connected && user?.id) {
+      socket.emit('join_user');
     }
-  }, [socket, user?.id]);
+  }, [socket, connected, user?.id]);
 
   const dismissNotification = () => {
     setActiveNotification(null);

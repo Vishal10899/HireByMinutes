@@ -1,4 +1,39 @@
-const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1' ? `${window.location.origin}/api` : 'http://localhost:5000/api');
+const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? '/api' : 'http://localhost:5000/api');
+
+const nativeFetch = typeof window !== 'undefined' ? window.fetch.bind(window) : globalThis.fetch;
+
+// Bounded retry wrapper for Render Free cold starts (502, 503, 504) on idempotent requests
+const fetch = async (input: RequestInfo | URL, init?: RequestInit & { retry?: boolean; maxRetries?: number }): Promise<Response> => {
+  const method = (init?.method || 'GET').toUpperCase();
+  const isIdempotent = method === 'GET' || method === 'HEAD';
+  const shouldRetry = init?.retry !== false && (isIdempotent || init?.retry === true);
+  const maxRetries = shouldRetry ? (init?.maxRetries ?? 2) : 0;
+
+  let attempt = 0;
+  while (true) {
+    try {
+      const response = await nativeFetch(input, init);
+      const isTransient = response.status === 502 || response.status === 503 || response.status === 504;
+
+      if (isTransient && attempt < maxRetries) {
+        attempt++;
+        const backoffMs = attempt * 1000;
+        await new Promise(r => setTimeout(r, backoffMs));
+        continue;
+      }
+
+      return response;
+    } catch (networkErr: any) {
+      if (shouldRetry && attempt < maxRetries) {
+        attempt++;
+        const backoffMs = attempt * 1000;
+        await new Promise(r => setTimeout(r, backoffMs));
+        continue;
+      }
+      throw networkErr;
+    }
+  }
+};
 
 function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem('hbm_token');
@@ -450,6 +485,28 @@ export const api = {
     return res.json();
   },
 
+  getSessionIceServers: async (sessionId: string) => {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/ice-servers`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to get ICE servers');
+    }
+    return res.json();
+  },
+
+  getIceServers: async () => {
+    const res = await fetch(`${API_BASE}/webrtc/ice-servers`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to get ICE servers');
+    }
+    return res.json();
+  },
+
   startSession: async (sessionId: string) => {
     const res = await fetch(`${API_BASE}/sessions/${sessionId}/start`, {
       method: 'POST',
@@ -458,6 +515,49 @@ export const api = {
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Failed to start session');
+    }
+    return res.json();
+  },
+
+  endSession: async (sessionId: string) => {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/end`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to conclude session');
+    }
+    return res.json();
+  },
+
+  createExtensionOrder: async (sessionId: string, additionalMinutes: number) => {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/create-extension-order`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ additional_minutes: additionalMinutes })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create extension order');
+    }
+    return res.json();
+  },
+
+  verifyExtensionPayment: async (sessionId: string, paymentData: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+    additional_minutes: number;
+  }) => {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/verify-extension-payment`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(paymentData)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Extension payment verification failed');
     }
     return res.json();
   },
@@ -526,6 +626,16 @@ export const api = {
     return res.json();
   },
 
+  toggleProviderAvailability: async (available_now: boolean) => {
+    const res = await fetch(`${API_BASE}/provider/toggle-availability`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ available_now })
+    });
+    if (!res.ok) throw new Error('Failed to update provider availability');
+    return res.json();
+  },
+
   // Opportunities
   getOpportunities: async () => {
     const res = await fetch(`${API_BASE}/opportunities`);
@@ -566,6 +676,39 @@ export const api = {
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Failed to apply');
+    }
+    return res.json();
+  },
+
+  createOpportunityApplicationOrder: async (opportunityId: string) => {
+    const res = await fetch(`${API_BASE}/opportunities/${opportunityId}/create-application-order`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create application fee order');
+    }
+    return res.json();
+  },
+
+  verifyOpportunityApplicationPayment: async (opportunityId: string, data: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+    message: string;
+    relevant_experience: string;
+    proposed_rate?: number;
+    availability: string;
+  }) => {
+    const res = await fetch(`${API_BASE}/opportunities/${opportunityId}/verify-application-payment`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Application fee verification failed');
     }
     return res.json();
   },

@@ -66,23 +66,92 @@ export const OpportunitiesPage: React.FC = () => {
   const handleApplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOpp) return;
+
+    if (!user) {
+      alert('Please log in as an expert provider to apply for opportunities.');
+      return;
+    }
+
     setApplyLoading(true);
     try {
-      await api.applyForOpportunity(selectedOpp.id, {
-        message: applyMessage,
-        relevant_experience: applyExperience,
-        proposed_rate: applyRate ? parseFloat(applyRate) : undefined,
-        availability: applyAvailability
+      // 1. Create server-authoritative $2.00 application fee order
+      const orderRes = await api.createOpportunityApplicationOrder(selectedOpp.id);
+
+      // Ensure Razorpay SDK is loaded
+      const ensureRazorpayLoaded = (): Promise<boolean> => {
+        return new Promise((resolve) => {
+          if ((window as any).Razorpay) return resolve(true);
+          const script = document.createElement('script');
+          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+          script.onload = () => resolve(true);
+          script.onerror = () => resolve(false);
+          document.body.appendChild(script);
+        });
+      };
+
+      const isLoaded = await ensureRazorpayLoaded();
+      if (!isLoaded || !(window as any).Razorpay) {
+        throw new Error('Failed to load Razorpay payment gateway.');
+      }
+
+      // 2. Launch Razorpay modal
+      const options = {
+        key: orderRes.key_id,
+        amount: orderRes.amount_paise,
+        currency: orderRes.currency || 'USD',
+        name: 'HireByMinutes',
+        description: `Opportunity Application Fee ($2.00) - ${selectedOpp.title.slice(0, 30)}`,
+        order_id: orderRes.order_id,
+        prefill: {
+          name: user?.full_name || '',
+          email: user?.email || ''
+        },
+        theme: {
+          color: '#004554'
+        },
+        handler: async (response: {
+          razorpay_order_id: string;
+          razorpay_payment_id: string;
+          razorpay_signature: string;
+        }) => {
+          try {
+            await api.verifyOpportunityApplicationPayment(selectedOpp.id, {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              message: applyMessage,
+              relevant_experience: applyExperience,
+              proposed_rate: applyRate ? parseFloat(applyRate) : undefined,
+              availability: applyAvailability
+            });
+
+            alert('Application and $2 fee verified successfully!');
+            confetti({ particleCount: 80, spread: 70 });
+            setSelectedOpp(null);
+            setApplyMessage('');
+            setApplyExperience('');
+            await loadOpps();
+          } catch (verifyErr: any) {
+            alert(verifyErr.message || 'Payment verification failed.');
+          } finally {
+            setApplyLoading(false);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setApplyLoading(false);
+          }
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', (failResp: any) => {
+        alert(failResp.error?.description || 'Application fee payment was cancelled or failed.');
+        setApplyLoading(false);
       });
-      alert('Application submitted successfully!');
-      confetti({ particleCount: 70, spread: 60 });
-      setSelectedOpp(null);
-      setApplyMessage('');
-      setApplyExperience('');
-      await loadOpps();
+      rzp.open();
     } catch (err: any) {
-      alert(err.message || 'Application failed');
-    } finally {
+      alert(err.message || 'Failed to initialize application fee payment.');
       setApplyLoading(false);
     }
   };
@@ -260,6 +329,15 @@ export const OpportunitiesPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* $2 Application Fee Guarantee */}
+              <div className="p-3 bg-aliceblue/70 border border-timberwolf/60 rounded-xl flex items-center justify-between text-xs text-midnight">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-moonstone" />
+                  <span className="font-medium">Application Fee (Non-refundable entry)</span>
+                </div>
+                <span className="font-mono font-bold text-sm text-midnight">$2.00 USD</span>
+              </div>
+
               <div className="pt-2 flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -271,9 +349,19 @@ export const OpportunitiesPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={applyLoading}
-                  className="px-5 py-2.5 rounded-xl bg-midnight text-aliceblue font-bold hover:bg-midnight-hover transition-colors shadow-subtle cursor-pointer disabled:opacity-50"
+                  className="btn-shine px-5 py-2.5 rounded-xl bg-midnight text-aliceblue font-bold hover:bg-midnight-hover transition-colors shadow-subtle cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  {applyLoading ? 'Submitting...' : 'Submit Application'}
+                  {applyLoading ? (
+                    <span className="flex items-center gap-2">
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Processing $2 Fee...
+                    </span>
+                  ) : (
+                    <>
+                      <span>Pay $2 & Submit Application</span>
+                      <ArrowRight className="w-4 h-4 text-moonstone" />
+                    </>
+                  )}
                 </button>
               </div>
             </form>

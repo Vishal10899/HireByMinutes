@@ -1,113 +1,191 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 export const CustomCursor: React.FC = () => {
-  const dotRef = useRef<HTMLDivElement>(null);
-  const ringRef = useRef<HTMLDivElement>(null);
-  const posRef = useRef({
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dotWrapperRef = useRef<HTMLDivElement>(null);
+  const ringWrapperRef = useRef<HTMLDivElement>(null);
+  const ringElementRef = useRef<HTMLDivElement>(null);
+
+  const pos = useRef({
     targetX: -100,
     targetY: -100,
-    dotX: -100,
-    dotY: -100,
     ringX: -100,
     ringY: -100
   });
-  const [isHovered, setIsHovered] = useState(false);
-  const [isPressed, setIsPressed] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
+
+  const isVisibleRef = useRef(false);
+  const isHoveredRef = useRef(false);
+  const isPressedRef = useRef(false);
+  const isTextRef = useRef(false);
   const rafId = useRef<number | null>(null);
 
   useEffect(() => {
-    // Only enable for pointer-capable devices with mouse support
-    if (window.matchMedia('(hover: none)').matches) return;
+    // 1. Device check: Disable completely for touch/mobile/tablet devices
+    const isTouch =
+      window.matchMedia('(hover: none)').matches ||
+      window.matchMedia('(pointer: coarse)').matches ||
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0;
+
+    // 2. Accessibility: Respect prefers-reduced-motion
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (isTouch || prefersReducedMotion) {
+      return;
+    }
+
+    // Mark HTML root with custom cursor active class
+    document.documentElement.classList.add('has-custom-cursor');
+
+    const updateRingStyle = () => {
+      if (!ringElementRef.current) return;
+      if (isPressedRef.current) {
+        ringElementRef.current.style.transform = 'scale(0.88)';
+        ringElementRef.current.style.borderColor = 'rgba(0, 69, 84, 0.45)';
+        ringElementRef.current.style.backgroundColor = 'rgba(68, 166, 181, 0.08)';
+      } else if (isHoveredRef.current) {
+        ringElementRef.current.style.transform = 'scale(1.22)';
+        ringElementRef.current.style.borderColor = 'rgba(68, 166, 181, 0.6)';
+        ringElementRef.current.style.backgroundColor = 'rgba(68, 166, 181, 0.05)';
+      } else {
+        ringElementRef.current.style.transform = 'scale(1)';
+        ringElementRef.current.style.borderColor = 'rgba(0, 69, 84, 0.22)';
+        ringElementRef.current.style.backgroundColor = 'rgba(68, 166, 181, 0.02)';
+      }
+    };
+
+    const updateVisibility = () => {
+      if (!containerRef.current) return;
+      if (!isVisibleRef.current || isTextRef.current) {
+        containerRef.current.style.opacity = '0';
+      } else {
+        containerRef.current.style.opacity = '1';
+      }
+    };
 
     const handleMouseMove = (e: MouseEvent) => {
-      posRef.current.targetX = e.clientX;
-      posRef.current.targetY = e.clientY;
-      if (!isVisible) setIsVisible(true);
-    };
+      pos.current.targetX = e.clientX;
+      pos.current.targetY = e.clientY;
 
-    const handleMouseDown = () => setIsPressed(true);
-    const handleMouseUp = () => setIsPressed(false);
-    const handleMouseLeave = () => setIsVisible(false);
-    const handleMouseEnter = () => setIsVisible(true);
-
-    const checkInteractiveTarget = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
-      const isInteractive = !!target.closest('button, a, input, select, textarea, [role="button"], .water-surface-card, .cursor-pointer');
-      setIsHovered(isInteractive);
-    };
-
-    const animate = () => {
-      const pos = posRef.current;
-
-      // Exact instant snap for the small central dot
-      pos.dotX += (pos.targetX - pos.dotX) * 0.45;
-      pos.dotY += (pos.targetY - pos.dotY) * 0.45;
-
-      // Fluid trailing physics for the outer aura ring (lerp factor 0.14)
-      pos.ringX += (pos.targetX - pos.ringX) * 0.14;
-      pos.ringY += (pos.targetY - pos.ringY) * 0.14;
-
-      if (dotRef.current) {
-        dotRef.current.style.transform = `translate3d(${pos.dotX}px, ${pos.dotY}px, 0)`;
+      if (!isVisibleRef.current) {
+        isVisibleRef.current = true;
+        // Snap ring position on first movement to avoid jump from offscreen
+        pos.current.ringX = e.clientX;
+        pos.current.ringY = e.clientY;
+        updateVisibility();
       }
 
-      if (ringRef.current) {
-        ringRef.current.style.transform = `translate3d(${pos.ringX}px, ${pos.ringY}px, 0)`;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        // Detect text, form inputs, and editable areas where native cursor is essential
+        const isTextInput = !!target.closest(
+          'input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable="true"], [contenteditable=""], pre, code, .cursor-text'
+        );
+        if (isTextInput !== isTextRef.current) {
+          isTextRef.current = isTextInput;
+          updateVisibility();
+        }
+
+        // Detect interactive/clickable elements (buttons, links, summary, role=button)
+        if (!isTextInput) {
+          const isInteractive = !!target.closest(
+            'button, a, [role="button"], [role="link"], input[type="submit"], input[type="button"], summary, label, .cursor-pointer'
+          );
+          if (isInteractive !== isHoveredRef.current) {
+            isHoveredRef.current = isInteractive;
+            updateRingStyle();
+          }
+        }
+      }
+    };
+
+    const handleMouseDown = () => {
+      isPressedRef.current = true;
+      updateRingStyle();
+    };
+
+    const handleMouseUp = () => {
+      isPressedRef.current = false;
+      updateRingStyle();
+    };
+
+    const handleMouseLeave = () => {
+      isVisibleRef.current = false;
+      updateVisibility();
+    };
+
+    const handleMouseEnter = () => {
+      isVisibleRef.current = true;
+      updateVisibility();
+    };
+
+    // Smooth physics loop via requestAnimationFrame (Zero React re-renders)
+    const animate = () => {
+      const p = pos.current;
+
+      // Center dot follows immediately (0 lag)
+      if (dotWrapperRef.current) {
+        dotWrapperRef.current.style.transform = `translate3d(${p.targetX}px, ${p.targetY}px, 0)`;
+      }
+
+      // Outer ring has subtle 100ms smoothing (lerp factor 0.24)
+      p.ringX += (p.targetX - p.ringX) * 0.24;
+      p.ringY += (p.targetY - p.ringY) * 0.24;
+
+      if (ringWrapperRef.current) {
+        ringWrapperRef.current.style.transform = `translate3d(${p.ringX}px, ${p.ringY}px, 0)`;
       }
 
       rafId.current = requestAnimationFrame(animate);
     };
 
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
-    window.addEventListener('mousemove', checkInteractiveTarget, { passive: true });
-    window.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('mouseleave', handleMouseLeave);
-    document.addEventListener('mouseenter', handleMouseEnter);
+    window.addEventListener('mousedown', handleMouseDown, { passive: true });
+    window.addEventListener('mouseup', handleMouseUp, { passive: true });
+    document.addEventListener('mouseleave', handleMouseLeave, { passive: true });
+    document.addEventListener('mouseenter', handleMouseEnter, { passive: true });
 
     rafId.current = requestAnimationFrame(animate);
 
     return () => {
+      document.documentElement.classList.remove('has-custom-cursor');
       window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mousemove', checkInteractiveTarget);
       window.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('mouseleave', handleMouseLeave);
       document.removeEventListener('mouseenter', handleMouseEnter);
       if (rafId.current) cancelAnimationFrame(rafId.current);
     };
-  }, [isVisible]);
-
-  if (!isVisible) return null;
+  }, []);
 
   return (
-    <div aria-hidden="true" className="fixed inset-0 pointer-events-none z-[9999] overflow-hidden">
-      {/* Outer Soft Aura Ring */}
+    <div
+      ref={containerRef}
+      aria-hidden="true"
+      className="custom-cursor-root fixed inset-0 pointer-events-none z-[99999] overflow-hidden opacity-0 transition-opacity duration-150 ease-out"
+    >
+      {/* Outer Subtle Ring (26px diameter, centered at -13px) */}
       <div
-        ref={ringRef}
-        className={`fixed top-0 left-0 -ml-4 -mt-4 rounded-full pointer-events-none transition-[width,height,background-color,border-color,opacity] duration-200 ease-out will-change-transform ${
-          isHovered
-            ? 'w-11 h-11 -ml-5.5 -mt-5.5 border border-moonstone/70 bg-moonstone/15 shadow-[0_0_20px_rgba(68,166,181,0.25)]'
-            : isPressed
-            ? 'w-6 h-6 -ml-3 -mt-3 border border-moonstone bg-moonstone/25 shadow-xs'
-            : 'w-8 h-8 -ml-4 -mt-4 border border-moonstone/40 bg-moonstone/5 shadow-subtle'
-        }`}
-      />
+        ref={ringWrapperRef}
+        className="fixed top-0 left-0 pointer-events-none will-change-transform"
+      >
+        <div
+          ref={ringElementRef}
+          className="w-[26px] h-[26px] -ml-[13px] -mt-[13px] rounded-full border border-midnight/25 bg-moonstone/[0.02] pointer-events-none transition-[transform,border-color,background-color] duration-150 ease-out"
+        />
+      </div>
 
-      {/* Inner Precision Dot */}
+      {/* Center Precision Dot (6px diameter, centered at -3px) */}
       <div
-        ref={dotRef}
-        className={`fixed top-0 left-0 -ml-1 -mt-1 rounded-full pointer-events-none transition-[transform,background-color] duration-150 will-change-transform ${
-          isHovered
-            ? 'w-2.5 h-2.5 -ml-1.25 -mt-1.25 bg-moonstone shadow-[0_0_8px_#44A6B5]'
-            : isPressed
-            ? 'w-1.5 h-1.5 -ml-0.75 -mt-0.75 bg-midnight-light'
-            : 'w-2 h-2 -ml-1 -mt-1 bg-midnight'
-        }`}
-      />
+        ref={dotWrapperRef}
+        className="fixed top-0 left-0 pointer-events-none will-change-transform"
+      >
+        <div
+          className="w-[6px] h-[6px] -ml-[3px] -mt-[3px] rounded-full bg-midnight pointer-events-none"
+        />
+      </div>
     </div>
   );
 };
+
 export default CustomCursor;

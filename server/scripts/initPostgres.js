@@ -198,6 +198,7 @@ CREATE TABLE IF NOT EXISTS applications (
   proposed_rate NUMERIC(10,2),
   availability VARCHAR(128) NOT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  payment_id VARCHAR(64),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -301,6 +302,25 @@ CREATE TABLE IF NOT EXISTS registration_campaigns (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Production Indexes for Performance and Integrity
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_client ON sessions(client_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_booking ON sessions(booking_id);
+CREATE INDEX IF NOT EXISTS idx_cr_status_deadline ON consultation_requests(status, response_deadline);
+CREATE INDEX IF NOT EXISTS idx_cr_client ON consultation_requests(client_id);
+CREATE INDEX IF NOT EXISTS idx_cr_provider ON consultation_requests(provider_id);
+CREATE INDEX IF NOT EXISTS idx_services_listing ON services(listing_status);
+CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider_id);
+CREATE INDEX IF NOT EXISTS idx_services_category ON services(category_id);
+CREATE INDEX IF NOT EXISTS idx_payments_ref ON payments(reference_id);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
+CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
+CREATE INDEX IF NOT EXISTS idx_bookings_client ON bookings(client_id);
+CREATE INDEX IF NOT EXISTS idx_bookings_provider ON bookings(provider_id);
 `;
 
 async function initPostgres(customPool = null) {

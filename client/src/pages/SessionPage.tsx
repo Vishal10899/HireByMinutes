@@ -65,6 +65,10 @@ export const SessionPage: React.FC = () => {
   const [reviewComment, setReviewComment] = useState('');
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
 
+  // Session Extension state
+  const [extending, setExtending] = useState(false);
+  const [showExtensionModal, setShowExtensionModal] = useState(false);
+
   // DOM & Media Refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -138,8 +142,21 @@ export const SessionPage: React.FC = () => {
           setMicEnabled(stream.getAudioTracks().length > 0);
         }
 
-        // Initialize RTCPeerConnection
-        const pc = new RTCPeerConnection(ICE_SERVERS);
+        // Dynamically fetch authoritative STUN/TURN ICE servers from backend
+        let activeIceConfig: RTCConfiguration = ICE_SERVERS;
+        if (id) {
+          try {
+            const iceRes = await api.getSessionIceServers(id);
+            if (iceRes?.iceServers && iceRes.iceServers.length > 0) {
+              activeIceConfig = { iceServers: iceRes.iceServers };
+            }
+          } catch (iceErr) {
+            console.warn('[WebRTC] Could not load dynamic ICE config, falling back to STUN:', iceErr);
+          }
+        }
+
+        // Initialize RTCPeerConnection with authoritative STUN/TURN servers
+        const pc = new RTCPeerConnection(activeIceConfig);
         peerConnectionRef.current = pc;
 
         if (stream) {
@@ -245,6 +262,15 @@ export const SessionPage: React.FC = () => {
       }
     });
 
+    // Session Extended real-time sync
+    socket.on('session_extended', (data: { sessionId: string; remainingSeconds: number; duration_minutes: number; actual_end: string }) => {
+      if (data.sessionId === id) {
+        setRemainingSeconds(data.remainingSeconds);
+        setWarningMessage(null);
+        setSession((prev) => (prev ? { ...prev, duration_minutes: data.duration_minutes, actual_end: data.actual_end, remainingSeconds: data.remainingSeconds } : prev));
+      }
+    });
+
     // Session Expired / Cutoff
     socket.on('session_expired', (data: { sessionId: string; message: string }) => {
       if (data.sessionId === id) {
@@ -323,6 +349,7 @@ export const SessionPage: React.FC = () => {
       socket.emit('leave_session', { sessionId: id, userId: user.id });
       socket.off('session_tick');
       socket.off('session_warning');
+      socket.off('session_extended');
       socket.off('session_expired');
       socket.off('session_completed');
       socket.off('new_message');
@@ -483,6 +510,107 @@ export const SessionPage: React.FC = () => {
     }
   };
 
+  // Explicit End Session by either participant
+  const handleEndSessionExplicit = async () => {
+    if (!id) return;
+    if (!window.confirm('Are you sure you want to end this consultation session now?')) return;
+    try {
+      await api.endSession(id);
+      setRemainingSeconds(0);
+      setSession(prev => prev ? { ...prev, status: 'COMPLETED', canCommunicate: false } : prev);
+      cleanupWebRTC();
+      if (user?.role === 'client') {
+        setShowReviewModal(true);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to end session');
+    }
+  };
+
+  // Seamless Session Extension with Razorpay
+  const handleExtendSession = async (additionalMinutes: number) => {
+    if (!id || !session) return;
+    setExtending(true);
+    try {
+      const orderRes = await api.createExtensionOrder(id, additionalMinutes);
+
+      const ensureRazorpayLoaded = (): Promise<boolean> => {
+        return new Promise((resolve) => {
+          if ((window as any).Razorpay) return resolve(true);
+          const script = document.createElement('script');
+          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+          script.onload = () => resolve(true);
+          script.onerror = () => resolve(false);
+          document.body.appendChild(script);
+        });
+      };
+
+      const isLoaded = await ensureRazorpayLoaded();
+      if (!isLoaded || !(window as any).Razorpay) {
+        throw new Error('Failed to load secure Razorpay payment gateway.');
+      }
+
+      const options = {
+        key: orderRes.key_id,
+        amount: orderRes.amount_paise,
+        currency: orderRes.currency || 'USD',
+        name: 'HireByMinutes',
+        description: `Extend Consultation: +${additionalMinutes} mins`,
+        order_id: orderRes.order_id,
+        prefill: {
+          name: user?.full_name || '',
+          email: user?.email || ''
+        },
+        theme: {
+          color: '#004554'
+        },
+        handler: async (response: {
+          razorpay_order_id: string;
+          razorpay_payment_id: string;
+          razorpay_signature: string;
+        }) => {
+          try {
+            const verifyRes = await api.verifyExtensionPayment(id, {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              additional_minutes: additionalMinutes
+            });
+
+            if (verifyRes.session) {
+              setSession(prev => prev ? { ...prev, ...verifyRes.session } : verifyRes.session);
+              if (verifyRes.session.remainingSeconds !== undefined) {
+                setRemainingSeconds(verifyRes.session.remainingSeconds);
+              }
+            }
+            setWarningMessage(null);
+            setShowExtensionModal(false);
+            confetti({ particleCount: 70, spread: 60 });
+          } catch (vErr: any) {
+            alert(vErr.message || 'Extension payment verification failed.');
+          } finally {
+            setExtending(false);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setExtending(false);
+          }
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', (failResp: any) => {
+        alert(failResp.error?.description || 'Extension payment was cancelled or failed.');
+        setExtending(false);
+      });
+      rzp.open();
+    } catch (err: any) {
+      alert(err.message || 'Failed to initialize session extension payment.');
+      setExtending(false);
+    }
+  };
+
   // Start Session manually
   const handleStartSession = async () => {
     if (!id) return;
@@ -592,15 +720,73 @@ export const SessionPage: React.FC = () => {
               <Sparkles className="w-4 h-4" /> Start Session Now
             </button>
           )}
+
+          {isSessionActive && user?.role === 'client' && (
+            <button
+              onClick={() => setShowExtensionModal(true)}
+              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-subtle flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            >
+              <Clock className="w-4 h-4" /> + Extend Time
+            </button>
+          )}
+
+          {isSessionActive && (
+            <button
+              onClick={handleEndSessionExplicit}
+              className="px-3.5 py-2.5 rounded-xl border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold shadow-subtle flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              title="End session completely and trigger rating"
+            >
+              <PhoneOff className="w-4 h-4" /> End Session
+            </button>
+          )}
         </div>
 
       </div>
 
-      {/* Warning Alert Bar */}
-      {warningMessage && (
-        <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3.5 flex items-center gap-3 text-xs font-semibold text-amber-900 animate-fade-in">
-          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>{warningMessage}</span>
+      {/* Warning & Seamless Extension Bar (< 5 mins or warning active) */}
+      {isSessionActive && (warningMessage || (remainingSeconds <= 300 && remainingSeconds > 0)) && (
+        <div className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-subtle animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5 text-amber-700 animate-pulse" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wide">
+                Consultation Approaching Deadline ({formatTimer(remainingSeconds)} left)
+              </h4>
+              <p className="text-xs text-amber-900/80 mt-0.5">
+                {warningMessage || 'When the timer hits 0:00, video and chat will automatically terminate.'}
+              </p>
+            </div>
+          </div>
+
+          {user?.role === 'client' && (
+            <div className="flex items-center gap-2 flex-wrap w-full md:w-auto justify-end">
+              <span className="text-[11px] font-bold text-amber-950 mr-1 hidden sm:inline">Add Time:</span>
+              {[5, 15, 30].map((mins) => {
+                const rate = session.price_per_minute || 1;
+                const cost = (mins * rate).toFixed(2);
+                return (
+                  <button
+                    key={mins}
+                    type="button"
+                    disabled={extending}
+                    onClick={() => handleExtendSession(mins)}
+                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-subtle cursor-pointer disabled:opacity-50 transition-all"
+                  >
+                    +{mins}m (${cost})
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={handleEndSessionExplicit}
+                className="px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 text-xs font-bold cursor-pointer transition-all"
+              >
+                End Session
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -996,6 +1182,59 @@ export const SessionPage: React.FC = () => {
                 className="flex-1 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle cursor-pointer"
               >
                 Submit Review
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- SESSION EXTENSION MODAL (Client Only) ---------------- */}
+      {showExtensionModal && (
+        <div className="fixed inset-0 z-50 bg-midnight/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl border border-timberwolf max-w-md w-full p-6 sm:p-8 space-y-5 shadow-modal text-center animate-scale-up">
+            
+            <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 mx-auto flex items-center justify-center border border-amber-200">
+              <Clock className="w-7 h-7 animate-pulse" />
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-lg font-bold text-midnight">Extend Consultation Session</h3>
+              <p className="text-xs text-midnight/70">
+                Continue your session with <strong>{otherPersonName}</strong> without interruption.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2.5 py-2">
+              {[5, 15, 30].map((mins) => {
+                const rate = session.price_per_minute || 1;
+                const cost = (mins * rate).toFixed(2);
+                return (
+                  <button
+                    key={mins}
+                    type="button"
+                    disabled={extending}
+                    onClick={() => handleExtendSession(mins)}
+                    className="p-3 rounded-2xl border-2 border-amber-300 bg-amber-50/60 hover:bg-amber-100/80 text-amber-950 transition-all cursor-pointer flex flex-col items-center gap-1 disabled:opacity-50"
+                  >
+                    <span className="font-extrabold text-base">+{mins} min</span>
+                    <span className="text-xs font-mono font-bold text-amber-800">${cost}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="text-[11px] text-midnight/60">
+              Server-authoritative extension. The call will continue seamlessly without re-connection.
+            </p>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setShowExtensionModal(false)}
+                className="w-full py-2.5 rounded-xl border border-timberwolf/70 text-xs font-semibold text-midnight/70 hover:bg-aliceblue cursor-pointer"
+              >
+                Cancel
               </button>
             </div>
 

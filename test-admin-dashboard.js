@@ -227,15 +227,25 @@ async function runAdminDashboardTestSuite() {
 
     // 17, 18, 19. Security Protections (Client, Provider, Unauthenticated)
     console.log('\n17, 18, 19. Testing RBAC Security Protections (Client, Provider, Unauthenticated)...');
-    const clientAuth = await request('POST', '/auth/login', { email: 'sarah@hirebyminutes.com', password: 'demo123' });
-    const providerAuth = await request('POST', '/auth/login', { email: 'arjun@hirebyminutes.com', password: 'demo123' });
+    const clientAuth = await request('POST', '/auth/register', {
+      email: `client.${Date.now()}@testadmin.local`,
+      password: 'StrongPassword123!',
+      full_name: 'Audit Client User',
+      role: 'client'
+    });
+    const providerAuth = await request('POST', '/auth/register', {
+      email: `provider.${Date.now()}@testadmin.local`,
+      password: 'StrongPassword123!',
+      full_name: 'Audit Provider User',
+      role: 'provider'
+    });
 
     const clientBlock = await request('GET', '/admin/stats', null, clientAuth.data.token);
-    if (clientBlock.status !== 403) throw new Error('Client was not blocked from admin endpoint with 403');
+    if (clientBlock.status !== 403) throw new Error(`Client was not blocked from admin endpoint with 403 (got ${clientBlock.status})`);
     console.log(`   ✓ Client token correctly blocked: 403 Forbidden`);
 
     const providerBlock = await request('GET', '/admin/users', null, providerAuth.data.token);
-    if (providerBlock.status !== 403) throw new Error('Provider was not blocked from admin endpoint with 403');
+    if (providerBlock.status !== 403) throw new Error(`Provider was not blocked from admin endpoint with 403 (got ${providerBlock.status})`);
     console.log(`   ✓ Provider token correctly blocked: 403 Forbidden`);
 
     const unauthBlock = await request('GET', '/admin/stats');

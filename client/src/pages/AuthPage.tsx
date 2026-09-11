@@ -52,14 +52,15 @@ export const AuthPage: React.FC = () => {
   const [isChangingEmail, setIsChangingEmail] = useState(false);
   const [newEmailInput, setNewEmailInput] = useState('');
   const otpInputsRef = useRef<(HTMLInputElement | null)[]>([]);
+  const isSubmittingRef = useRef(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Auto-redirect if user is already authenticated
+  // Auto-redirect only if user is fully authenticated & email-verified, and not in the middle of OTP verification
   useEffect(() => {
-    if (user) {
+    if (user && tab !== 'verify_otp' && (user.email_verified === 1 || user.email_verified === true || user.role === 'admin')) {
       const redirectParam = searchParams.get('redirect');
       if (redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('/auth')) {
         navigate(redirectParam, { replace: true });
@@ -71,7 +72,7 @@ export const AuthPage: React.FC = () => {
         navigate('/services', { replace: true });
       }
     }
-  }, [user, searchParams, navigate]);
+  }, [user, tab, searchParams, navigate]);
 
   // Countdown timer for resend code
   useEffect(() => {
@@ -130,6 +131,7 @@ export const AuthPage: React.FC = () => {
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || isSubmittingRef.current) return;
     if (!email.trim()) {
       setError('Please enter your email address.');
       return;
@@ -139,10 +141,22 @@ export const AuthPage: React.FC = () => {
       return;
     }
 
+    isSubmittingRef.current = true;
     setLoading(true);
     setError(null);
     try {
       const loggedInUser = await login(email.trim(), password);
+      // If user requires email verification, transition smoothly to OTP tab
+      if (loggedInUser.email_verified === 0 || loggedInUser.email_verified === false) {
+        if (loggedInUser.role !== 'admin') {
+          setVerificationEmail(loggedInUser.email);
+          setTab('verify_otp');
+          setResendCooldown(60);
+          setSuccessMessage('Please enter your 6-digit verification code to complete sign-in.');
+          return;
+        }
+      }
+
       const redirectParam = searchParams.get('redirect');
       if (redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('/auth')) {
         navigate(redirectParam, { replace: true });
@@ -156,6 +170,7 @@ export const AuthPage: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Login failed. Please check your email and password.');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
@@ -203,6 +218,7 @@ export const AuthPage: React.FC = () => {
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || isSubmittingRef.current) return;
     setError(null);
 
     if (!fullName.trim()) {
@@ -221,8 +237,18 @@ export const AuthPage: React.FC = () => {
       return;
     }
 
+    if (!password) {
+      setError('Please enter a password.');
+      return;
+    }
+
     if (!passwordCriteria.isValid) {
       setError('Password must be at least 8 characters long and contain both letters and numbers.');
+      return;
+    }
+
+    if (!confirmPassword) {
+      setError('Please confirm your password.');
       return;
     }
 
@@ -231,6 +257,7 @@ export const AuthPage: React.FC = () => {
       return;
     }
 
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
       const res = await api.register({
@@ -257,6 +284,7 @@ export const AuthPage: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Registration failed. An account with this email may already exist.');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
@@ -295,12 +323,14 @@ export const AuthPage: React.FC = () => {
 
   const handleVerifyOtpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || isSubmittingRef.current) return;
     const code = otpDigits.join('');
     if (code.length !== 6) {
       setError('Please enter the full 6-digit code.');
       return;
     }
 
+    isSubmittingRef.current = true;
     setLoading(true);
     setError(null);
     setSuccessMessage(null);
@@ -313,7 +343,7 @@ export const AuthPage: React.FC = () => {
       confetti({ particleCount: 70, spread: 60 });
       setSuccessMessage('Email verified successfully! Redirecting...');
       setTimeout(() => {
-        if (role === 'provider') {
+        if (role === 'provider' || res.user?.role === 'provider') {
           navigate('/provider');
         } else {
           navigate('/services');
@@ -322,12 +352,14 @@ export const AuthPage: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Invalid verification code. Please check and try again.');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
 
   const handleResendOtp = async () => {
-    if (resendCooldown > 0) return;
+    if (resendCooldown > 0 || loading || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setLoading(true);
     setError(null);
     setSuccessMessage(null);
@@ -339,14 +371,16 @@ export const AuthPage: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Failed to resend verification code.');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
 
   const handleChangeEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEmailInput.trim()) return;
+    if (!newEmailInput.trim() || loading || isSubmittingRef.current) return;
 
+    isSubmittingRef.current = true;
     setLoading(true);
     setError(null);
     setSuccessMessage(null);
@@ -361,6 +395,7 @@ export const AuthPage: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Failed to update email address.');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
@@ -784,7 +819,7 @@ export const AuthPage: React.FC = () => {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading || !passwordCriteria.isValid || passwordsMatch === false}
+              disabled={loading}
               className="btn-shine w-full py-3 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover transition-all shadow-subtle cursor-pointer disabled:opacity-50 mt-2"
             >
               {loading ? 'Creating account...' : 'Create Account & Send Verification'}

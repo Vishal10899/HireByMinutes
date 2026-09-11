@@ -110,13 +110,87 @@ export const ProviderOnboardingPage: React.FC = () => {
     if (!createdServiceId) return;
     setLoading(true);
     try {
-      await api.payListingFee(createdServiceId);
-      setIsPublished(true);
-      await refreshUser();
-      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+      // 1. Initiate order creation on server
+      const orderRes = await api.createListingOrder(createdServiceId);
+
+      // If promotional $0 waiver applied by server
+      if (orderRes.free_activated || orderRes.amount === 0) {
+        setIsPublished(true);
+        await refreshUser();
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+        setLoading(false);
+        return;
+      }
+
+      // Ensure Razorpay SDK is loaded
+      const ensureRazorpayLoaded = (): Promise<boolean> => {
+        return new Promise((resolve) => {
+          if ((window as any).Razorpay) return resolve(true);
+          const script = document.createElement('script');
+          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+          script.onload = () => resolve(true);
+          script.onerror = () => resolve(false);
+          document.body.appendChild(script);
+        });
+      };
+
+      const isLoaded = await ensureRazorpayLoaded();
+      if (!isLoaded || !(window as any).Razorpay) {
+        throw new Error('Failed to load secure Razorpay payment gateway. Please check your internet connection.');
+      }
+
+      // 2. Open Razorpay Checkout modal
+      const options = {
+        key: orderRes.key_id,
+        amount: orderRes.amount_paise,
+        currency: orderRes.currency || 'USD',
+        name: 'HireByMinutes',
+        description: `Service Listing Activation Fee ($${Number(orderRes.amount).toFixed(2)})`,
+        order_id: orderRes.order_id,
+        prefill: {
+          name: user?.full_name || '',
+          email: user?.email || ''
+        },
+        theme: {
+          color: '#004554'
+        },
+        handler: async (response: {
+          razorpay_order_id: string;
+          razorpay_payment_id: string;
+          razorpay_signature: string;
+        }) => {
+          try {
+            // 3. Cryptographic signature verification on backend
+            await api.verifyListingPayment(createdServiceId, {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature
+            });
+
+            setIsPublished(true);
+            await refreshUser();
+            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+          } catch (verifyErr: any) {
+            alert(verifyErr.message || 'Payment verification failed. Please contact support.');
+          } finally {
+            setLoading(false);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setLoading(false);
+          }
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', (failResp: any) => {
+        alert(failResp.error?.description || 'Payment was cancelled or failed.');
+        setLoading(false);
+      });
+      rzp.open();
     } catch (err: any) {
       alert(err.message || 'Listing activation failed');
-    } finally {
       setLoading(false);
     }
   };

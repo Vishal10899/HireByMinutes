@@ -78,12 +78,14 @@ async function runAuthPersistenceTests() {
 
     // 4. Client Authentication & Persistence
     console.log('4. Testing Client Authentication & Refresh (/auth/me)...');
-    const clientLoginRes = await request('POST', '/auth/login', {
-      email: 'sarah@hirebyminutes.com',
-      password: 'demo123'
+    const clientReg = await request('POST', '/auth/register', {
+      email: `client.persist.${Date.now()}@testauth.local`,
+      password: 'DemoPassword123!',
+      full_name: 'Sarah Chen',
+      role: 'client'
     });
-    if (clientLoginRes.status !== 200) throw new Error('Client login failed');
-    const clientToken = clientLoginRes.data.token;
+    if (clientReg.status !== 201) throw new Error('Client registration failed');
+    const clientToken = clientReg.data.token;
 
     const clientMeRes = await request('GET', '/auth/me', null, clientToken);
     if (clientMeRes.status !== 200 || !clientMeRes.data.user) {
@@ -93,12 +95,14 @@ async function runAuthPersistenceTests() {
 
     // 5. Provider / Expert Authentication & Persistence
     console.log('5. Testing Provider / Expert Authentication & Refresh (/auth/me)...');
-    const providerLoginRes = await request('POST', '/auth/login', {
-      email: 'arjun@hirebyminutes.com',
-      password: 'demo123'
+    const providerReg = await request('POST', '/auth/register', {
+      email: `provider.persist.${Date.now()}@testauth.local`,
+      password: 'DemoPassword123!',
+      full_name: 'Arjun Sharma',
+      role: 'provider'
     });
-    if (providerLoginRes.status !== 200) throw new Error('Provider login failed');
-    const providerToken = providerLoginRes.data.token;
+    if (providerReg.status !== 201) throw new Error('Provider registration failed');
+    const providerToken = providerReg.data.token;
 
     const providerMeRes = await request('GET', '/auth/me', null, providerToken);
     if (providerMeRes.status !== 200 || providerMeRes.data.user.role !== 'provider') {

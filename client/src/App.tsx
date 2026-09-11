@@ -5,7 +5,6 @@ import { SocketProvider } from './context/SocketContext';
 import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
 import { ToastNotification } from './components/common/ToastNotification';
-import { AmbientCursorLight } from './components/common/AmbientCursorLight';
 import { CustomCursor } from './components/common/CustomCursor';
 import { BrandedLoadingScreen } from './components/common/BrandedLoadingScreen';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
@@ -47,7 +46,6 @@ const AppRoutes: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-screen relative overflow-x-hidden selection:bg-lightblue selection:text-midnight bg-aliceblue text-midnight font-sans">
-      <AmbientCursorLight />
       <CustomCursor />
       {/* Universal Global Header: 100% Identical on Landing Page, Marketplace, Profile, and Admin Dashboard */}
       <Header />

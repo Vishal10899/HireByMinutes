@@ -91,11 +91,22 @@ export const ProviderDashboardPage: React.FC = () => {
   const [pendingRequests, setPendingRequests] = useState<ConsultationRequest[]>([]);
   const [upcomingSessions, setUpcomingSessions] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
-  const [earnings, setEarnings] = useState<{ total: number; completedSessions: number }>({ total: 0, completedSessions: 0 });
+  const [earnings, setEarnings] = useState<{
+    total: number;
+    gross?: number;
+    platformFee?: number;
+    todayGross?: number;
+    todayNet?: number;
+    completedSessions: number;
+    totalSessionMinutes?: number;
+  }>({ total: 0, completedSessions: 0 });
+  const [completedSessionsBreakdown, setCompletedSessionsBreakdown] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [acceptedIds, setAcceptedIds] = useState<Set<string>>(new Set());
+  const [isAvailableNow, setIsAvailableNow] = useState<boolean>(true);
+  const [togglingAvailability, setTogglingAvailability] = useState(false);
 
   const loadProviderDashboard = async () => {
     try {
@@ -106,7 +117,11 @@ export const ProviderDashboardPage: React.FC = () => {
       setUpcomingSessions(data.upcomingSessions || []);
       setServices(data.services || []);
       setEarnings(data.earnings || { total: 0, completedSessions: 0 });
+      setCompletedSessionsBreakdown(data.completedSessionsBreakdown || []);
       setReviews(data.reviews || []);
+      if (data.services && data.services.length > 0) {
+        setIsAvailableNow(data.services.some((s: any) => s.available_now === 1));
+      }
     } catch (err) {
       console.error('Failed to load provider dashboard', err);
     } finally {
@@ -118,7 +133,21 @@ export const ProviderDashboardPage: React.FC = () => {
     loadProviderDashboard();
   }, [user?.id]);
 
-  // Real-time socket updates for incoming consultation requests & payments
+  const handleToggleAvailability = async () => {
+    try {
+      setTogglingAvailability(true);
+      const nextState = !isAvailableNow;
+      await api.toggleProviderAvailability(nextState);
+      setIsAvailableNow(nextState);
+      await loadProviderDashboard();
+    } catch (err: any) {
+      alert(err.message || 'Failed to toggle availability');
+    } finally {
+      setTogglingAvailability(false);
+    }
+  };
+
+  // Real-time socket updates for incoming consultation requests, payments, sessions & availability
   useEffect(() => {
     if (!socket) return;
 
@@ -135,14 +164,32 @@ export const ProviderDashboardPage: React.FC = () => {
       loadProviderDashboard();
     };
 
+    const handleSessionCompleted = () => {
+      loadProviderDashboard();
+    };
+
+    const handleSessionExtended = () => {
+      loadProviderDashboard();
+    };
+
+    const handleAvailabilityChanged = () => {
+      loadProviderDashboard();
+    };
+
     socket.on('consultation_request_created', handleNewRequest);
     socket.on('consultation_payment_completed', handlePaymentCompleted);
     socket.on('consultation_request_expired', handleRequestExpired);
+    socket.on('session_completed', handleSessionCompleted);
+    socket.on('session_extended', handleSessionExtended);
+    socket.on('provider_availability_changed', handleAvailabilityChanged);
 
     return () => {
       socket.off('consultation_request_created', handleNewRequest);
       socket.off('consultation_payment_completed', handlePaymentCompleted);
       socket.off('consultation_request_expired', handleRequestExpired);
+      socket.off('session_completed', handleSessionCompleted);
+      socket.off('session_extended', handleSessionExtended);
+      socket.off('provider_availability_changed', handleAvailabilityChanged);
     };
   }, [socket]);
 
@@ -198,13 +245,30 @@ export const ProviderDashboardPage: React.FC = () => {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-midnight tracking-tight">
-            Provider Dashboard
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-midnight tracking-tight">
+              Provider Dashboard
+            </h1>
+            <button
+              type="button"
+              disabled={togglingAvailability}
+              onClick={handleToggleAvailability}
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-subtle ${
+                isAvailableNow
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                  : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
+              }`}
+              title="Click to toggle real-time availability across your services"
+            >
+              <span className={`w-2 h-2 rounded-full ${isAvailableNow ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+              <span>{isAvailableNow ? 'AVAILABLE NOW' : 'OFFLINE'}</span>
+            </button>
+          </div>
           <p className="text-sm text-midnight/70 mt-1">
             Review incoming consultation requests, respond within 10 minutes, and manage your live sessions.
           </p>
         </div>
+
         <div className="flex items-center gap-3 self-start sm:self-auto">
           <Link
             to="/profile/edit"
@@ -229,39 +293,67 @@ export const ProviderDashboardPage: React.FC = () => {
       </div>
 
       {/* METRICS ROW */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Net Payout */}
         <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card flex items-center justify-between">
           <div>
-            <span className="text-xs font-semibold text-midnight/60">Total Earnings</span>
-            <div className="text-2xl font-extrabold text-midnight font-mono mt-1">
+            <span className="text-[11px] font-semibold text-midnight/60 uppercase tracking-wider">Net Earnings (85%)</span>
+            <div className="text-2xl font-extrabold text-midnight font-mono mt-0.5">
               ${earnings.total.toFixed(2)}
             </div>
+            <span className="text-[10px] text-midnight/50 block mt-0.5">
+              Gross: ${(earnings.gross || 0).toFixed(2)} • 15% platform fee
+            </span>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
             <DollarSign className="w-5 h-5" />
           </div>
         </div>
 
+        {/* Today's Earnings */}
         <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card flex items-center justify-between">
           <div>
-            <span className="text-xs font-semibold text-midnight/60">Completed Consultations</span>
-            <div className="text-2xl font-extrabold text-midnight font-mono mt-1">
+            <span className="text-[11px] font-semibold text-midnight/60 uppercase tracking-wider">Today's Net</span>
+            <div className="text-2xl font-extrabold text-midnight font-mono mt-0.5">
+              ${(earnings.todayNet || 0).toFixed(2)}
+            </div>
+            <span className="text-[10px] text-midnight/50 block mt-0.5">
+              Today Gross: ${(earnings.todayGross || 0).toFixed(2)}
+            </span>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-aliceblue text-moonstone flex items-center justify-center shrink-0">
+            <TrendingUp className="w-5 h-5" />
+          </div>
+        </div>
+
+        {/* Completed Consultations & Minutes */}
+        <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card flex items-center justify-between">
+          <div>
+            <span className="text-[11px] font-semibold text-midnight/60 uppercase tracking-wider">Consultations</span>
+            <div className="text-2xl font-extrabold text-midnight font-mono mt-0.5">
               {earnings.completedSessions}
             </div>
+            <span className="text-[10px] text-midnight/50 block mt-0.5">
+              {earnings.totalSessionMinutes || 0} total consultation mins
+            </span>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-aliceblue text-midnight flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-aliceblue text-midnight flex items-center justify-center shrink-0">
             <CheckCircle2 className="w-5 h-5 text-moonstone" />
           </div>
         </div>
 
+        {/* Pending Requests */}
         <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card flex items-center justify-between">
           <div>
-            <span className="text-xs font-semibold text-midnight/60">Pending Requests</span>
-            <div className="text-2xl font-extrabold text-amber-600 font-mono mt-1">
+            <span className="text-[11px] font-semibold text-midnight/60 uppercase tracking-wider">Pending Requests</span>
+            <div className="text-2xl font-extrabold text-amber-600 font-mono mt-0.5">
               {pendingRequests.length}
             </div>
+            <span className="text-[10px] text-amber-700/80 block mt-0.5">
+              10-minute response window
+            </span>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
             <Clock className="w-5 h-5" />
           </div>
         </div>
@@ -338,6 +430,17 @@ export const ProviderDashboardPage: React.FC = () => {
                           <span className="text-moonstone font-medium">
                             {req.connect_type === 'now' ? 'Connect Now' : 'Scheduled'}
                           </span>
+                        </div>
+                        {/* Client Reputation Preview */}
+                        <div className="flex items-center gap-2 text-[11px] text-midnight/70 mt-1.5 bg-aliceblue/80 px-2 py-0.5 rounded-md border border-timberwolf/40 w-fit">
+                          <span className="flex items-center gap-0.5 font-bold text-amber-600">
+                            <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                            {(req as any).client_rating ? Number((req as any).client_rating).toFixed(1) : '5.0'}
+                          </span>
+                          <span>•</span>
+                          <span>{(req as any).client_sessions_completed || 0} sessions</span>
+                          <span>•</span>
+                          <span>Client since {(req as any).client_member_since ? new Date((req as any).client_member_since).toLocaleDateString([], { month: 'short', year: 'numeric' }) : 'Recent'}</span>
                         </div>
                       </div>
                     </div>
@@ -440,6 +543,66 @@ export const ProviderDashboardPage: React.FC = () => {
                 </Link>
               </div>
             ))}
+          </div>
+        )}
+      </section>
+
+      {/* TRANSPARENT 15% PLATFORM COMMISSION & COMPLETED SESSIONS */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-moonstone" />
+            <span>Completed Consultations & Earnings Breakdown ({completedSessionsBreakdown.length})</span>
+          </h2>
+          <span className="text-xs text-midnight/60">Transparent 15% platform commission • 85% net payout</span>
+        </div>
+
+        {completedSessionsBreakdown.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 text-center text-xs text-midnight/60 shadow-subtle">
+            No completed paid consultations recorded yet.
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-timberwolf/70 overflow-x-auto shadow-subtle">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-aliceblue/60 text-midnight/60 uppercase font-semibold border-b border-timberwolf/40">
+                <tr>
+                  <th className="py-3 px-4">Client & Service</th>
+                  <th className="py-3 px-4">Duration</th>
+                  <th className="py-3 px-4">Gross Client Paid</th>
+                  <th className="py-3 px-4">Platform Fee (15%)</th>
+                  <th className="py-3 px-4 text-emerald-800">Your Net Earnings (85%)</th>
+                  <th className="py-3 px-4">Completed Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-timberwolf/30 text-midnight/80">
+                {completedSessionsBreakdown.map((item) => (
+                  <tr key={item.id} className="hover:bg-aliceblue/30">
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={item.client_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.client_name}`}
+                          alt={item.client_name}
+                          className="w-7 h-7 rounded-lg object-cover border border-lightblue"
+                        />
+                        <div>
+                          <span className="font-bold text-midnight block">{item.client_name}</span>
+                          <span className="text-[11px] text-midnight/60">{item.service_title}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 font-medium">{item.duration_minutes} mins</td>
+                    <td className="py-3 px-4 font-mono font-semibold">${Number(item.gross_amount).toFixed(2)}</td>
+                    <td className="py-3 px-4 font-mono text-rose-700">-${Number(item.platform_fee).toFixed(2)}</td>
+                    <td className="py-3 px-4 font-mono font-extrabold text-emerald-700 text-sm">
+                      ${Number(item.net_earned).toFixed(2)}
+                    </td>
+                    <td className="py-3 px-4 text-midnight/60">
+                      {item.actual_end ? new Date(item.actual_end).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>

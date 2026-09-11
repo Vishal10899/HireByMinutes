@@ -209,12 +209,28 @@ async function runTests() {
 
   // 8. Expert-Specific Profile Editing & Rate Update
   console.log('\n8. Testing Expert-Specific Profile & Rate Per Minute Update...');
-  const providerLogin = await post('http://localhost:5000/api/auth/login', {
-    email: 'elena@hirebyminutes.com',
-    password: 'demo123'
+  const expertEmail = `expert.elena.${Date.now()}@testprofile.local`;
+  const expertReg = await post('http://localhost:5000/api/auth/register', {
+    email: expertEmail,
+    password: 'DemoPassword123!',
+    full_name: 'Elena Rostova',
+    role: 'provider'
   });
-  if (providerLogin.status !== 200) throw new Error(`Provider login failed: ${JSON.stringify(providerLogin.data)}`);
-  const providerToken = providerLogin.data.token;
+  if (expertReg.status !== 201) throw new Error(`Expert registration failed: ${JSON.stringify(expertReg.data)}`);
+  const providerToken = expertReg.data.token;
+
+  // Create initial service for expert
+  const srvRes = await post('http://localhost:5000/api/services', {
+    category_id: 'cat-design',
+    title: 'Figma UI/UX Teardown & Design System Review',
+    description: 'Expert teardowns of your design system tokens.',
+    price_per_minute: 1.50,
+    skills: ['Figma', 'UI/UX'],
+    languages: ['English'],
+    experience_years: 8,
+    available_now: 1
+  }, providerToken);
+  if (srvRes.status !== 201) throw new Error(`Service creation failed: ${JSON.stringify(srvRes.data)}`);
 
   // Fetch initial rate
   const initialExpertProfile = await get('http://localhost:5000/api/users/profile/me', providerToken);

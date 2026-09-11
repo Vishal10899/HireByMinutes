@@ -1,4 +1,5 @@
 const http = require('http');
+const crypto = require('crypto');
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
@@ -210,10 +211,20 @@ async function runTests() {
     assert(orderRes.data.amount === 2.00, 'Order amount is exact server calculated $2.00');
     assert(orderRes.data.amount_paise === 200, 'Order amount_paise is 200');
 
-    // 10. Pay Normal Listing Fee
-    console.log('\n--- 10. Pay Listing Fee ($2.00 Paid) ---');
-    const payRes = await request('POST', `/services/${srvCreate2.data.service.id}/pay-listing-fee`, {}, providerToken);
-    assert(payRes.status === 200, 'Payment endpoint returns 200');
+    // 10. Pay Normal Listing Fee via Verified Payment
+    console.log('\n--- 10. Pay Listing Fee ($2.00 Paid via Razorpay Verification) ---');
+    const payBypass = await request('POST', `/services/${srvCreate2.data.service.id}/pay-listing-fee`, {}, providerToken);
+    assert(payBypass.status === 400, 'Payment bypass endpoint correctly rejected with 400 when fee > 0');
+
+    const paymentId = `pay_test_${Date.now()}`;
+    const hmacSecret = process.env.RAZORPAY_KEY_SECRET || 'dev_razorpay_secret_key_12345';
+    const signature = crypto.createHmac('sha256', hmacSecret).update(`${orderRes.data.order_id}|${paymentId}`).digest('hex');
+    const payRes = await request('POST', `/services/${srvCreate2.data.service.id}/verify-listing-payment`, {
+      razorpay_order_id: orderRes.data.order_id,
+      razorpay_payment_id: paymentId,
+      razorpay_signature: signature
+    }, providerToken);
+    assert(payRes.status === 200, 'Payment verification endpoint returns 200');
     assert(payRes.data.fee === 2.00, 'Charged exact $2.00');
 
     const updatedSrv2 = db.prepare('SELECT * FROM services WHERE id = ?').get(srvCreate2.data.service.id);

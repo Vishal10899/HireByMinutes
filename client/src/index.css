@@ -164,3 +164,44 @@ textarea:focus-visible {
 .animate-scale-up {
   animation: scaleUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* ==========================================================================
+   PRODUCTION MINIMAL CUSTOM CURSOR (DESKTOP POINTER ONLY)
+   ========================================================================== */
+@media (hover: hover) and (pointer: fine) {
+  html.has-custom-cursor,
+  html.has-custom-cursor body,
+  html.has-custom-cursor a,
+  html.has-custom-cursor button,
+  html.has-custom-cursor [role="button"],
+  html.has-custom-cursor [role="link"],
+  html.has-custom-cursor .cursor-pointer {
+    cursor: none !important;
+  }
+
+  /* Text elements & form inputs must always display the standard browser cursor */
+  html.has-custom-cursor input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]),
+  html.has-custom-cursor textarea,
+  html.has-custom-cursor [contenteditable],
+  html.has-custom-cursor [contenteditable="true"],
+  html.has-custom-cursor .cursor-text {
+    cursor: text !important;
+  }
+
+  html.has-custom-cursor select {
+    cursor: default !important;
+  }
+}
+
+/* Accessibility: Immediate fallback to native cursor on reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  html.has-custom-cursor,
+  html.has-custom-cursor body,
+  html.has-custom-cursor * {
+    cursor: auto !important;
+  }
+
+  .custom-cursor-root {
+    display: none !important;
+  }
+}
