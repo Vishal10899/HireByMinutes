@@ -897,9 +897,9 @@ function ensureSettingsAndAdmin(dbInstance) {
 
   // Check or upsert admin account
   const existingAdmin = dbInstance.prepare('SELECT * FROM users WHERE LOWER(email) = ? OR role = \'admin\' ORDER BY (LOWER(email) = ?) DESC LIMIT 1').get(adminEmail, adminEmail);
-  const hashedPassword = bcrypt.hashSync(adminPassword, 10);
 
   if (!existingAdmin) {
+    const hashedPassword = bcrypt.hashSync(adminPassword, 10);
     dbInstance.prepare(`
       INSERT INTO users (id, email, username, password_hash, full_name, role, avatar_url, bio, headline, rating, review_count, sessions_completed, verified, email_verified, member_since)
       VALUES (?, ?, ?, ?, ?, 'admin', ?, ?, ?, 5.0, 0, 0, 1, 1, 'August 2026')
@@ -925,6 +925,7 @@ function ensureSettingsAndAdmin(dbInstance) {
     }
 
     if (shouldSync) {
+      const hashedPassword = bcrypt.hashSync(adminPassword, 10);
       dbInstance.prepare(`UPDATE users SET email = ?, role = 'admin', password_hash = ?, verified = 1, email_verified = 1, is_suspended = 0 WHERE id = ?`).run(adminEmail, hashedPassword, existingAdmin.id);
     } else {
       dbInstance.prepare(`UPDATE users SET email = ?, role = 'admin', verified = 1, email_verified = 1, is_suspended = 0 WHERE id = ?`).run(adminEmail, existingAdmin.id);

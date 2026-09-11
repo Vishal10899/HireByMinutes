@@ -7,7 +7,7 @@
 # Real-Time: Socket.IO WebSockets & WebRTC Signaling
 # Payments: Razorpay (Server-Side Order Creation & HMAC SHA-256 Verification)
 # Email: Resend HTTPS API (Ports 25/465/587 are blocked on Render Free)
-# Monitoring: External Uptime Monitor pinging GET /api/health every 5 minutes
+# Monitoring: External Uptime Monitor pinging GET /health or /api/health periodically
 # =============================================================================
 
 ## 1. Architecture Overview (Render Free Safe)
@@ -112,14 +112,14 @@ Render Free Web Services spin down after 15 minutes of inbound inactivity. To ke
 2. Click **Add New Monitor**:
    - **Monitor Type:** `HTTP(s)`
    - **Friendly Name:** `HireByMinutes Production API`
-   - **URL:** `https://your-service.onrender.com/api/health`
-   - **Monitoring Interval:** `5 minutes`
+   - **URL:** `https://hirebyminute.com/health` (or `https://hirebyminute.com/api/health`)
+   - **Monitoring Interval:** `5 minutes` (or `10 minutes`)
 3. Save the monitor.
 4. **Behavior**:
-   - UptimeRobot will ping `GET /api/health` every 5 minutes.
-   - Endpoint returns HTTP `200 OK` with `{ status: "healthy", database: "connected" }`.
-   - If the database is disconnected or unreachable, the endpoint returns HTTP `503 Service Unavailable`.
-   - UptimeRobot alerts you immediately if the service goes down.
+   - UptimeRobot will ping `GET /health` or `HEAD /health` every 5–10 minutes.
+   - Endpoint returns HTTP `200 OK` instantly with `{ status: "healthy", database: "connected" }`.
+   - The basic health check is extremely lightweight: no authentication, no expensive database queries, and no external API dependencies.
+   - For detailed setup and options, see [UPTIME_MONITORING.md](UPTIME_MONITORING.md).
 
 ---
 

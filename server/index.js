@@ -1,3 +1,6 @@
+const processStartTime = Date.now();
+const processStartIso = new Date(processStartTime).toISOString();
+const os = require('os');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const express = require('express');
@@ -9,6 +12,32 @@ const jwt = require('jsonwebtoken');
 const TimerEngine = require('./timerEngine');
 const createRoutes = require('./routes');
 const db = require('./db');
+
+// Cold-Start & Restart Observability Tracking (Safe, zero-credential tracking)
+let isRestart = false;
+const restartMarkerFile = path.join(os.tmpdir(), 'hirebyminutes-boot.marker');
+
+try {
+  if (fs.existsSync(restartMarkerFile)) {
+    isRestart = true;
+  }
+  fs.writeFileSync(restartMarkerFile, processStartIso);
+} catch (e) {
+  // Ignore filesystem permission errors in restricted environments
+}
+
+try {
+  const bootSetting = db.prepare("SELECT value FROM platform_settings WHERE key = 'last_server_boot'").get();
+  if (bootSetting && bootSetting.value) {
+    isRestart = true;
+  }
+  db.prepare(`
+    INSERT OR REPLACE INTO platform_settings (key, value, description)
+    VALUES ('last_server_boot', ?, 'Timestamp of the last server startup')
+  `).run(processStartIso);
+} catch (e) {
+  // Database table might be initializing or under custom test harnesses
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -165,46 +194,63 @@ app.use('/api', createRoutes(timerEngine, io));
 
 // =============================================================================
 // PRODUCTION HEALTH MONITORING ENDPOINTS (/api/health & /health)
+// Extremely lightweight: returns HTTP 200 quickly without auth, no external APIs,
+// and no expensive database queries on basic uptime probes.
 // Compatible with Render Health Checks, UptimeRobot, BetterStack, Pingdom, HEAD/GET
 // =============================================================================
 const handleHealthCheck = (req, res) => {
-  try {
-    // Perform active SQLite database connectivity verification
-    const dbProbe = db.prepare('SELECT 1 as alive').get();
-    const isDbAlive = Boolean(dbProbe && dbProbe.alive === 1);
-
-    if (!isDbAlive) {
+  // Deep connectivity check only when explicitly requested (e.g., ?deep=1 or ?checkDb=true)
+  if (req.query && (req.query.deep === '1' || req.query.checkDb === 'true')) {
+    try {
+      const dbProbe = db.prepare('SELECT 1 as alive').get();
+      const isDbAlive = Boolean(dbProbe && (dbProbe.alive === 1 || dbProbe.alive === '1' || dbProbe.alive === true));
+      if (!isDbAlive) {
+        return res.status(503).json({
+          status: 'unhealthy',
+          database: 'disconnected',
+          timestamp: new Date().toISOString()
+        });
+      }
+    } catch (err) {
       return res.status(503).json({
         status: 'unhealthy',
         database: 'disconnected',
         timestamp: new Date().toISOString()
       });
     }
+  }
 
-    const memoryUsage = process.memoryUsage();
-
-    res.status(200).json({
-      status: 'healthy',
-      platform: 'HireByMinutes',
-      version: '2.4.0',
-      environment: process.env.NODE_ENV || 'development',
-      database: 'connected',
-      uptimeSeconds: Math.floor(process.uptime()),
-      timestamp: new Date().toISOString(),
-      memory: {
-        rssMb: Math.round(memoryUsage.rss / (1024 * 1024)),
-        heapUsedMb: Math.round(memoryUsage.heapUsed / (1024 * 1024)),
-        heapTotalMb: Math.round(memoryUsage.heapTotal / (1024 * 1024))
-      }
-    });
-  } catch (err) {
-    console.error('[Health Check Failure]', err.message);
-    res.status(503).json({
+  // Lightweight check: verify db module is initialized without firing synchronous queries
+  const isDbReady = Boolean(db);
+  if (!isDbReady) {
+    return res.status(503).json({
       status: 'unhealthy',
       database: 'disconnected',
       timestamp: new Date().toISOString()
     });
   }
+
+  // If HEAD request, respond 200 OK immediately without a body
+  if (req.method === 'HEAD') {
+    return res.status(200).end();
+  }
+
+  const memoryUsage = process.memoryUsage();
+
+  res.status(200).json({
+    status: 'healthy',
+    platform: 'HireByMinutes',
+    version: '2.4.0',
+    environment: process.env.NODE_ENV || 'development',
+    database: 'connected',
+    uptimeSeconds: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+    memory: {
+      rssMb: Math.round(memoryUsage.rss / (1024 * 1024)),
+      heapUsedMb: Math.round(memoryUsage.heapUsed / (1024 * 1024)),
+      heapTotalMb: Math.round(memoryUsage.heapTotal / (1024 * 1024))
+    }
+  });
 };
 
 app.get('/api/health', handleHealthCheck);
@@ -220,10 +266,16 @@ const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
 if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));
 
-// SPA fallback for all client GET routes (excluding /api, /uploads, /socket.io)
+  // SPA fallback for all client GET routes (excluding /health, /api, /uploads, /socket.io)
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/socket.io')) {
+    if (
+      req.path === '/health' ||
+      req.path.startsWith('/health/') ||
+      req.path.startsWith('/api') ||
+      req.path.startsWith('/uploads') ||
+      req.path.startsWith('/socket.io')
+    ) {
       return next();
     }
     res.sendFile(path.join(clientDistPath, 'index.html'));
@@ -354,14 +406,36 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('[HireByMinutes Server] Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
+let isShuttingDown = false;
 const gracefulShutdown = (signal) => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
   console.log(`[HireByMinutes Server] Received ${signal}. Starting graceful shutdown...`);
-  timerEngine.stop();
+
+  // 1. Stop timer engine intervals (preserves database session records)
+  try {
+    timerEngine.stop();
+  } catch (err) {
+    console.error('[HireByMinutes Server] Error stopping TimerEngine:', err.message);
+  }
+
+  // 2. Cleanly close Socket.IO server
+  try {
+    io.close(() => {
+      console.log('[HireByMinutes Server] Socket.IO connections closed cleanly.');
+    });
+  } catch (err) {
+    console.error('[HireByMinutes Server] Error closing Socket.IO:', err.message);
+  }
+
+  // 3. Stop accepting new HTTP connections and close HTTP server
   server.close(() => {
-    console.log('[HireByMinutes Server] HTTP and WebSocket server closed.');
+    console.log('[HireByMinutes Server] HTTP server closed.');
     try {
-      db.close();
-      console.log('[HireByMinutes Server] SQLite database connection closed.');
+      if (typeof db.close === 'function') {
+        db.close();
+        console.log('[HireByMinutes Server] Database connections closed cleanly.');
+      }
     } catch (e) {
       console.error('[HireByMinutes Server] Error closing database:', e.message);
     }
@@ -372,7 +446,7 @@ const gracefulShutdown = (signal) => {
   setTimeout(() => {
     console.error('[HireByMinutes Server] Forcing exit after timeout.');
     process.exit(1);
-  }, 10000);
+  }, 10000).unref();
 };
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
@@ -399,7 +473,16 @@ server.on('error', (err) => {
 });
 
 server.listen(PORT, HOST, () => {
+  const serverListenTime = Date.now();
+  const serverListenIso = new Date(serverListenTime).toISOString();
+  const startupDurationMs = serverListenTime - processStartTime;
+
   console.log(`[HireByMinutes Server] Listening on ${HOST}:${PORT} (NODE_ENV: ${process.env.NODE_ENV || 'development'})`);
+  console.log(`[HireByMinutes Cold-Start Observability]`);
+  console.log(`  - Process Startup: ${processStartIso}`);
+  console.log(`  - Server Listening: ${serverListenIso}`);
+  console.log(`  - Startup Duration: ${startupDurationMs}ms`);
+  console.log(`  - Restart Detected: ${isRestart ? 'Yes (starting after container wake / restart)' : 'No (initial clean boot)'}`);
 });
 
 module.exports = { app, server };

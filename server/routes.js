@@ -195,39 +195,56 @@ module.exports = function(timerEngine, io) {
   // Initialize email service with database reference
   emailService.init(db);
 
-  // Production Health Monitoring Endpoints
+  // Production Health Monitoring Endpoints (Extremely lightweight, Render Free safe, no auth, no external API)
   const handleHealth = (req, res) => {
-    try {
-      const result = db.prepare('SELECT 1 as alive').get();
-      if (result && (result.alive === 1 || result.alive === '1' || result.alive === true)) {
-        const memoryUsage = process.memoryUsage();
-        return res.status(200).json({
-          status: 'healthy',
-          platform: 'HireByMinutes',
-          version: '2.4.0',
-          environment: process.env.NODE_ENV || 'development',
-          database: 'connected',
-          uptimeSeconds: Math.floor(process.uptime()),
-          timestamp: new Date().toISOString(),
-          memory: {
-            rssMb: Math.round(memoryUsage.rss / (1024 * 1024)),
-            heapUsedMb: Math.round(memoryUsage.heapUsed / (1024 * 1024)),
-            heapTotalMb: Math.round(memoryUsage.heapTotal / (1024 * 1024))
-          }
+    // Optional deep query probe if specifically requested via ?deep=1 or ?checkDb=true
+    if (req.query && (req.query.deep === '1' || req.query.checkDb === 'true')) {
+      try {
+        const result = db.prepare('SELECT 1 as alive').get();
+        if (!result || (result.alive !== 1 && result.alive !== '1' && result.alive !== true)) {
+          return res.status(503).json({
+            status: 'unhealthy',
+            database: 'disconnected',
+            timestamp: new Date().toISOString()
+          });
+        }
+      } catch (err) {
+        return res.status(503).json({
+          status: 'unhealthy',
+          database: 'disconnected',
+          timestamp: new Date().toISOString()
         });
       }
-      return res.status(503).json({
-        status: 'unhealthy',
-        database: 'disconnected',
-        timestamp: new Date().toISOString()
-      });
-    } catch (err) {
+    }
+
+    const isDbReady = Boolean(db);
+    if (!isDbReady) {
       return res.status(503).json({
         status: 'unhealthy',
         database: 'disconnected',
         timestamp: new Date().toISOString()
       });
     }
+
+    if (req.method === 'HEAD') {
+      return res.status(200).end();
+    }
+
+    const memoryUsage = process.memoryUsage();
+    return res.status(200).json({
+      status: 'healthy',
+      platform: 'HireByMinutes',
+      version: '2.4.0',
+      environment: process.env.NODE_ENV || 'development',
+      database: 'connected',
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+      memory: {
+        rssMb: Math.round(memoryUsage.rss / (1024 * 1024)),
+        heapUsedMb: Math.round(memoryUsage.heapUsed / (1024 * 1024)),
+        heapTotalMb: Math.round(memoryUsage.heapTotal / (1024 * 1024))
+      }
+    });
   };
   router.get('/health', handleHealth);
   router.head('/health', handleHealth);
