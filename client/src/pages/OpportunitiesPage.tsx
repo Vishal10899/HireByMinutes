@@ -99,7 +99,7 @@ export const OpportunitiesPage: React.FC = () => {
         key: orderRes.key_id,
         amount: orderRes.amount_paise,
         currency: orderRes.currency || 'USD',
-        name: 'HireByMinutes',
+        name: 'HireByMinute',
         description: `Opportunity Application Fee ($2.00) - ${selectedOpp.title.slice(0, 30)}`,
         order_id: orderRes.order_id,
         prefill: {
@@ -189,7 +189,7 @@ export const OpportunitiesPage: React.FC = () => {
             Work Opportunities
           </h1>
           <p className="text-sm text-midnight/70 mt-1">
-            Browse targeted consultation requests posted by clients and the HireByMinutes platform.
+            Browse targeted consultation requests posted by clients and the HireByMinute platform.
           </p>
         </div>
 

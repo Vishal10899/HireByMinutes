@@ -198,7 +198,7 @@ export const ClientDashboardPage: React.FC = () => {
         key: orderRes.key_id,
         amount: orderRes.amount_paise,
         currency: orderRes.currency || 'USD',
-        name: 'HireByMinutes',
+        name: 'HireByMinute',
         description: `Consultation Payment (${orderRes.order_id})`,
         order_id: orderRes.order_id,
         prefill: {

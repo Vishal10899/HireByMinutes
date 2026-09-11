@@ -2,7 +2,7 @@ import React from 'react';
 import { BrandLogo } from './BrandLogo';
 
 export const BrandedLoadingScreen: React.FC<{ message?: string }> = ({
-  message = 'Connecting securely to HireByMinutes...'
+  message = 'Connecting securely to HireByMinute...'
 }) => {
   return (
     <div className="min-h-screen bg-aliceblue flex flex-col items-center justify-center p-6 text-center antialiased selection:bg-lightblue selection:text-midnight">
@@ -16,7 +16,7 @@ export const BrandedLoadingScreen: React.FC<{ message?: string }> = ({
         {/* Brand Text */}
         <div className="space-y-1 mt-2">
           <h2 className="text-base font-extrabold text-midnight tracking-tight">
-            HireByMinutes
+            HireByMinute
           </h2>
           <p className="text-xs text-midnight/60 font-medium">
             {message}

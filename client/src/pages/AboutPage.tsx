@@ -17,7 +17,7 @@ import {
 
 export const AboutPage: React.FC = () => {
   useEffect(() => {
-    document.title = 'About Us — HireByMinutes';
+    document.title = 'About Us — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 
@@ -35,7 +35,7 @@ export const AboutPage: React.FC = () => {
             Consulting Re-engineered for the Speed of Execution
           </h1>
           <p className="text-sm sm:text-base text-midnight/70 leading-relaxed">
-            HireByMinutes connects professionals, founders, developers, and creators with verified domain experts for exactly the minutes required to solve high-stakes challenges.
+            HireByMinute connects professionals, founders, developers, and creators with verified domain experts for exactly the minutes required to solve high-stakes challenges.
           </p>
         </div>
 
@@ -56,7 +56,7 @@ export const AboutPage: React.FC = () => {
               When engineering teams encounter complex architecture roadblocks, designers review critical launch designs, or founders assess legal trade-offs, they rarely need an expensive multi-week statement of work or a mandatory minimum retainer. What they need is 15 to 30 minutes of focused, direct clarity from someone who has navigated that exact challenge before.
             </p>
             <p>
-              Traditional marketplaces force practitioners into lengthy proposal bidding cycles, arbitrary hourly minimums, and protracted onboarding. HireByMinutes eliminates that friction by introducing <strong>minute-accurate consultation rooms</strong> backed by automated payment hold and release settlement and transparent per-minute pricing.
+              Traditional marketplaces force practitioners into lengthy proposal bidding cycles, arbitrary hourly minimums, and protracted onboarding. HireByMinute eliminates that friction by introducing <strong>minute-accurate consultation rooms</strong> backed by automated payment hold and release settlement and transparent per-minute pricing.
             </p>
           </div>
         </div>
@@ -166,7 +166,7 @@ export const AboutPage: React.FC = () => {
             <span>Fair & Transparent Platform Economics</span>
           </h2>
           <p className="text-xs sm:text-sm text-midnight/80 leading-relaxed">
-            HireByMinutes operates with complete pricing clarity. There are no hidden subscription tiers or opaque placement fees:
+            HireByMinute operates with complete pricing clarity. There are no hidden subscription tiers or opaque placement fees:
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
             <div className="p-4 bg-aliceblue rounded-xl border border-timberwolf/50 space-y-1">
@@ -190,7 +190,7 @@ export const AboutPage: React.FC = () => {
         <div className="text-center p-8 bg-white rounded-2xl border border-timberwolf/70 shadow-card space-y-4">
           <h3 className="text-xl font-bold text-midnight">Ready to get started?</h3>
           <p className="text-xs sm:text-sm text-midnight/70 max-w-md mx-auto">
-            Join clients getting direct answers and experts earning from their time on HireByMinutes.
+            Join clients getting direct answers and experts earning from their time on HireByMinute.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <Link

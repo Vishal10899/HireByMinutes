@@ -17,9 +17,9 @@ class EmailService {
     return {
       enabled: process.env.EMAIL_ENABLED !== 'false',
       provider: process.env.EMAIL_PROVIDER || 'development_console',
-      from: process.env.EMAIL_FROM || 'HireByMinutes <no-reply@hirebyminutes.com>',
-      fromName: process.env.EMAIL_FROM_NAME || 'HireByMinutes',
-      replyTo: process.env.EMAIL_REPLY_TO || 'support@hirebyminutes.com',
+      from: process.env.EMAIL_FROM || 'HireByMinute <no-reply@hirebyminute.com>',
+      fromName: process.env.EMAIL_FROM_NAME || 'HireByMinute',
+      replyTo: process.env.EMAIL_REPLY_TO || 'support@hirebyminute.com',
       apiKey: process.env.EMAIL_API_KEY || '',
       clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173'
     };

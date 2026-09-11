@@ -14,7 +14,7 @@ import {
 
 export const ExpertPolicyPage: React.FC = () => {
   useEffect(() => {
-    document.title = 'Expert Policy — HireByMinutes';
+    document.title = 'Expert Policy — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 
@@ -40,7 +40,7 @@ export const ExpertPolicyPage: React.FC = () => {
         <div className="p-4 rounded-xl bg-white border border-timberwolf/70 shadow-subtle flex items-start gap-3 text-xs text-midnight/80">
           <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            As a verified Expert or Service Provider on HireByMinutes, you represent the highest standard of professional integrity. This policy outlines mandatory quality, conduct, pricing, and confidentiality standards for all practitioners offering consultative services.
+            As a verified Expert or Service Provider on HireByMinute, you represent the highest standard of professional integrity. This policy outlines mandatory quality, conduct, pricing, and confidentiality standards for all practitioners offering consultative services.
           </p>
         </div>
 
@@ -70,7 +70,7 @@ export const ExpertPolicyPage: React.FC = () => {
               <span>2. Pricing Transparency & The $2 Listing Fee</span>
             </h2>
             <p>
-              HireByMinutes uses transparent, per-minute billing. Providers must adhere to transparent pricing rules:
+              HireByMinute uses transparent, per-minute billing. Providers must adhere to transparent pricing rules:
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li><strong>Explicit Per-Minute Rates:</strong> Rates must be clearly set (e.g. $1.50/min, $3.00/min) and reflect the total cost of consultative delivery during the session.</li>
@@ -117,7 +117,7 @@ export const ExpertPolicyPage: React.FC = () => {
               <span>5. Prohibited Services & Regulated Advice</span>
             </h2>
             <p>
-              The following types of services are strictly prohibited on HireByMinutes:
+              The following types of services are strictly prohibited on HireByMinute:
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li>Providing certified medical, diagnostic, psychiatric, or prescription treatment advice.</li>
@@ -134,7 +134,7 @@ export const ExpertPolicyPage: React.FC = () => {
               6. Responsibility for Advice & Legal Independence
             </h2>
             <p>
-              As an independent expert, you are solely responsible for the technical accuracy, soundness, and professional quality of the guidance and recommendations you provide. HireByMinutes does not endorse, guarantee, or assume liability for the outcomes of consultative advice delivered by independent providers.
+              As an independent expert, you are solely responsible for the technical accuracy, soundness, and professional quality of the guidance and recommendations you provide. HireByMinute does not endorse, guarantee, or assume liability for the outcomes of consultative advice delivered by independent providers.
             </p>
           </section>
 
@@ -150,7 +150,7 @@ export const ExpertPolicyPage: React.FC = () => {
               <li>Temporary or permanent revocation of the verified expert badge.</li>
               <li>Deactivation or removal of published service listings.</li>
               <li>Temporary holding of pending payout disbursements during active dispute investigation.</li>
-              <li>Permanent account suspension across the HireByMinutes platform.</li>
+              <li>Permanent account suspension across the HireByMinute platform.</li>
             </ul>
           </section>
 
@@ -163,10 +163,10 @@ export const ExpertPolicyPage: React.FC = () => {
               If you have questions about your verification status, listing requirements, or payout inquiries:
             </p>
             <div className="p-4 bg-aliceblue rounded-xl border border-timberwolf/50 space-y-1">
-              <div className="font-bold text-midnight">HireByMinutes Expert Operations</div>
+              <div className="font-bold text-midnight">HireByMinute Expert Operations</div>
               <div className="text-xs text-midnight/70 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-moonstone" />
-                <span>support@hirebyminutes.com</span>
+                <span>support@hirebyminute.com</span>
               </div>
             </div>
           </section>

@@ -19,7 +19,7 @@ import {
 
 export const HowItWorksPage: React.FC = () => {
   useEffect(() => {
-    document.title = 'How It Works — HireByMinutes';
+    document.title = 'How It Works — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 
@@ -34,7 +34,7 @@ export const HowItWorksPage: React.FC = () => {
             <span>Platform Guide</span>
           </div>
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-midnight leading-tight">
-            How HireByMinutes Works
+            How HireByMinute Works
           </h1>
           <p className="text-sm sm:text-base text-midnight/70 leading-relaxed">
             A step-by-step walkthrough of the consultation lifecycle for both clients seeking clarity and experts monetizing their time.

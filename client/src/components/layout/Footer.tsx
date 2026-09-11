@@ -126,11 +126,6 @@ export const Footer: React.FC = () => {
                   Provider Dashboard
                 </Link>
               </li>
-              <li>
-                <Link to="/admin" className="hover:text-moonstone transition-colors text-midnight/50">
-                  Admin Console
-                </Link>
-              </li>
             </ul>
           </div>
 
@@ -139,7 +134,7 @@ export const Footer: React.FC = () => {
         {/* Bottom Strip */}
         <div className="pt-6 border-t border-timberwolf/40 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-midnight/70">
           <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 text-center sm:text-left">
-            <p>© {new Date().getFullYear()} HireByMinutes. All rights reserved.</p>
+            <p>© {new Date().getFullYear()} HireByMinute. All rights reserved.</p>
             <span className="hidden sm:inline text-timberwolf">•</span>
             <p className="flex items-center gap-1.5 font-medium text-midnight/80">
               <span>Designed & Developed by</span>

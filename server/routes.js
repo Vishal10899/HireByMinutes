@@ -65,6 +65,23 @@ function sanitizeUser(user) {
   const safe = { ...user };
   delete safe.password_hash;
 
+  // Normalize PostgreSQL NUMERIC / aggregate fields to numbers to prevent string .toFixed errors
+  if ('total_spent' in safe) {
+    safe.total_spent = Number(safe.total_spent) || 0;
+  }
+  if ('revenue_generated' in safe) {
+    safe.revenue_generated = Number(safe.revenue_generated) || 0;
+  }
+  if ('services_count' in safe) {
+    safe.services_count = Number(safe.services_count) || 0;
+  }
+  if ('bookings_count' in safe) {
+    safe.bookings_count = Number(safe.bookings_count) || 0;
+  }
+  if ('sessions_count' in safe) {
+    safe.sessions_count = Number(safe.sessions_count) || 0;
+  }
+
   if (safe.languages_json && typeof safe.languages_json === 'string') {
     try {
       safe.languages = JSON.parse(safe.languages_json);
@@ -1875,6 +1892,9 @@ module.exports = function(timerEngine, io) {
     }
     return {
       ...reqItem,
+      total_price: Number(reqItem.total_price) || 0,
+      duration_minutes: Number(reqItem.duration_minutes) || 0,
+      service_ppm: Number(reqItem.service_ppm) || 0,
       attachments: JSON.parse(reqItem.attachments_json || '[]'),
       remaining_seconds
     };
@@ -4012,7 +4032,10 @@ module.exports = function(timerEngine, io) {
       services,
       bookings,
       sessions,
-      financial
+      financial: {
+        total_spent: Number(financial?.total_spent) || 0,
+        total_earned: Number(financial?.total_earned) || 0
+      }
     });
   });
 
@@ -4349,6 +4372,9 @@ module.exports = function(timerEngine, io) {
     const raw = db.prepare(query).all(...params);
     const services = raw.map(s => ({
       ...s,
+      price_per_minute: Number(s.price_per_minute) || 0,
+      bookings_count: Number(s.bookings_count) || 0,
+      views_count: Number(s.views_count) || 0,
       skills: JSON.parse(s.skills_json || '[]'),
       languages: JSON.parse(s.languages_json || '[]')
     }));
@@ -4636,21 +4662,23 @@ module.exports = function(timerEngine, io) {
 
     const platformTakePercent = 15;
     const payments = rawPayments.map(p => {
+      const numAmount = Number(p.amount) || 0;
       let platform_fee = 0;
       let expert_amount = 0;
       if (p.type === 'listing_fee') {
-        platform_fee = p.amount;
+        platform_fee = numAmount;
         expert_amount = 0;
       } else if (p.type === 'session_payment') {
-        platform_fee = Number((p.amount * (platformTakePercent / 100)).toFixed(2));
-        expert_amount = Number((p.amount * ((100 - platformTakePercent) / 100)).toFixed(2));
+        platform_fee = Number((numAmount * (platformTakePercent / 100)).toFixed(2));
+        expert_amount = Number((numAmount * ((100 - platformTakePercent) / 100)).toFixed(2));
       } else if (p.type === 'refund') {
-        platform_fee = -Number((p.amount * (platformTakePercent / 100)).toFixed(2));
-        expert_amount = -Number((p.amount * ((100 - platformTakePercent) / 100)).toFixed(2));
+        platform_fee = -Number((numAmount * (platformTakePercent / 100)).toFixed(2));
+        expert_amount = -Number((numAmount * ((100 - platformTakePercent) / 100)).toFixed(2));
       }
 
       return {
         ...p,
+        amount: numAmount,
         platform_fee,
         expert_amount
       };
@@ -4671,7 +4699,13 @@ module.exports = function(timerEngine, io) {
       GROUP BY o.id
       ORDER BY o.created_at DESC
     `).all();
-    res.json({ opportunities: opps, count: opps.length });
+    const normalizedOpps = opps.map(o => ({
+      ...o,
+      budget: Number(o.budget) || 0,
+      duration_minutes: Number(o.duration_minutes) || 0,
+      applications_count: Number(o.applications_count) || 0
+    }));
+    res.json({ opportunities: normalizedOpps, count: normalizedOpps.length });
   });
 
   router.post('/admin/opportunities', adminAuthMiddleware, (req, res) => {
@@ -4896,7 +4930,7 @@ module.exports = function(timerEngine, io) {
     const effective = getEffectiveListingFee();
     const campaigns = db.prepare(`
       SELECT * FROM registration_campaigns ORDER BY created_at DESC
-    `).all();
+    `).all().map(c => ({ ...c, fee_usd: Number(c.fee_usd) || 0 }));
     res.json({ campaigns, effective });
   });
 

@@ -14,7 +14,7 @@ import {
 
 export const PrivacyPage: React.FC = () => {
   useEffect(() => {
-    document.title = 'Privacy Policy — HireByMinutes';
+    document.title = 'Privacy Policy — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 
@@ -40,7 +40,7 @@ export const PrivacyPage: React.FC = () => {
         <div className="p-4 rounded-xl bg-white border border-timberwolf/70 shadow-subtle flex items-start gap-3 text-xs text-midnight/80">
           <Shield className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            HireByMinutes is designed with data minimization as a core architecture principle. We collect and process only the information necessary to authenticate users, facilitate minute-based consultations, process secure payment transactions, and maintain marketplace integrity.
+            HireByMinute is designed with data minimization as a core architecture principle. We collect and process only the information necessary to authenticate users, facilitate minute-based consultations, process secure payment transactions, and maintain marketplace integrity.
           </p>
         </div>
 
@@ -117,7 +117,7 @@ export const PrivacyPage: React.FC = () => {
             </h2>
             <p>We process collected information strictly for the following purposes:</p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
-              <li>To provide, operate, and maintain the HireByMinutes marketplace.</li>
+              <li>To provide, operate, and maintain the HireByMinute marketplace.</li>
               <li>To verify email addresses via secure 6-digit one-time password (OTP) codes.</li>
               <li>To match clients with relevant expert service listings across worldwide categories.</li>
               <li>To calculate authoritative session fees, hold and release payments upon session completion, and credit expert payouts.</li>
@@ -162,7 +162,7 @@ export const PrivacyPage: React.FC = () => {
               6. Your Rights & Data Retention
             </h2>
             <p>
-              You maintain control over your personal data on HireByMinutes:
+              You maintain control over your personal data on HireByMinute:
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li><strong>Access & Correction:</strong> You can review and update your profile details, bio, skills, and rates at any time via <Link to="/profile/edit" className="text-moonstone hover:underline font-semibold">Edit Profile</Link>.</li>
@@ -190,10 +190,10 @@ export const PrivacyPage: React.FC = () => {
               If you have questions regarding this Privacy Policy or wish to exercise your data protection rights, please reach out to:
             </p>
             <div className="p-4 bg-aliceblue rounded-xl border border-timberwolf/50 space-y-1">
-              <div className="font-bold text-midnight">HireByMinutes Privacy & Data Protection</div>
+              <div className="font-bold text-midnight">HireByMinute Privacy & Data Protection</div>
               <div className="text-xs text-midnight/70 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-moonstone" />
-                <span>support@hirebyminutes.com</span>
+                <span>support@hirebyminute.com</span>
               </div>
             </div>
           </section>

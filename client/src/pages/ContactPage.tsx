@@ -28,7 +28,7 @@ export const ContactPage: React.FC = () => {
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
-    document.title = 'Contact & Support — HireByMinutes';
+    document.title = 'Contact & Support — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 
@@ -148,7 +148,7 @@ export const ContactPage: React.FC = () => {
                       required
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder="Jane Doe"
+                      placeholder="Your Full Name"
                       className="w-full bg-white border border-timberwolf/70 rounded-xl px-3.5 py-2 text-xs text-midnight focus:border-moonstone focus:ring-2 focus:ring-moonstone/20 shadow-subtle"
                     />
                   </div>
@@ -160,7 +160,7 @@ export const ContactPage: React.FC = () => {
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="jane@example.com"
+                      placeholder="name@company.com"
                       className="w-full bg-white border border-timberwolf/70 rounded-xl px-3.5 py-2 text-xs text-midnight focus:border-moonstone focus:ring-2 focus:ring-moonstone/20 shadow-subtle"
                     />
                   </div>
@@ -235,7 +235,7 @@ export const ContactPage: React.FC = () => {
               </p>
               <div className="p-3 bg-aliceblue rounded-xl border border-timberwolf/50">
                 <div className="text-xs font-bold text-midnight font-mono select-all">
-                  support@hirebyminutes.com
+                  support@hirebyminute.com
                 </div>
                 <div className="text-[10px] text-midnight/60 mt-0.5">Average Response Time: &lt; 24h</div>
               </div>

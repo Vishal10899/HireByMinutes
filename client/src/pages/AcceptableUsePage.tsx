@@ -13,7 +13,7 @@ import {
 
 export const AcceptableUsePage: React.FC = () => {
   useEffect(() => {
-    document.title = 'Acceptable Use Policy — HireByMinutes';
+    document.title = 'Acceptable Use Policy — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 
@@ -39,7 +39,7 @@ export const AcceptableUsePage: React.FC = () => {
         <div className="p-4 rounded-xl bg-white border border-timberwolf/70 shadow-subtle flex items-start gap-3 text-xs text-midnight/80">
           <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            HireByMinutes is dedicated to providing a safe, trustworthy, and productive marketplace for knowledge exchange. This Acceptable Use Policy defines strictly prohibited activities and outlines our reporting and enforcement mechanisms.
+            HireByMinute is dedicated to providing a safe, trustworthy, and productive marketplace for knowledge exchange. This Acceptable Use Policy defines strictly prohibited activities and outlines our reporting and enforcement mechanisms.
           </p>
         </div>
 
@@ -70,7 +70,7 @@ export const AcceptableUsePage: React.FC = () => {
               <span>2. Harassment, Discrimination & Harmful Behavior</span>
             </h2>
             <p>
-              All interactions on HireByMinutes—including consultation chats, video calls, messages, and profile content—must remain professional and respectful:
+              All interactions on HireByMinute—including consultation chats, video calls, messages, and profile content—must remain professional and respectful:
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li><strong>Harassment & Threats:</strong> Engaging in intimidation, stalking, abusive language, extortion, or threats of violence.</li>
@@ -86,7 +86,7 @@ export const AcceptableUsePage: React.FC = () => {
               <span>3. Illegal Content & Unauthorized Services</span>
             </h2>
             <p>
-              You may not use HireByMinutes to promote, offer, or facilitate:
+              You may not use HireByMinute to promote, offer, or facilitate:
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li>Any activity that violates local, national, or international laws or regulations.</li>
@@ -123,7 +123,7 @@ export const AcceptableUsePage: React.FC = () => {
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li><strong>In-App Reporting:</strong> Use the report flag on any service detail page or session room to alert our administrative moderation team.</li>
-              <li><strong>Direct Safety Email:</strong> Send evidence, screenshots, or transaction details to <span className="font-mono text-moonstone-dark font-semibold">support@hirebyminutes.com</span>.</li>
+              <li><strong>Direct Safety Email:</strong> Send evidence, screenshots, or transaction details to <span className="font-mono text-moonstone-dark font-semibold">support@hirebyminute.com</span>.</li>
               <li><strong>Investigation SLA:</strong> Safety reports are reviewed by platform administrators within 24 hours.</li>
             </ul>
           </section>
@@ -134,7 +134,7 @@ export const AcceptableUsePage: React.FC = () => {
               6. Enforcement Consequences
             </h2>
             <p>
-              When a violation of this policy is confirmed, HireByMinutes may take disciplinary actions commensurate with the severity of the infraction:
+              When a violation of this policy is confirmed, HireByMinute may take disciplinary actions commensurate with the severity of the infraction:
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li>Formal warning and required remediation of profile content.</li>
@@ -154,10 +154,10 @@ export const AcceptableUsePage: React.FC = () => {
               For urgent safety reports or questions regarding this Acceptable Use Policy:
             </p>
             <div className="p-4 bg-aliceblue rounded-xl border border-timberwolf/50 space-y-1">
-              <div className="font-bold text-midnight">HireByMinutes Trust & Safety Moderation</div>
+              <div className="font-bold text-midnight">HireByMinute Trust & Safety Moderation</div>
               <div className="text-xs text-midnight/70 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-moonstone" />
-                <span>support@hirebyminutes.com</span>
+                <span>support@hirebyminute.com</span>
               </div>
             </div>
           </section>

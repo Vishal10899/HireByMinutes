@@ -13,7 +13,7 @@ import {
 
 export const RefundPolicyPage: React.FC = () => {
   useEffect(() => {
-    document.title = 'Refund & Cancellation Policy — HireByMinutes';
+    document.title = 'Refund & Cancellation Policy — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 
@@ -39,7 +39,7 @@ export const RefundPolicyPage: React.FC = () => {
         <div className="p-4 rounded-xl bg-white border border-timberwolf/70 shadow-subtle flex items-start gap-3 text-xs text-midnight/80">
           <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            All consultation payments on HireByMinutes follow a server-authoritative hold and release workflow. Funds are held securely upon client payment authorization and are only disbursed to the provider once the agreed consultation minutes have successfully concluded.
+            All consultation payments on HireByMinute follow a server-authoritative hold and release workflow. Funds are held securely upon client payment authorization and are only disbursed to the provider once the agreed consultation minutes have successfully concluded.
           </p>
         </div>
 
@@ -125,7 +125,7 @@ export const RefundPolicyPage: React.FC = () => {
             </p>
             <ol className="list-decimal pl-5 space-y-1.5 text-midnight/80">
               <li><strong>In-Room Communication:</strong> Communicate immediately via in-room messaging to attempt reconnection.</li>
-              <li><strong>Submit a Support Ticket:</strong> If the issue cannot be resolved, contact our support team within 24 hours of session conclusion at <span className="font-mono text-moonstone-dark font-semibold">support@hirebyminutes.com</span>.</li>
+              <li><strong>Submit a Support Ticket:</strong> If the issue cannot be resolved, contact our support team within 24 hours of session conclusion at <span className="font-mono text-moonstone-dark font-semibold">support@hirebyminute.com</span>.</li>
               <li><strong>Audit Log Review:</strong> Our administrative team reviews the session duration logs, connection timestamps, and chat transcripts to issue an objective ruling (e.g. full refund, partial credit, or payment release).</li>
             </ol>
           </section>
@@ -149,10 +149,10 @@ export const RefundPolicyPage: React.FC = () => {
               To report a duplicate charge, request a payment dispute review, or ask a billing question:
             </p>
             <div className="p-4 bg-aliceblue rounded-xl border border-timberwolf/50 space-y-1">
-              <div className="font-bold text-midnight">HireByMinutes Billing & Payment Support</div>
+              <div className="font-bold text-midnight">HireByMinute Billing & Payment Support</div>
               <div className="text-xs text-midnight/70 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-moonstone" />
-                <span>support@hirebyminutes.com</span>
+                <span>support@hirebyminute.com</span>
               </div>
             </div>
           </section>

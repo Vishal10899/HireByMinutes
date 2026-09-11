@@ -295,7 +295,7 @@ export const HomePage: React.FC = () => {
               Simple & Transparent
             </span>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-midnight mt-1.5">
-              How HireByMinutes works
+              How HireByMinute works
             </h2>
             <p className="text-sm text-midnight/70 mt-2">
               From finding the right person to finishing your timed consultation in four easy steps.

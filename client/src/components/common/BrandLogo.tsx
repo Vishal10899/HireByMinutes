@@ -94,7 +94,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
               lightText ? 'text-aliceblue' : 'text-midnight'
             } transition-colors group-hover:text-moonstone`}
           >
-            HireByMinutes
+            HireByMinute
           </span>
           {showTagline && (
             <span
@@ -112,7 +112,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
 
   if (asLink) {
     return (
-      <Link to="/" className="inline-flex focus:outline-none" aria-label="HireByMinutes Home">
+      <Link to="/" className="inline-flex focus:outline-none" aria-label="HireByMinute Home">
         {content}
       </Link>
     );

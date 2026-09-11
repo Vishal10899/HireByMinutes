@@ -554,7 +554,7 @@ export const SessionPage: React.FC = () => {
         key: orderRes.key_id,
         amount: orderRes.amount_paise,
         currency: orderRes.currency || 'USD',
-        name: 'HireByMinutes',
+        name: 'HireByMinute',
         description: `Extend Consultation: +${additionalMinutes} mins`,
         order_id: orderRes.order_id,
         prefill: {
@@ -1045,7 +1045,11 @@ export const SessionPage: React.FC = () => {
                       {msg.file_url && (
                         <div className="mt-2 pt-2 border-t border-white/20">
                           <a
-                            href={`http://localhost:5000${msg.file_url}`}
+                            href={
+                              msg.file_url.startsWith('http://') || msg.file_url.startsWith('https://')
+                                ? msg.file_url
+                                : `${window.location.origin}${msg.file_url.startsWith('/') ? '' : '/'}${msg.file_url}`
+                            }
                             target="_blank"
                             rel="noreferrer"
                             className={`flex items-center gap-2 p-2 rounded-xl text-[11px] font-semibold transition-colors ${

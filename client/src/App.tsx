@@ -139,6 +139,14 @@ const AppRoutes: React.FC = () => {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/admin/:tab"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <AdminPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Authentication & Password Reset */}
           <Route path="/auth" element={<AuthPage />} />

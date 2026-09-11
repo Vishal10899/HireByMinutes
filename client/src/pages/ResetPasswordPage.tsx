@@ -95,7 +95,7 @@ export const ResetPasswordPage: React.FC = () => {
           Create New Password
         </h1>
         <p className="text-xs text-midnight/70 max-w-xs leading-relaxed">
-          Choose a secure password for your HireByMinutes account.
+          Choose a secure password for your HireByMinute account.
         </p>
       </div>
 

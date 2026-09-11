@@ -215,7 +215,7 @@ export const ServiceDetailPage: React.FC = () => {
         key: orderRes.key_id,
         amount: orderRes.amount_paise,
         currency: orderRes.currency || 'USD',
-        name: 'HireByMinutes',
+        name: 'HireByMinute',
         description: `Consultation: ${service?.title || 'Expert Session'} (${activeRequest.duration_minutes}m)`,
         order_id: orderRes.order_id,
         prefill: {

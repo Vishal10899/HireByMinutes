@@ -144,7 +144,7 @@ export const ProviderOnboardingPage: React.FC = () => {
         key: orderRes.key_id,
         amount: orderRes.amount_paise,
         currency: orderRes.currency || 'USD',
-        name: 'HireByMinutes',
+        name: 'HireByMinute',
         description: `Service Listing Activation Fee ($${Number(orderRes.amount).toFixed(2)})`,
         order_id: orderRes.order_id,
         prefill: {
@@ -253,7 +253,7 @@ export const ProviderOnboardingPage: React.FC = () => {
               <CheckCircle2 className="w-8 h-8" />
             </div>
             <div className="space-y-1.5">
-              <h2 className="text-xl font-extrabold text-midnight">You're officially live on HireByMinutes!</h2>
+              <h2 className="text-xl font-extrabold text-midnight">You're officially live on HireByMinute!</h2>
               <p className="text-xs text-midnight/70 max-w-md mx-auto">
                 Your service listing is published and visible to clients worldwide. Clients can request consultations directly based on your per-minute rate.
               </p>

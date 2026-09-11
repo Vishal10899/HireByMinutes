@@ -410,7 +410,7 @@ export const AuthPage: React.FC = () => {
           {tab === 'verify_otp'
             ? 'Verify your email'
             : tab === 'login'
-            ? 'Sign in to HireByMinutes'
+            ? 'Sign in to HireByMinute'
             : 'Create your account'}
         </h1>
         <p className="text-xs text-midnight/70 max-w-xs leading-relaxed">

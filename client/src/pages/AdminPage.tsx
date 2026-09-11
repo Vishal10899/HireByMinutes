@@ -1,9 +1,48 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { BrandLogo } from '../components/common/BrandLogo';
 import { COUNTRIES } from '../data/geoData';
+import { AdminContentErrorBoundary } from '../components/admin/AdminContentErrorBoundary';
+import { AdminLoadingSkeleton } from '../components/admin/AdminLoadingSkeleton';
+
+// PostgreSQL NUMERIC and currency safe normalization helpers
+export const formatCurrency = (val: any): string => {
+  if (val === null || val === undefined || val === '') return '0.00';
+  const num = Number(val);
+  return isNaN(num) ? '0.00' : num.toFixed(2);
+};
+
+export const formatNumber = (val: any): number => {
+  if (val === null || val === undefined || val === '') return 0;
+  const num = Number(val);
+  return isNaN(num) ? 0 : num;
+};
+
+export const VALID_ADMIN_TABS = [
+  'overview',
+  'traffic',
+  'users',
+  'services',
+  'categories',
+  'opportunities',
+  'consultation_requests',
+  'active_sessions',
+  'completed_sessions',
+  'reports',
+  'registration_offers',
+  'finance',
+  'transactions',
+  'refunds',
+  'emails',
+  'notifications',
+  'add_user',
+  'verifications',
+  'settings',
+  'audit'
+];
+
 import {
   LayoutDashboard,
   Users,
@@ -161,10 +200,12 @@ const AdminRequestTimer: React.FC<{ deadline: string; status: string }> = ({ dea
 export const AdminPage: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { tab: urlTab } = useParams<{ tab?: string }>();
 
   // Active Tab Navigation
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
 
   // Global Admin State
   const [stats, setStats] = useState<any>(null);
@@ -384,7 +425,7 @@ export const AdminPage: React.FC = () => {
       setActionLoading('save-base-fee');
       await api.updateAdminListingFee(Number(newBaseFeeInput) || 2.00);
       setEditBaseFeeModalOpen(false);
-      alert(`Base listing fee updated to $${Number(newBaseFeeInput).toFixed(2)}`);
+      alert(`Base listing fee updated to $${formatCurrency(newBaseFeeInput)}`);
       await loadAdminData();
     } catch (err: any) {
       alert(err.message || 'Failed to update base fee.');
@@ -393,11 +434,47 @@ export const AdminPage: React.FC = () => {
     }
   };
 
+  // Handle URL tab parameter synchronization
+  useEffect(() => {
+    if (!urlTab || urlTab === 'overview') {
+      setActiveTab('overview');
+    } else if (['clients', 'experts', 'verified_experts', 'suspended'].includes(urlTab)) {
+      setActiveTab('users');
+      if (urlTab === 'clients') {
+        setRoleFilter('client');
+        setStatusFilter('all');
+      } else if (urlTab === 'experts') {
+        setRoleFilter('provider');
+        setStatusFilter('all');
+      } else if (urlTab === 'verified_experts') {
+        setRoleFilter('provider');
+        setStatusFilter('verified');
+      } else if (urlTab === 'suspended') {
+        setRoleFilter('all');
+        setStatusFilter('suspended');
+      }
+    } else if (urlTab === 'all_users' || urlTab === 'all-users') {
+      setActiveTab('users');
+      setRoleFilter('all');
+      setStatusFilter('all');
+    } else if (VALID_ADMIN_TABS.includes(urlTab)) {
+      setActiveTab(urlTab);
+    } else {
+      setActiveTab('not_found');
+    }
+  }, [urlTab]);
+
+  const handleTabNavigate = (tabId: string) => {
+    navigate(`/admin/${tabId}`);
+    setMobileMenuOpen(false);
+  };
+
   useEffect(() => {
     if (user && user.role === 'admin') {
       loadAdminData();
     }
   }, [user]);
+
 
   // Load specific user details
   const openUserDetailModal = async (u: any) => {
@@ -740,15 +817,6 @@ export const AdminPage: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-aliceblue flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-12 h-12 border-3 border-moonstone border-t-transparent rounded-full animate-spin mb-4" />
-        <h2 className="text-base font-extrabold text-midnight tracking-tight">HireByMinutes Control Center</h2>
-        <p className="text-xs text-midnight/60 mt-1">Connecting to authoritative platform ledger...</p>
-      </div>
-    );
-  }
 
   // Navigation Items Structure
   const navSections = [
@@ -880,35 +948,20 @@ export const AdminPage: React.FC = () => {
                   {sec.items.map((item) => {
                     const Icon = item.icon;
                     const isActive =
-                      activeTab === item.id ||
-                      (activeTab === 'users' && ['clients', 'experts', 'verified_experts', 'suspended'].includes(item.id) && roleFilter === item.id);
+                      (urlTab === item.id) ||
+                      (!urlTab && item.id === 'overview') ||
+                      (activeTab === 'users' && ['clients', 'experts', 'verified_experts', 'suspended'].includes(item.id) && (
+                        (item.id === 'clients' && roleFilter === 'client') ||
+                        (item.id === 'experts' && roleFilter === 'provider' && statusFilter === 'all') ||
+                        (item.id === 'verified_experts' && roleFilter === 'provider' && statusFilter === 'verified') ||
+                        (item.id === 'suspended' && statusFilter === 'suspended')
+                      )) ||
+                      (activeTab === 'users' && item.id === 'users' && roleFilter === 'all' && statusFilter === 'all');
 
                     return (
                       <button
                         key={item.id}
-                        onClick={() => {
-                          if (['clients', 'experts', 'verified_experts', 'suspended'].includes(item.id)) {
-                            setActiveTab('users');
-                            if (item.id === 'clients') {
-                              setRoleFilter('client');
-                              setStatusFilter('all');
-                            } else if (item.id === 'experts') {
-                              setRoleFilter('provider');
-                              setStatusFilter('all');
-                            } else if (item.id === 'verified_experts') {
-                              setRoleFilter('provider');
-                              setStatusFilter('verified');
-                            } else if (item.id === 'suspended') {
-                              setRoleFilter('all');
-                              setStatusFilter('suspended');
-                            }
-                          } else {
-                            setActiveTab(item.id);
-                            setRoleFilter('all');
-                            setStatusFilter('all');
-                          }
-                          setMobileMenuOpen(false);
-                        }}
+                        onClick={() => handleTabNavigate(item.id)}
                         className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                           isActive
                             ? 'bg-midnight text-aliceblue shadow-subtle'
@@ -940,7 +993,7 @@ export const AdminPage: React.FC = () => {
 
           {/* Sidebar Footer Info */}
           <div className="p-4 border-t border-timberwolf/40 bg-aliceblue/60 text-center">
-            <div className="text-[11px] font-bold text-midnight">HireByMinutes Platform</div>
+            <div className="text-[11px] font-bold text-midnight">HireByMinute Platform</div>
             <div className="text-[10px] text-midnight/50 mt-0.5">Production Engine · v2.4</div>
           </div>
         </aside>
@@ -957,239 +1010,242 @@ export const AdminPage: React.FC = () => {
         {/* MAIN SCROLLABLE CONTENT CANVAS */}
         {/* ======================================================================= */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
-          
-          {/* ===================================================================== */}
-          {/* TAB 1: OPERATIONS DASHBOARD (OVERVIEW) */}
-          {/* ===================================================================== */}
-          {activeTab === 'overview' && (
-            <div className="space-y-6">
-              
-              {/* Header Title Banner */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
-                <div>
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-moonstone/10 text-moonstone-dark text-[11px] font-bold border border-moonstone/30 mb-2">
-                    <Radio className="w-3 h-3 animate-pulse text-emerald-600" />
-                    <span>Live Operations Control</span>
-                  </div>
-                  <h1 className="text-2xl font-extrabold text-midnight tracking-tight">
-                    HireByMinutes Platform Health
-                  </h1>
-                  <p className="text-xs text-midnight/70 mt-1">
-                    Real-time operational ledger, active consultations, conversion funnels, and verified expert directory.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setActiveTab('add_user')}
-                    className="btn-shine inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
-                  >
-                    <PlusCircle className="w-4 h-4 text-moonstone" />
-                    <span>Add User ($0 Waiver)</span>
-                  </button>
-
-                  <button
-                    onClick={() => setActiveTab('verifications')}
-                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white text-midnight font-semibold text-xs border border-timberwolf/70 hover:bg-aliceblue shadow-subtle transition-all cursor-pointer"
-                  >
-                    <ShieldCheck className="w-4 h-4 text-moonstone" />
-                    <span>Review Queue ({pendingVerifications.length})</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* CORE KPI METRICS GRID (LIGHT CARDS) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                
-                {/* Total Users */}
-                <div
-                  onClick={() => {
-                    setActiveTab('users');
-                    setRoleFilter('all');
-                  }}
-                  className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card cursor-pointer hover:border-moonstone/60 transition-all flex flex-col justify-between"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Total Accounts</span>
-                    <div className="w-9 h-9 rounded-xl bg-aliceblue text-midnight flex items-center justify-center border border-lightblue/60">
-                      <Users className="w-4 h-4 text-moonstone" />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-extrabold text-midnight font-mono">
-                      {stats?.totalUsers || usersList.length}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 text-[11px] text-midnight/60">
-                      <span>{stats?.totalClients || 0} clients</span>
-                      <span>•</span>
-                      <span>{stats?.totalProviders || 0} experts</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Verified Experts */}
-                <div
-                  onClick={() => {
-                    setActiveTab('users');
-                    setRoleFilter('provider');
-                    setStatusFilter('verified');
-                  }}
-                  className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card cursor-pointer hover:border-moonstone/60 transition-all flex flex-col justify-between"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Verified Experts</span>
-                    <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200">
-                      <ShieldCheck className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-extrabold text-emerald-700 font-mono">
-                      {stats?.verifiedExperts || 0}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-1 text-[11px] text-amber-700 font-semibold">
-                      <AlertCircle className="w-3 h-3" />
-                      <span>{pendingVerifications.length} pending review</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Gross Volume */}
-                <div
-                  onClick={() => setActiveTab('finance')}
-                  className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card cursor-pointer hover:border-moonstone/60 transition-all flex flex-col justify-between"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Gross Volume</span>
-                    <div className="w-9 h-9 rounded-xl bg-aliceblue text-midnight flex items-center justify-center border border-lightblue/60">
-                      <DollarSign className="w-4 h-4 text-moonstone" />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-extrabold text-midnight font-mono">
-                      ${stats?.grossRevenue ? stats.grossRevenue.toFixed(2) : '0.00'}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 text-[11px] text-midnight/60">
-                      <span>Net: ${stats?.netRevenue ? stats.netRevenue.toFixed(2) : '0.00'}</span>
-                      <span>•</span>
-                      <span>Ref: ${stats?.totalRefunds || 0}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Platform Net Take (15%) */}
-                <div
-                  onClick={() => setActiveTab('finance')}
-                  className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card cursor-pointer hover:border-moonstone/60 transition-all flex flex-col justify-between"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Platform Take (15%)</span>
-                    <div className="w-9 h-9 rounded-xl bg-moonstone-light text-moonstone-dark flex items-center justify-center border border-moonstone/30">
-                      <TrendingUp className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-extrabold text-moonstone-dark font-mono">
-                      ${stats?.platformRevenue ? stats.platformRevenue.toFixed(2) : '0.00'}
-                    </div>
-                    <div className="text-[11px] text-midnight/60 mt-1">
-                      Expert Payouts: ${stats?.expertPayouts ? stats.expertPayouts.toFixed(2) : '0.00'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* SECONDARY ROW: TODAY'S TELEMETRY & CONVERSION FUNNEL */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                
-                {/* 24-Hour Velocity Card */}
-                <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
-                      <Activity className="w-4 h-4 text-moonstone" />
-                      <span>Today's Activity</span>
-                    </h3>
-                    <span className="text-[10px] font-bold text-midnight/50 bg-aliceblue px-2 py-0.5 rounded-full border border-timberwolf/60">
-                      24h Rolling
-                    </span>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-xs py-1 border-b border-timberwolf/30">
-                      <span className="text-midnight/70">New Registrations</span>
-                      <span className="font-bold text-midnight font-mono">+{stats?.today?.newUsers || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs py-1 border-b border-timberwolf/30">
-                      <span className="text-midnight/70">New Expert Listings</span>
-                      <span className="font-bold text-midnight font-mono">+{stats?.today?.newExperts || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs py-1 border-b border-timberwolf/30">
-                      <span className="text-midnight/70">Consultation Requests</span>
-                      <span className="font-bold text-midnight font-mono">+{stats?.today?.newRequests || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs py-1 border-b border-timberwolf/30">
-                      <span className="text-midnight/70">Completed Sessions</span>
-                      <span className="font-bold text-emerald-700 font-mono">+{stats?.today?.completedSessions || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs py-1">
-                      <span className="text-midnight/70">Today's Revenue</span>
-                      <span className="font-bold text-midnight font-mono">${stats?.today?.revenue?.toFixed(2) || '0.00'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Conversion Funnel */}
-                <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
-                      <TrendingUp className="w-4 h-4 text-moonstone" />
-                      <span>Conversion Funnel</span>
-                    </h3>
-                    <span className="text-[10px] font-bold text-midnight/50 bg-aliceblue px-2 py-0.5 rounded-full border border-timberwolf/60">
-                      SLA Health
-                    </span>
-                  </div>
-
-                  <div className="space-y-3.5">
+          {loading ? (
+            <AdminLoadingSkeleton />
+          ) : (
+            <AdminContentErrorBoundary
+              activeTab={activeTab}
+              onReset={loadAdminData}
+              onNavigateHome={() => handleTabNavigate('overview')}
+            >
+              {/* ===================================================================== */}
+              {/* TAB 1: OPERATIONS DASHBOARD (OVERVIEW) */}
+              {/* ===================================================================== */}
+              {activeTab === 'overview' && (
+                <div className="space-y-6">
+                  
+                  {/* Header Title Banner */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
                     <div>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-midnight/70">Request → Expert Accepted</span>
-                        <span className="font-bold text-midnight font-mono">{stats?.conversions?.requestToAcceptedRate || 85}%</span>
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-moonstone/10 text-moonstone-dark text-[11px] font-bold border border-moonstone/30 mb-2">
+                        <Radio className="w-3 h-3 animate-pulse text-emerald-600" />
+                        <span>Live Operations Control</span>
                       </div>
-                      <div className="w-full h-2 bg-aliceblue rounded-full overflow-hidden border border-timberwolf/40">
-                        <div
-                          className="h-full bg-moonstone rounded-full"
-                          style={{ width: `${Math.min(stats?.conversions?.requestToAcceptedRate || 85, 100)}%` }}
-                        />
+                      <h1 className="text-2xl font-extrabold text-midnight tracking-tight">
+                        HireByMinute Platform Health
+                      </h1>
+                      <p className="text-xs text-midnight/70 mt-1">
+                        Real-time operational ledger, active consultations, conversion funnels, and verified expert directory.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => handleTabNavigate('add_user')}
+                        className="btn-shine inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
+                      >
+                        <PlusCircle className="w-4 h-4 text-moonstone" />
+                        <span>Add User ($0 Waiver)</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleTabNavigate('verifications')}
+                        className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-aliceblue border border-timberwolf/70 text-midnight font-semibold text-xs hover:bg-lightblue/30 shadow-subtle transition-all cursor-pointer relative"
+                      >
+                        <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                        <span>Verification Queue</span>
+                        {pendingVerifications.length > 0 && (
+                          <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping absolute -top-0.5 -right-0.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* PRIMARY KPI METRICS (4 CARDS) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    
+                    {/* Total Users */}
+                    <div
+                      onClick={() => handleTabNavigate('users')}
+                      className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card cursor-pointer hover:border-moonstone/60 transition-all flex flex-col justify-between"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Total Accounts</span>
+                        <div className="w-9 h-9 rounded-xl bg-aliceblue text-midnight flex items-center justify-center border border-lightblue/60">
+                          <Users className="w-4 h-4 text-moonstone" />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-extrabold text-midnight font-mono">
+                          {stats?.totalUsers || usersList.length}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 text-[11px] text-midnight/60">
+                          <span>{stats?.totalClients || 0} clients</span>
+                          <span>•</span>
+                          <span>{stats?.totalProviders || 0} experts</span>
+                        </div>
                       </div>
                     </div>
 
-                    <div>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-midnight/70">Accepted → Client Paid</span>
-                        <span className="font-bold text-midnight font-mono">{stats?.conversions?.acceptedToPaidRate || 92}%</span>
+                    {/* Verified Experts */}
+                    <div
+                      onClick={() => handleTabNavigate('verified_experts')}
+                      className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card cursor-pointer hover:border-moonstone/60 transition-all flex flex-col justify-between"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Verified Experts</span>
+                        <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200">
+                          <ShieldCheck className="w-4 h-4" />
+                        </div>
                       </div>
-                      <div className="w-full h-2 bg-aliceblue rounded-full overflow-hidden border border-timberwolf/40">
-                        <div
-                          className="h-full bg-emerald-500 rounded-full"
-                          style={{ width: `${Math.min(stats?.conversions?.acceptedToPaidRate || 92, 100)}%` }}
-                        />
+                      <div>
+                        <div className="text-2xl font-extrabold text-emerald-700 font-mono">
+                          {stats?.verifiedExperts || 0}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1 text-[11px] text-amber-700 font-semibold">
+                          <AlertCircle className="w-3 h-3" />
+                          <span>{pendingVerifications.length} pending review</span>
+                        </div>
                       </div>
                     </div>
 
-                    <div>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-midnight/70">Paid → Completed Session</span>
-                        <span className="font-bold text-midnight font-mono">{stats?.conversions?.paidToCompletedRate || 95}%</span>
+                    {/* Gross Volume */}
+                    <div
+                      onClick={() => handleTabNavigate('finance')}
+                      className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card cursor-pointer hover:border-moonstone/60 transition-all flex flex-col justify-between"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Gross Volume</span>
+                        <div className="w-9 h-9 rounded-xl bg-aliceblue text-midnight flex items-center justify-center border border-lightblue/60">
+                          <DollarSign className="w-4 h-4 text-moonstone" />
+                        </div>
                       </div>
-                      <div className="w-full h-2 bg-aliceblue rounded-full overflow-hidden border border-timberwolf/40">
-                        <div
-                          className="h-full bg-midnight rounded-full"
-                          style={{ width: `${Math.min(stats?.conversions?.paidToCompletedRate || 95, 100)}%` }}
-                        />
+                      <div>
+                        <div className="text-2xl font-extrabold text-midnight font-mono">
+                          ${formatCurrency(stats?.grossRevenue)}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 text-[11px] text-midnight/60">
+                          <span>Net: ${formatCurrency(stats?.netRevenue)}</span>
+                          <span>•</span>
+                          <span>Ref: ${formatCurrency(stats?.totalRefunds)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Platform Net Take (15%) */}
+                    <div
+                      onClick={() => handleTabNavigate('finance')}
+                      className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card cursor-pointer hover:border-moonstone/60 transition-all flex flex-col justify-between"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Platform Take (15%)</span>
+                        <div className="w-9 h-9 rounded-xl bg-moonstone-light text-moonstone-dark flex items-center justify-center border border-moonstone/30">
+                          <TrendingUp className="w-4 h-4" />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-extrabold text-moonstone-dark font-mono">
+                          ${formatCurrency(stats?.platformRevenue)}
+                        </div>
+                        <div className="text-[11px] text-midnight/60 mt-1">
+                          Expert Payouts: ${formatCurrency(stats?.expertPayouts)}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+
+                  {/* SECONDARY ROW: TODAY'S TELEMETRY & CONVERSION FUNNEL */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    
+                    {/* 24-Hour Velocity Card */}
+                    <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-moonstone" />
+                          <span>Today's Activity</span>
+                        </h3>
+                        <span className="text-[10px] font-bold text-midnight/50 bg-aliceblue px-2 py-0.5 rounded-full border border-timberwolf/60">
+                          24h Rolling
+                        </span>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between text-xs py-1 border-b border-timberwolf/30">
+                          <span className="text-midnight/70">New Registrations</span>
+                          <span className="font-bold text-midnight font-mono">+{stats?.today?.newUsers || 0}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs py-1 border-b border-timberwolf/30">
+                          <span className="text-midnight/70">New Expert Listings</span>
+                          <span className="font-bold text-midnight font-mono">+{stats?.today?.newExperts || 0}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs py-1 border-b border-timberwolf/30">
+                          <span className="text-midnight/70">Consultation Requests</span>
+                          <span className="font-bold text-midnight font-mono">+{stats?.today?.newRequests || 0}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs py-1 border-b border-timberwolf/30">
+                          <span className="text-midnight/70">Completed Sessions</span>
+                          <span className="font-bold text-emerald-700 font-mono">+{stats?.today?.completedSessions || 0}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs py-1">
+                          <span className="text-midnight/70">Today's Revenue</span>
+                          <span className="font-bold text-midnight font-mono">${formatCurrency(stats?.today?.revenue)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Conversion Funnel */}
+                    <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
+                          <TrendingUp className="w-4 h-4 text-moonstone" />
+                          <span>Conversion Funnel</span>
+                        </h3>
+                        <span className="text-[10px] font-bold text-midnight/50 bg-aliceblue px-2 py-0.5 rounded-full border border-timberwolf/60">
+                          SLA Health
+                        </span>
+                      </div>
+
+                      <div className="space-y-3.5">
+                        <div>
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="text-midnight/70">Request → Expert Accepted</span>
+                            <span className="font-bold text-midnight font-mono">{stats?.conversions?.requestToAcceptedRate ?? 0}%</span>
+                          </div>
+                          <div className="w-full h-2 bg-aliceblue rounded-full overflow-hidden border border-timberwolf/40">
+                            <div
+                              className="h-full bg-moonstone rounded-full"
+                              style={{ width: `${Math.min(stats?.conversions?.requestToAcceptedRate ?? 0, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="text-midnight/70">Accepted → Client Paid</span>
+                            <span className="font-bold text-midnight font-mono">{stats?.conversions?.acceptedToPaidRate ?? 0}%</span>
+                          </div>
+                          <div className="w-full h-2 bg-aliceblue rounded-full overflow-hidden border border-timberwolf/40">
+                            <div
+                              className="h-full bg-emerald-500 rounded-full"
+                              style={{ width: `${Math.min(stats?.conversions?.acceptedToPaidRate ?? 0, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="text-midnight/70">Paid → Completed Session</span>
+                            <span className="font-bold text-midnight font-mono">{stats?.conversions?.paidToCompletedRate ?? 0}%</span>
+                          </div>
+                          <div className="w-full h-2 bg-aliceblue rounded-full overflow-hidden border border-timberwolf/40">
+                            <div
+                              className="h-full bg-midnight rounded-full"
+                              style={{ width: `${Math.min(stats?.conversions?.paidToCompletedRate ?? 0, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
 
                 {/* Quick Action Queues */}
                 <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card space-y-4">
@@ -1200,7 +1256,7 @@ export const AdminPage: React.FC = () => {
 
                   <div className="space-y-2">
                     <button
-                      onClick={() => setActiveTab('verifications')}
+                      onClick={() => handleTabNavigate('verifications')}
                       className="w-full flex items-center justify-between p-3 rounded-xl bg-aliceblue hover:bg-lightblue/30 border border-timberwolf/60 transition-colors text-left cursor-pointer"
                     >
                       <div className="flex items-center gap-2.5">
@@ -1214,7 +1270,7 @@ export const AdminPage: React.FC = () => {
                     </button>
 
                     <button
-                      onClick={() => setActiveTab('reports')}
+                      onClick={() => handleTabNavigate('reports')}
                       className="w-full flex items-center justify-between p-3 rounded-xl bg-aliceblue hover:bg-lightblue/30 border border-timberwolf/60 transition-colors text-left cursor-pointer"
                     >
                       <div className="flex items-center gap-2.5">
@@ -1230,7 +1286,7 @@ export const AdminPage: React.FC = () => {
                     </button>
 
                     <button
-                      onClick={() => setActiveTab('consultation_requests')}
+                      onClick={() => handleTabNavigate('consultation_requests')}
                       className="w-full flex items-center justify-between p-3 rounded-xl bg-aliceblue hover:bg-lightblue/30 border border-timberwolf/60 transition-colors text-left cursor-pointer"
                     >
                       <div className="flex items-center gap-2.5">
@@ -1254,7 +1310,7 @@ export const AdminPage: React.FC = () => {
                     <span>Recent Administrative Audit Events</span>
                   </h3>
                   <button
-                    onClick={() => setActiveTab('audit')}
+                    onClick={() => handleTabNavigate('audit')}
                     className="text-xs font-semibold text-moonstone hover:text-moonstone-dark transition-colors cursor-pointer"
                   >
                     View All Audit Logs →
@@ -1327,7 +1383,7 @@ export const AdminPage: React.FC = () => {
 
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => setActiveTab('add_user')}
+                    onClick={() => handleTabNavigate('add_user')}
                     className="btn-shine inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
                   >
                     <PlusCircle className="w-4 h-4 text-moonstone" />
@@ -1486,8 +1542,8 @@ export const AdminPage: React.FC = () => {
                             {/* Financial */}
                             <td className="py-3.5 px-4 font-mono font-bold text-midnight">
                               {u.role === 'provider'
-                                ? `Earned $${(u.revenue_generated || 0).toFixed(2)}`
-                                : `Spent $${(u.total_spent || 0).toFixed(2)}`}
+                                ? `Earned $${formatCurrency(u.revenue_generated)}`
+                                : `Spent $${formatCurrency(u.total_spent)}`}
                             </td>
 
                             {/* Actions */}
@@ -1605,7 +1661,7 @@ export const AdminPage: React.FC = () => {
                           </td>
                           <td className="py-3.5 px-4 font-semibold text-midnight">{s.provider_name}</td>
                           <td className="py-3.5 px-4 font-mono font-bold text-midnight">
-                            ${s.price_per_minute?.toFixed(2)}/min
+                            ${formatCurrency(s.price_per_minute)}/min
                           </td>
                           <td className="py-3.5 px-4 text-midnight/80 font-medium">
                             {s.category_name} {s.subcategory ? `· ${s.subcategory}` : ''}
@@ -1821,7 +1877,7 @@ export const AdminPage: React.FC = () => {
                             <div className="text-[11px] text-midnight/60 line-clamp-1">{opp.description}</div>
                           </td>
                           <td className="py-3.5 px-4 text-midnight/80 font-medium">{opp.category_name}</td>
-                          <td className="py-3.5 px-4 font-mono font-bold text-midnight">${opp.budget?.toFixed(2)}</td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-midnight">${formatCurrency(opp.budget)}</td>
                           <td className="py-3.5 px-4 text-midnight/70">{opp.duration_minutes} mins</td>
                           <td className="py-3.5 px-4">
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -1903,7 +1959,7 @@ export const AdminPage: React.FC = () => {
                             </span>
                           </td>
                           <td className="py-3.5 px-4 font-mono font-bold text-midnight">
-                            ${req.total_price?.toFixed(2)}
+                            ${formatCurrency(req.total_price)}
                           </td>
                         </tr>
                       ))}
@@ -1932,28 +1988,28 @@ export const AdminPage: React.FC = () => {
                 <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
                   <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Gross Volume</span>
                   <div className="text-2xl font-extrabold text-midnight font-mono mt-1">
-                    ${stats?.grossRevenue ? stats.grossRevenue.toFixed(2) : '0.00'}
+                    ${formatCurrency(stats?.grossRevenue)}
                   </div>
                 </div>
 
                 <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
                   <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Platform Take (15%)</span>
                   <div className="text-2xl font-extrabold text-moonstone-dark font-mono mt-1">
-                    ${stats?.platformRevenue ? stats.platformRevenue.toFixed(2) : '0.00'}
+                    ${formatCurrency(stats?.platformRevenue)}
                   </div>
                 </div>
 
                 <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
                   <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Expert Payouts (85%)</span>
                   <div className="text-2xl font-extrabold text-emerald-700 font-mono mt-1">
-                    ${stats?.expertPayouts ? stats.expertPayouts.toFixed(2) : '0.00'}
+                    ${formatCurrency(stats?.expertPayouts)}
                   </div>
                 </div>
 
                 <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
                   <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Total Refunds</span>
                   <div className="text-2xl font-extrabold text-rose-700 font-mono mt-1">
-                    ${stats?.totalRefunds ? stats.totalRefunds.toFixed(2) : '0.00'}
+                    ${formatCurrency(stats?.totalRefunds)}
                   </div>
                 </div>
               </div>
@@ -1987,9 +2043,9 @@ export const AdminPage: React.FC = () => {
                               {p.type}
                             </span>
                           </td>
-                          <td className="py-3.5 px-4 font-mono font-bold text-midnight">${p.amount?.toFixed(2)}</td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-midnight">${formatCurrency(p.amount)}</td>
                           <td className="py-3.5 px-4 font-mono text-moonstone-dark">
-                            ${p.type === 'session_payment' ? (p.amount * 0.15).toFixed(2) : '—'}
+                            ${p.type === 'session_payment' ? formatCurrency(formatNumber(p.amount) * 0.15) : '—'}
                           </td>
                           <td className="py-3.5 px-4">
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -2405,7 +2461,7 @@ export const AdminPage: React.FC = () => {
                         <div className="h-8 w-[1px] bg-white/10" />
                         <div>
                           <span className="text-white/50 block text-[10px] uppercase font-bold">Standard Fee</span>
-                          <span className="font-mono font-bold text-white/80 line-through">${Number(effectiveFeeData.baseFee).toFixed(2)} USD</span>
+                          <span className="font-mono font-bold text-white/80 line-through">${formatCurrency(effectiveFeeData.baseFee)} USD</span>
                         </div>
                         <div className="h-8 w-[1px] bg-white/10" />
                         <div>
@@ -2447,7 +2503,7 @@ export const AdminPage: React.FC = () => {
                       <span>Standard Fee Active (No Active Promotional Campaign)</span>
                     </div>
                     <h2 className="text-xl font-bold text-midnight">
-                      Standard Registration Fee: <span className="font-mono text-moonstone">${Number(effectiveFeeData?.baseFee || 2.00).toFixed(2)} USD</span>
+                      Standard Registration Fee: <span className="font-mono text-moonstone">${formatCurrency(effectiveFeeData?.baseFee || 2.00)} USD</span>
                     </h2>
                     <p className="text-xs text-midnight/70 max-w-xl">
                       When no promotional campaign is active, experts pay the base listing fee configured in platform settings to activate and publish new services.
@@ -2519,7 +2575,7 @@ export const AdminPage: React.FC = () => {
                                   $0.00 (FREE)
                                 </span>
                               ) : (
-                                `$${Number(c.fee_usd).toFixed(2)}`
+                                `$${formatCurrency(c.fee_usd)}`
                               )}
                             </td>
                             <td className="py-3.5 px-4 font-mono text-midnight/80 text-[11px]">
@@ -2792,7 +2848,608 @@ export const AdminPage: React.FC = () => {
               </div>
             </div>
           )}
-        </main>
+
+          {/* ===================================================================== */}
+          {/* TAB: TRAFFIC & ANALYTICS */}
+          {/* ===================================================================== */}
+          {activeTab === 'traffic' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-moonstone/10 text-moonstone-dark text-[11px] font-bold border border-moonstone/30 mb-2">
+                    <Activity className="w-3 h-3 text-moonstone" />
+                    <span>Telemetry & Throughput</span>
+                  </div>
+                  <h1 className="text-2xl font-extrabold text-midnight tracking-tight">
+                    Traffic & Analytics
+                  </h1>
+                  <p className="text-xs text-midnight/70 mt-1">
+                    Real-time platform throughput, conversion telemetry, user velocity, and engagement funnel.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={loadAdminData}
+                    disabled={refreshing}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf/60 text-midnight text-xs font-semibold hover:bg-lightblue/30 transition-all cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-moonstone' : ''}`} />
+                    <span>Refresh Telemetry</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Metric Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
+                  <div className="flex items-center justify-between text-xs text-midnight/60 font-semibold mb-2">
+                    <span>Registered Users</span>
+                    <Users className="w-4 h-4 text-moonstone" />
+                  </div>
+                  <div className="text-2xl font-black text-midnight font-mono">{stats?.totalUsers || usersList.length}</div>
+                  <div className="text-[11px] text-midnight/50 mt-1">
+                    {stats?.totalClients || 0} clients · {stats?.totalProviders || 0} experts
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
+                  <div className="flex items-center justify-between text-xs text-midnight/60 font-semibold mb-2">
+                    <span>Live Consultations</span>
+                    <Radio className="w-4 h-4 text-emerald-600 animate-pulse" />
+                  </div>
+                  <div className="text-2xl font-black text-emerald-600 font-mono">{stats?.activeSessions || 0}</div>
+                  <div className="text-[11px] text-midnight/50 mt-1">
+                    Active real-time WebRTC rooms
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
+                  <div className="flex items-center justify-between text-xs text-midnight/60 font-semibold mb-2">
+                    <span>Total Requests</span>
+                    <Clock className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <div className="text-2xl font-black text-midnight font-mono">{stats?.totalRequests || consultationRequestsList.length}</div>
+                  <div className="text-[11px] text-midnight/50 mt-1">
+                    Consultation requests placed
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
+                  <div className="flex items-center justify-between text-xs text-midnight/60 font-semibold mb-2">
+                    <span>Completed Sessions</span>
+                    <CheckCircle2 className="w-4 h-4 text-moonstone" />
+                  </div>
+                  <div className="text-2xl font-black text-midnight font-mono">{stats?.completedSessions || 0}</div>
+                  <div className="text-[11px] text-midnight/50 mt-1">
+                    Successfully concluded calls
+                  </div>
+                </div>
+              </div>
+
+              {/* Conversion Funnel Card */}
+              <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-moonstone" />
+                    <span>Real-Time Conversion Funnel</span>
+                  </h3>
+                  <span className="text-[10px] font-bold text-midnight/50 bg-aliceblue px-2 py-0.5 rounded-full border border-timberwolf/60">
+                    Audited Telemetry
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                  <div className="p-4 rounded-xl bg-aliceblue border border-timberwolf/40">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="text-midnight/70 font-medium">Request → Accepted</span>
+                      <span className="font-bold text-midnight font-mono">{stats?.conversions?.requestToAcceptedRate ?? 0}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-white rounded-full overflow-hidden border border-timberwolf/30">
+                      <div
+                        className="h-full bg-moonstone rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(stats?.conversions?.requestToAcceptedRate ?? 0, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-aliceblue border border-timberwolf/40">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="text-midnight/70 font-medium">Accepted → Paid</span>
+                      <span className="font-bold text-midnight font-mono">{stats?.conversions?.acceptedToPaidRate ?? 0}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-white rounded-full overflow-hidden border border-timberwolf/30">
+                      <div
+                        className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(stats?.conversions?.acceptedToPaidRate ?? 0, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-aliceblue border border-timberwolf/40">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="text-midnight/70 font-medium">Paid → Completed</span>
+                      <span className="font-bold text-midnight font-mono">{stats?.conversions?.paidToCompletedRate ?? 0}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-white rounded-full overflow-hidden border border-timberwolf/30">
+                      <div
+                        className="h-full bg-midnight rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(stats?.conversions?.paidToCompletedRate ?? 0, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: ACTIVE SESSIONS */}
+          {/* ===================================================================== */}
+          {activeTab === 'active_sessions' && (() => {
+            const activeSessions = sessionsList.filter((s: any) =>
+              ['ACTIVE', 'IN_PROGRESS', 'CONNECTED', 'WAITING'].includes(s.status)
+            );
+            return (
+              <div className="space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-bold border border-emerald-200 mb-2">
+                      <Radio className="w-3 h-3 animate-pulse text-emerald-600" />
+                      <span>Live Consultation Engine</span>
+                    </div>
+                    <h1 className="text-2xl font-extrabold text-midnight tracking-tight">Active Sessions</h1>
+                    <p className="text-xs text-midnight/70 mt-1">
+                      Real-time monitoring of live consultation calls currently in progress.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={loadAdminData}
+                      disabled={refreshing}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf/60 text-midnight text-xs font-semibold hover:bg-lightblue/30 transition-all cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-moonstone' : ''}`} />
+                      <span>Refresh</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-timberwolf/60 overflow-hidden shadow-card">
+                  {activeSessions.length === 0 ? (
+                    <div className="py-16 text-center space-y-3">
+                      <div className="w-12 h-12 rounded-full bg-aliceblue text-midnight/40 flex items-center justify-center mx-auto border border-timberwolf/40">
+                        <Video className="w-6 h-6" />
+                      </div>
+                      <h4 className="text-sm font-bold text-midnight">No Active Sessions Right Now</h4>
+                      <p className="text-xs text-midnight/60 max-w-sm mx-auto">
+                        Real-time consultation sessions will appear here live once participants connect to WebRTC rooms.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="bg-aliceblue-surface border-b border-timberwolf/40 text-midnight/70">
+                            <th className="py-3 px-4 font-semibold">Session ID</th>
+                            <th className="py-3 px-4 font-semibold">Client</th>
+                            <th className="py-3 px-4 font-semibold">Expert</th>
+                            <th className="py-3 px-4 font-semibold">Duration / Time</th>
+                            <th className="py-3 px-4 font-semibold">Status</th>
+                            <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-timberwolf/30">
+                          {activeSessions.map((s: any) => (
+                            <tr key={s.id} className="hover:bg-aliceblue/50 transition-colors">
+                              <td className="py-3.5 px-4 font-mono font-medium text-midnight">
+                                {s.id?.slice(0, 8)}...
+                              </td>
+                              <td className="py-3.5 px-4 text-midnight">
+                                <div className="font-semibold">{s.client_name || s.client_email || 'Client'}</div>
+                                <div className="text-[10px] text-midnight/50 font-mono">{s.client_id?.slice(0, 8)}</div>
+                              </td>
+                              <td className="py-3.5 px-4 text-midnight">
+                                <div className="font-semibold">{s.provider_name || s.expert_name || 'Expert'}</div>
+                                <div className="text-[10px] text-midnight/50 font-mono">{s.provider_id?.slice(0, 8)}</div>
+                              </td>
+                              <td className="py-3.5 px-4 font-mono text-midnight/80">
+                                {s.duration_minutes || s.actual_duration_minutes || 0} mins
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 animate-pulse">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                                  {s.status}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                <Link
+                                  to={`/session/${s.id}`}
+                                  target="_blank"
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-moonstone hover:underline"
+                                >
+                                  Inspect Room <ExternalLink className="w-3 h-3" />
+                                </Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ===================================================================== */}
+          {/* TAB: COMPLETED SESSIONS */}
+          {/* ===================================================================== */}
+          {activeTab === 'completed_sessions' && (() => {
+            const completedSessions = sessionsList.filter((s: any) => s.status === 'COMPLETED');
+            return (
+              <div className="space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
+                  <div>
+                    <h1 className="text-2xl font-extrabold text-midnight tracking-tight">Completed Sessions</h1>
+                    <p className="text-xs text-midnight/70 mt-1">
+                      Historical archive of concluded consultations with duration, billing, and settlement logs.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-midnight bg-aliceblue px-3 py-1.5 rounded-xl border border-timberwolf/60">
+                      Total: {completedSessions.length}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-timberwolf/60 overflow-hidden shadow-card">
+                  {completedSessions.length === 0 ? (
+                    <div className="py-16 text-center space-y-3">
+                      <div className="w-12 h-12 rounded-full bg-aliceblue text-midnight/40 flex items-center justify-center mx-auto border border-timberwolf/40">
+                        <CheckCircle2 className="w-6 h-6" />
+                      </div>
+                      <h4 className="text-sm font-bold text-midnight">No Completed Sessions Yet</h4>
+                      <p className="text-xs text-midnight/60 max-w-sm mx-auto">
+                        Successfully finished consultations will be cataloged here with finalized billing and recording metrics.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="bg-aliceblue-surface border-b border-timberwolf/40 text-midnight/70">
+                            <th className="py-3 px-4 font-semibold">Session ID</th>
+                            <th className="py-3 px-4 font-semibold">Client</th>
+                            <th className="py-3 px-4 font-semibold">Expert</th>
+                            <th className="py-3 px-4 font-semibold">Actual Duration</th>
+                            <th className="py-3 px-4 font-semibold">Financial</th>
+                            <th className="py-3 px-4 font-semibold">Concluded At</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-timberwolf/30">
+                          {completedSessions.map((s: any) => (
+                            <tr key={s.id} className="hover:bg-aliceblue/50 transition-colors">
+                              <td className="py-3.5 px-4 font-mono font-medium text-midnight">
+                                {s.id?.slice(0, 8)}...
+                              </td>
+                              <td className="py-3.5 px-4 text-midnight">
+                                <div className="font-semibold">{s.client_name || s.client_email || 'Client'}</div>
+                              </td>
+                              <td className="py-3.5 px-4 text-midnight">
+                                <div className="font-semibold">{s.provider_name || s.expert_name || 'Expert'}</div>
+                              </td>
+                              <td className="py-3.5 px-4 font-mono text-midnight/80">
+                                {s.actual_duration_minutes || s.duration_minutes || 0} mins
+                              </td>
+                              <td className="py-3.5 px-4 font-mono font-bold text-midnight">
+                                ${formatCurrency(s.total_price || s.price || 0)}
+                              </td>
+                              <td className="py-3.5 px-4 text-midnight/60">
+                                {s.ended_at ? new Date(s.ended_at).toLocaleString() : s.created_at ? new Date(s.created_at).toLocaleDateString() : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ===================================================================== */}
+          {/* TAB: TRANSACTIONS LEDGER */}
+          {/* ===================================================================== */}
+          {activeTab === 'transactions' && (
+            <div className="space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
+                <div>
+                  <h1 className="text-2xl font-extrabold text-midnight tracking-tight">Transactions Ledger</h1>
+                  <p className="text-xs text-midnight/70 mt-1">
+                    Complete authoritative financial ledger of payments, listing fees, settlements, and platform commissions.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-midnight bg-aliceblue px-3 py-1.5 rounded-xl border border-timberwolf/60">
+                    Total Entries: {paymentsList.length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Financial Summary Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
+                  <div className="text-xs text-midnight/60 font-semibold mb-1">Gross Settled Volume</div>
+                  <div className="text-xl font-bold font-mono text-midnight">${formatCurrency(stats?.grossRevenue)}</div>
+                </div>
+                <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
+                  <div className="text-xs text-midnight/60 font-semibold mb-1">Platform Revenue</div>
+                  <div className="text-xl font-bold font-mono text-moonstone">${formatCurrency(stats?.platformRevenue)}</div>
+                </div>
+                <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
+                  <div className="text-xs text-midnight/60 font-semibold mb-1">Expert Payouts</div>
+                  <div className="text-xl font-bold font-mono text-emerald-600">${formatCurrency(stats?.expertPayouts)}</div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-timberwolf/60 overflow-hidden shadow-card">
+                {paymentsList.length === 0 ? (
+                  <div className="py-16 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-aliceblue text-midnight/40 flex items-center justify-center mx-auto border border-timberwolf/40">
+                      <DollarSign className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-sm font-bold text-midnight">No Transactions Recorded</h4>
+                    <p className="text-xs text-midnight/60 max-w-sm mx-auto">
+                      Client session payments, registration fees, and payouts will appear here in chronological sequence.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-aliceblue-surface border-b border-timberwolf/40 text-midnight/70">
+                          <th className="py-3 px-4 font-semibold">Payment ID</th>
+                          <th className="py-3 px-4 font-semibold">User</th>
+                          <th className="py-3 px-4 font-semibold">Type</th>
+                          <th className="py-3 px-4 font-semibold">Gross Amount</th>
+                          <th className="py-3 px-4 font-semibold">Platform Share</th>
+                          <th className="py-3 px-4 font-semibold">Status</th>
+                          <th className="py-3 px-4 font-semibold">Gateway Ref</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-timberwolf/30">
+                        {paymentsList.map((p: any) => (
+                          <tr key={p.id} className="hover:bg-aliceblue/50 transition-colors">
+                            <td className="py-3.5 px-4 font-mono font-medium text-midnight">
+                              {p.id?.slice(0, 10)}...
+                            </td>
+                            <td className="py-3.5 px-4 text-midnight font-medium">
+                              {p.user_name || p.user_email || p.user_id?.slice(0, 8) || 'Customer'}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-aliceblue text-midnight border border-timberwolf/50">
+                                {p.type || 'payment'}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 font-mono font-bold text-midnight">
+                              ${formatCurrency(p.amount)}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono text-moonstone font-semibold">
+                              ${formatCurrency(p.platform_fee ?? (p.type === 'session_payment' ? formatNumber(p.amount) * 0.15 : 0))}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                                p.status === 'completed' || p.status === 'captured'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : p.status === 'refunded'
+                                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                  : 'bg-amber-50 text-amber-700 border border-amber-200'
+                              }`}>
+                                {p.status}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 font-mono text-[11px] text-midnight/60">
+                              {p.razorpay_payment_id || p.stripe_payment_id || p.gateway_ref || '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: REFUNDS AUDIT */}
+          {/* ===================================================================== */}
+          {activeTab === 'refunds' && (() => {
+            const refunds = paymentsList.filter((p: any) =>
+              p.type === 'refund' || p.status === 'refunded' || p.status === 'REFUNDED'
+            );
+            return (
+              <div className="space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
+                  <div>
+                    <h1 className="text-2xl font-extrabold text-midnight tracking-tight">Refunds Audit</h1>
+                    <p className="text-xs text-midnight/70 mt-1">
+                      Audit trail of customer refunds, reversals, and disputed settlements.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl border border-rose-200">
+                      Total Reversals: ${formatCurrency(stats?.totalRefunds)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-timberwolf/60 overflow-hidden shadow-card">
+                  {refunds.length === 0 ? (
+                    <div className="py-16 text-center space-y-3">
+                      <div className="w-12 h-12 rounded-full bg-aliceblue text-midnight/40 flex items-center justify-center mx-auto border border-timberwolf/40">
+                        <RefreshCw className="w-6 h-6" />
+                      </div>
+                      <h4 className="text-sm font-bold text-midnight">No Refunds Recorded</h4>
+                      <p className="text-xs text-midnight/60 max-w-sm mx-auto">
+                        No refunded consultations or payment reversals are currently on file. Clean billing audit record.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="bg-aliceblue-surface border-b border-timberwolf/40 text-midnight/70">
+                            <th className="py-3 px-4 font-semibold">Payment / Refund ID</th>
+                            <th className="py-3 px-4 font-semibold">User</th>
+                            <th className="py-3 px-4 font-semibold">Amount Refunded</th>
+                            <th className="py-3 px-4 font-semibold">Date</th>
+                            <th className="py-3 px-4 font-semibold">Gateway Reference</th>
+                            <th className="py-3 px-4 font-semibold">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-timberwolf/30">
+                          {refunds.map((r: any) => (
+                            <tr key={r.id} className="hover:bg-aliceblue/50 transition-colors">
+                              <td className="py-3.5 px-4 font-mono font-medium text-midnight">
+                                {r.id?.slice(0, 10)}...
+                              </td>
+                              <td className="py-3.5 px-4 text-midnight font-medium">
+                                {r.user_name || r.user_email || 'Customer'}
+                              </td>
+                              <td className="py-3.5 px-4 font-mono font-bold text-rose-600">
+                                -${formatCurrency(r.amount)}
+                              </td>
+                              <td className="py-3.5 px-4 text-midnight/60">
+                                {r.created_at ? new Date(r.created_at).toLocaleString() : '—'}
+                              </td>
+                              <td className="py-3.5 px-4 font-mono text-[11px] text-midnight/60">
+                                {r.razorpay_payment_id || r.stripe_payment_id || r.gateway_ref || '—'}
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                                  {r.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ===================================================================== */}
+          {/* TAB: IN-APP NOTIFICATION LOGS */}
+          {/* ===================================================================== */}
+          {activeTab === 'notifications' && (
+            <div className="space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
+                <div>
+                  <h1 className="text-2xl font-extrabold text-midnight tracking-tight">In-App Notification Logs</h1>
+                  <p className="text-xs text-midnight/70 mt-1">
+                    Inspection of real-time push and in-app notifications delivered across user accounts.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-midnight bg-aliceblue px-3 py-1.5 rounded-xl border border-timberwolf/60">
+                    Total Logs: {notificationLogsList.length}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-timberwolf/60 overflow-hidden shadow-card">
+                {notificationLogsList.length === 0 ? (
+                  <div className="py-16 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-aliceblue text-midnight/40 flex items-center justify-center mx-auto border border-timberwolf/40">
+                      <Bell className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-sm font-bold text-midnight">No Notification Logs Cataloged</h4>
+                    <p className="text-xs text-midnight/60 max-w-sm mx-auto">
+                      Real-time in-app alerts and consultation notifications sent to users will be recorded here.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-aliceblue-surface border-b border-timberwolf/40 text-midnight/70">
+                          <th className="py-3 px-4 font-semibold">User</th>
+                          <th className="py-3 px-4 font-semibold">Title</th>
+                          <th className="py-3 px-4 font-semibold">Message Preview</th>
+                          <th className="py-3 px-4 font-semibold">Dispatched</th>
+                          <th className="py-3 px-4 font-semibold">Read Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-timberwolf/30">
+                        {notificationLogsList.map((n: any) => (
+                          <tr key={n.id} className="hover:bg-aliceblue/50 transition-colors">
+                            <td className="py-3.5 px-4 font-medium text-midnight">
+                              {n.user_name || n.user_email || n.user_id?.slice(0, 8) || 'User'}
+                            </td>
+                            <td className="py-3.5 px-4 font-semibold text-midnight">
+                              {n.title || 'Notification'}
+                            </td>
+                            <td className="py-3.5 px-4 text-midnight/70 max-w-md truncate">
+                              {n.message || '—'}
+                            </td>
+                            <td className="py-3.5 px-4 text-midnight/60">
+                              {n.created_at ? new Date(n.created_at).toLocaleString() : '—'}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                                n.is_read || n.read === 1
+                                  ? 'bg-aliceblue text-midnight/60 border border-timberwolf/50'
+                                  : 'bg-moonstone/10 text-moonstone-dark border border-moonstone/30'
+                              }`}>
+                                {n.is_read || n.read === 1 ? 'Read' : 'Unread'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: NOT FOUND FALLBACK */}
+          {/* ===================================================================== */}
+          {activeTab === 'not_found' && (
+            <div className="flex-1 p-6 md:p-12 flex items-center justify-center min-h-[400px]">
+              <div className="max-w-md w-full bg-white rounded-2xl border border-timberwolf/70 p-8 shadow-card text-center space-y-4">
+                <div className="w-12 h-12 rounded-2xl bg-aliceblue text-midnight flex items-center justify-center mx-auto border border-timberwolf/60">
+                  <LayoutDashboard className="w-6 h-6 text-moonstone" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-bold text-midnight tracking-tight">Admin Section Not Found</h3>
+                  <p className="text-xs text-midnight/70 leading-relaxed">
+                    The requested administrative module <span className="font-mono font-bold text-midnight">"{urlTab}"</span> does not exist or has been reorganized.
+                  </p>
+                </div>
+                <div className="pt-2">
+                  <button
+                    onClick={() => handleTabNavigate('overview')}
+                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
+                  >
+                    <LayoutDashboard className="w-3.5 h-3.5 text-moonstone" />
+                    <span>Return to Operations Dashboard</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </AdminContentErrorBoundary>
+      )}
+    </main>
       </div>
 
       {/* ========================================================================= */}
@@ -2850,11 +3507,11 @@ export const AdminPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="p-3 bg-aliceblue rounded-xl border border-timberwolf/40">
                   <span className="text-midnight/60 block">Total Spent</span>
-                  <span className="font-bold text-sm text-midnight font-mono">${selectedUserDetail.financial.total_spent?.toFixed(2)}</span>
+                  <span className="font-bold text-sm text-midnight font-mono">${formatCurrency(selectedUserDetail.financial.total_spent)}</span>
                 </div>
                 <div className="p-3 bg-aliceblue rounded-xl border border-timberwolf/40">
                   <span className="text-midnight/60 block">Total Earned</span>
-                  <span className="font-bold text-sm text-emerald-700 font-mono">${selectedUserDetail.financial.total_earned?.toFixed(2)}</span>
+                  <span className="font-bold text-sm text-emerald-700 font-mono">${formatCurrency(selectedUserDetail.financial.total_earned)}</span>
                 </div>
               </div>
             )}

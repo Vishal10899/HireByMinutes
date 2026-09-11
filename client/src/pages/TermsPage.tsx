@@ -13,7 +13,7 @@ import {
 
 export const TermsPage: React.FC = () => {
   useEffect(() => {
-    document.title = 'Terms of Service — HireByMinutes';
+    document.title = 'Terms of Service — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 
@@ -39,7 +39,7 @@ export const TermsPage: React.FC = () => {
         <div className="p-4 rounded-xl bg-white border border-timberwolf/70 shadow-subtle flex items-start gap-3 text-xs text-midnight/80">
           <AlertCircle className="w-4 h-4 text-moonstone shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            Please read these Terms of Service carefully before creating an account, requesting a consultation, or listing expert services on HireByMinutes. By accessing or using the platform, you agree to be bound by these Terms.
+            Please read these Terms of Service carefully before creating an account, requesting a consultation, or listing expert services on HireByMinute. By accessing or using the platform, you agree to be bound by these Terms.
           </p>
         </div>
 
@@ -197,7 +197,7 @@ export const TermsPage: React.FC = () => {
               11. Governing Law & Jurisdiction
             </h2>
             <p>
-              These Terms are governed by and construed in accordance with the laws applicable to the jurisdiction in which HireByMinutes operates, without giving effect to any conflict of law principles. Any dispute arising under these Terms shall be resolved in the competent courts of that jurisdiction.
+              These Terms are governed by and construed in accordance with the laws applicable to the jurisdiction in which HireByMinute operates, without giving effect to any conflict of law principles. Any dispute arising under these Terms shall be resolved in the competent courts of that jurisdiction.
             </p>
           </section>
 
@@ -210,10 +210,10 @@ export const TermsPage: React.FC = () => {
               For legal inquiries, policy questions, or formal notices regarding these Terms, please contact:
             </p>
             <div className="p-4 bg-aliceblue rounded-xl border border-timberwolf/50 space-y-1">
-              <div className="font-bold text-midnight">HireByMinutes Legal & Policy Team</div>
+              <div className="font-bold text-midnight">HireByMinute Legal & Policy Team</div>
               <div className="text-xs text-midnight/70 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-moonstone" />
-                <span>support@hirebyminutes.com</span>
+                <span>support@hirebyminute.com</span>
               </div>
             </div>
           </section>
