@@ -22,6 +22,7 @@ interface AuthContextType {
     skills?: string[];
     experience_years?: number;
   }) => Promise<void>;
+  setAuthSession: (user: User, token: string) => void;
   updateUser: (updated: User) => void;
   logout: () => void;
   refreshUser: () => Promise<void>;
@@ -49,8 +50,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(true);
       const data = await api.getMe();
       if (data.user) {
-        setUser(data.user);
-        setToken(currentToken);
+        // Unverified accounts (non-admin) are not allowed to retain authenticated sessions
+        if (data.user.role !== 'admin' && (data.user.email_verified === 0 || !data.user.email_verified)) {
+          localStorage.removeItem('hbm_token');
+          setUser(null);
+          setToken(null);
+        } else {
+          setUser(data.user);
+          setToken(currentToken);
+        }
       } else {
         localStorage.removeItem('hbm_token');
         setUser(null);
@@ -70,14 +78,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshUser();
   }, [refreshUser]);
 
+  const setAuthSession = (sessionUser: User, sessionToken: string) => {
+    localStorage.setItem('hbm_token', sessionToken);
+    setToken(sessionToken);
+    setUser(sessionUser);
+    setAuthInitialized(true);
+    setLoading(false);
+  };
+
   const login = async (email: string, password?: string): Promise<User> => {
     const data = await api.login(email, password);
+    if (data.requires_verification) {
+      const err: any = new Error('Please verify your email address to complete sign-in.');
+      err.requires_verification = true;
+      err.email = data.email || email;
+      throw err;
+    }
     if (data.user && data.token) {
-      localStorage.setItem('hbm_token', data.token);
-      setToken(data.token);
-      setUser(data.user);
-      setAuthInitialized(true);
-      setLoading(false);
+      if (data.user.role !== 'admin' && !data.user.email_verified) {
+        const err: any = new Error('Please verify your email address to complete sign-in.');
+        err.requires_verification = true;
+        err.email = data.user.email || email;
+        throw err;
+      }
+      setAuthSession(data.user, data.token);
       return data.user;
     }
     throw new Error('Authentication failed');
@@ -97,14 +121,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     skills?: string[];
     experience_years?: number;
   }) => {
-    const data = await api.register(regData);
-    if (data.user && data.token) {
-      localStorage.setItem('hbm_token', data.token);
-      setToken(data.token);
-      setUser(data.user);
-      setAuthInitialized(true);
-      setLoading(false);
-    }
+    // Registration creates unverified account; does NOT authenticate or issue session
+    await api.register(regData);
   };
 
   const updateUser = (updated: User) => {
@@ -128,6 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         authInitialized,
         login,
         register,
+        setAuthSession,
         updateUser,
         logout,
         refreshUser

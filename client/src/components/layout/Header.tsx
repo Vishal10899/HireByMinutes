@@ -144,13 +144,13 @@ export const Header: React.FC = () => {
             ) : (
               <div className="flex items-center gap-2.5">
                 <Link
-                  to="/auth"
+                  to="/login"
                   className="px-3.5 py-1.5 text-sm font-medium text-midnight hover:text-moonstone transition-colors"
                 >
                   Sign In
                 </Link>
                 <Link
-                  to="/auth?tab=register"
+                  to="/signup"
                   className="btn-shine px-4 py-2 text-sm font-semibold rounded-lg bg-midnight text-aliceblue hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
                 >
                   Get Started
@@ -180,7 +180,7 @@ export const Header: React.FC = () => {
           <div className="flex md:hidden items-center gap-2">
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-lg text-midnight hover:bg-lightblue/40 transition-colors"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-midnight hover:bg-lightblue/40 active:scale-95 transition-all cursor-pointer"
               aria-label="Toggle menu"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -191,45 +191,45 @@ export const Header: React.FC = () => {
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-timberwolf/40 bg-aliceblue px-4 pt-3 pb-6 space-y-3 animate-fade-in">
+        <div className="md:hidden border-t border-timberwolf/40 bg-aliceblue px-4 pt-3 pb-6 space-y-2 animate-fade-in">
           <Link
             to="/services"
             onClick={() => setMobileMenuOpen(false)}
-            className="block py-2 text-base font-medium text-midnight hover:text-moonstone"
+            className="flex items-center min-h-[44px] px-3 rounded-xl text-base font-medium text-midnight hover:bg-lightblue/30 hover:text-moonstone transition-colors"
           >
             Services
           </Link>
           <Link
             to="/opportunities"
             onClick={() => setMobileMenuOpen(false)}
-            className="block py-2 text-base font-medium text-midnight hover:text-moonstone"
+            className="flex items-center min-h-[44px] px-3 rounded-xl text-base font-medium text-midnight hover:bg-lightblue/30 hover:text-moonstone transition-colors"
           >
             Opportunities
           </Link>
           <Link
             to="/#how-it-works"
             onClick={() => setMobileMenuOpen(false)}
-            className="block py-2 text-base font-medium text-midnight hover:text-moonstone"
+            className="flex items-center min-h-[44px] px-3 rounded-xl text-base font-medium text-midnight hover:bg-lightblue/30 hover:text-moonstone transition-colors"
           >
             How It Works
           </Link>
 
-          <div className="border-t border-timberwolf/40 pt-3 flex flex-col gap-2">
+          <div className="border-t border-timberwolf/40 pt-3 flex flex-col gap-2.5">
             {!authInitialized || loading ? (
-              <div className="w-full h-10 rounded-lg bg-aliceblue/80 animate-pulse border border-timberwolf/40" />
+              <div className="w-full h-11 rounded-xl bg-aliceblue/80 animate-pulse border border-timberwolf/40" />
             ) : user ? (
               <>
                 <Link
                   to={getDashboardLink()}
                   onClick={() => setMobileMenuOpen(false)}
-                  className="w-full text-center py-2.5 rounded-lg bg-midnight text-aliceblue font-medium text-sm"
+                  className="w-full min-h-[48px] flex items-center justify-center text-center py-2.5 rounded-xl bg-midnight text-aliceblue font-medium text-sm hover:bg-midnight-hover transition-colors"
                 >
                   Go to {user.role === 'admin' ? 'Admin Panel' : user.role === 'provider' ? 'Provider Dashboard' : 'Client Dashboard'}
                 </Link>
                 <Link
                   to="/profile/edit"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="w-full text-center py-2 rounded-lg border border-timberwolf bg-white text-midnight font-medium text-sm"
+                  className="w-full min-h-[44px] flex items-center justify-center text-center py-2 rounded-xl border border-timberwolf bg-white text-midnight font-medium text-sm hover:bg-aliceblue transition-colors"
                 >
                   Edit Profile
                 </Link>
@@ -238,7 +238,7 @@ export const Header: React.FC = () => {
                     logout();
                     setMobileMenuOpen(false);
                   }}
-                  className="w-full text-center py-2 text-rose-600 font-medium text-sm cursor-pointer"
+                  className="w-full min-h-[44px] flex items-center justify-center text-center py-2 text-rose-600 font-medium text-sm cursor-pointer hover:bg-rose-50 rounded-xl transition-colors"
                 >
                   Sign Out
                 </button>
@@ -246,16 +246,16 @@ export const Header: React.FC = () => {
             ) : (
               <>
                 <Link
-                  to="/auth"
+                  to="/login"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="w-full text-center py-2 text-midnight font-medium text-sm"
+                  className="w-full min-h-[44px] flex items-center justify-center text-center py-2 text-midnight font-medium text-sm rounded-xl hover:bg-lightblue/30 transition-colors"
                 >
                   Sign In
                 </Link>
                 <Link
-                  to="/auth?tab=register"
+                  to="/signup"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="w-full text-center py-2.5 rounded-lg bg-midnight text-aliceblue font-semibold text-sm"
+                  className="w-full min-h-[48px] flex items-center justify-center text-center py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-sm hover:bg-midnight-hover shadow-subtle transition-colors"
                 >
                   Get Started
                 </Link>

@@ -60,11 +60,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Login failed');
+      const err: any = new Error(data.error || 'Login failed');
+      err.status = res.status;
+      err.requires_verification = Boolean(data.requires_verification);
+      err.email = data.email || email;
+      throw err;
     }
-    return res.json();
+    return data;
   },
 
   register: async (data: {
@@ -82,11 +86,14 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
+    const dataRes = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Registration failed');
+      const err: any = new Error(dataRes.error || 'Registration failed');
+      err.status = res.status;
+      err.email_failed = Boolean(dataRes.email_failed);
+      throw err;
     }
-    return res.json();
+    return dataRes;
   },
 
   verifyEmailOtp: async (email: string, code: string) => {

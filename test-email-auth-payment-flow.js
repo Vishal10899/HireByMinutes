@@ -61,8 +61,8 @@ async function runTests() {
     }
     console.log(`   ✓ Client registered: ${clientEmail}`);
     console.log(`   ✓ requires_verification is true`);
-    const clientUser = clientReg.data.user;
-    const clientToken = clientReg.data.token;
+    const clientUser = db.prepare(`SELECT * FROM users WHERE LOWER(email) = ?`).get(clientEmail.toLowerCase());
+    let clientToken = null;
 
     // 2. Verify OTP Hashing in Database
     console.log('2. Verifying OTP Security & Storage in database...');
@@ -115,6 +115,7 @@ async function runTests() {
     if (verifyRes.status !== 200 || !verifyRes.data.verified) {
       throw new Error(`OTP verification failed: ${JSON.stringify(verifyRes.data)}`);
     }
+    clientToken = verifyRes.data.token;
     console.log(`   ✓ OTP verified successfully! Response: "${verifyRes.data.message}"`);
     const verifiedUser = db.prepare(`SELECT email_verified FROM users WHERE id = ?`).get(clientUser.id);
     if (verifiedUser.email_verified !== 1) {
@@ -145,8 +146,8 @@ async function runTests() {
     if (providerReg.status !== 201) {
       throw new Error(`Provider registration failed: ${JSON.stringify(providerReg.data)}`);
     }
-    const providerUser = providerReg.data.user;
-    const providerToken = providerReg.data.token;
+    const providerUser = db.prepare(`SELECT * FROM users WHERE LOWER(email) = ?`).get(providerEmail.toLowerCase());
+    let providerToken = null;
     console.log(`   ✓ Provider registered: ${providerEmail}`);
 
     // Test immediate resend -> should hit 60s cooldown

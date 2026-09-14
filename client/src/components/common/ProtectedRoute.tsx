@@ -28,6 +28,11 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return <Navigate to={target} replace />;
   }
 
+  // 3. Unverified User Check: strictly prevent unverified non-admin users from accessing protected dashboards/profiles
+  if (user.role !== 'admin' && (user.email_verified === 0 || !user.email_verified)) {
+    return <Navigate to={`/auth?tab=verify_otp&email=${encodeURIComponent(user.email)}`} replace />;
+  }
+
   // 3. Admin-only Route Check: Server-authoritative role verification
   if (requiredRole === 'admin' && user.role !== 'admin') {
     return <Navigate to="/" replace />;

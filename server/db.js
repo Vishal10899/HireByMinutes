@@ -830,10 +830,26 @@ function cleanupFakeAndDemoData(dbInstance) {
 
     dbInstance.prepare(`DELETE FROM services WHERE provider_id IN (${placeholders})`).run(...fakeUserIds);
     dbInstance.prepare(`DELETE FROM provider_availability WHERE provider_id IN (${placeholders})`).run(...fakeUserIds);
-    dbInstance.prepare(`DELETE FROM opportunities WHERE creator_id IN (${placeholders}) OR id IN ('opp-1', 'opp-2', 'opp-3')`).run(...fakeUserIds);
+    dbInstance.prepare(`DELETE FROM opportunities WHERE creator_id IN (${placeholders}) OR id IN ('opp-1', 'opp-2', 'opp-3') OR id LIKE 'opp-wh-%' OR title LIKE '%Test Opp%'`).run(...fakeUserIds);
     dbInstance.prepare(`DELETE FROM reports WHERE reporter_id IN (${placeholders}) OR id = 'rep-1'`).run(...fakeUserIds);
     dbInstance.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).run(...fakeUserIds);
     dbInstance.prepare(`DELETE FROM audit_logs WHERE id = 'log-init-1'`).run();
+
+    // Remove synthetic test accounts created during automated test runs
+    dbInstance.prepare(`
+      DELETE FROM users WHERE (
+        email LIKE '%@test.local' OR
+        email LIKE '%@t.local' OR
+        email LIKE '%@testadmin.local' OR
+        email LIKE '%@hardened.test' OR
+        email LIKE '%@testaudit.local' OR
+        email LIKE '%@testprofile.local' OR
+        email LIKE '%@example.com' OR
+        email LIKE 'admin.expert_%@hirebyminutes.com' OR
+        email LIKE 'client.photo.%@hirebyminutes.com' OR
+        email LIKE 'client.nophoto.%@hirebyminutes.com'
+      ) AND email NOT IN ('vishalkumar75912@gmail.com', 'vishal@gmail.com', 'vishalchaudhary74096@gmail.com')
+    `).run();
 
     // Recalculate category service counts to accurately reflect real active services
     dbInstance.prepare(`
@@ -843,6 +859,8 @@ function cleanupFakeAndDemoData(dbInstance) {
         WHERE services.category_id = categories.id AND services.listing_status = 'active'
       )
     `).run();
+
+    dbInstance.prepare(`DELETE FROM categories WHERE slug LIKE 'cloud-infra-%'`).run();
   } catch (e) {
     // Ignore cleanup error if tables are newly created
   }
@@ -889,7 +907,7 @@ function ensureSettingsAndAdmin(dbInstance) {
     ON CONFLICT (key) DO NOTHING
   `);
 
-  insertSetting.run('platform_name', 'HireByMinutes', 'The official platform brand name');
+  insertSetting.run('platform_name', 'HireByMinute', 'The official platform brand name');
   insertSetting.run('listing_fee_usd', '2.00', 'One-time fee in USD to publish a service listing');
   insertSetting.run('platform_fee_percent', '15', 'Standard percentage fee taken from completed session payments');
   insertSetting.run('default_response_time', 'Within 15 mins', 'Target response time for verified providers');
@@ -910,7 +928,7 @@ function ensureSettingsAndAdmin(dbInstance) {
       hashedPassword,
       'Vishal Kumar (Admin)',
       'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80',
-      'Platform Administrator and Operations Lead for HireByMinutes.',
+      'Platform Administrator and Operations Lead for HireByMinute.',
       'Platform Administrator'
     );
   } else {

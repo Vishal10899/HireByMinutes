@@ -1,4 +1,4 @@
-// HireByMinutes — Production Email Service & Template Engine
+// HireByMinute — Production Email Service & Template Engine
 // Handles transactional emails, OTP delivery, password reset, and notification workflows
 // Provides safe development fallbacks and isolated provider adapters
 
@@ -14,13 +14,22 @@ class EmailService {
   }
 
   getConfig() {
+    const apiKey = (process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY || '').trim();
+    let provider = process.env.EMAIL_PROVIDER;
+    if (!provider) {
+      provider = apiKey ? 'resend' : 'development_console';
+    }
+
+    const fromEnv = process.env.EMAIL_FROM ? process.env.EMAIL_FROM.trim() : '';
+    const from = fromEnv || 'HireByMinute <no-reply@hirebyminute.com>';
+
     return {
       enabled: process.env.EMAIL_ENABLED !== 'false',
-      provider: process.env.EMAIL_PROVIDER || 'development_console',
-      from: process.env.EMAIL_FROM || 'HireByMinute <no-reply@hirebyminute.com>',
+      provider,
+      from,
       fromName: process.env.EMAIL_FROM_NAME || 'HireByMinute',
       replyTo: process.env.EMAIL_REPLY_TO || 'support@hirebyminute.com',
-      apiKey: process.env.EMAIL_API_KEY || '',
+      apiKey,
       clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173'
     };
   }
@@ -29,6 +38,7 @@ class EmailService {
   async sendMail({ to, subject, template = 'custom', html, text, userId = null }) {
     const config = this.getConfig();
     const messageId = `msg-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    let providerMessageId = messageId;
     let status = 'SENT';
     let errorMessage = null;
 
@@ -38,18 +48,19 @@ class EmailService {
     }
 
     try {
-      // In production with real API key and provider configured
-      if (process.env.NODE_ENV === 'production' && config.apiKey && config.provider !== 'development_console') {
+      // Use real provider if apiKey is present and provider is not development_console
+      if (config.apiKey && config.provider !== 'development_console') {
         if (config.provider === 'resend') {
           // Native Resend HTTP API Call
-          const response = await fetch('https://api.resend.com/emails', {
+          let sendFrom = config.from;
+          let response = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${config.apiKey}`,
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-              from: config.from,
+              from: sendFrom,
               to: [to],
               reply_to: config.replyTo,
               subject,
@@ -57,10 +68,43 @@ class EmailService {
               text
             })
           });
-          if (!response.ok) {
-            const errData = await response.text();
-            throw new Error(`Resend provider error: ${errData}`);
+
+          let resData = await response.json().catch(() => ({}));
+
+          // Handle Resend 403 unverified custom domain by retrying with verified sandbox sender
+          if (!response.ok && response.status === 403 && sendFrom !== 'HireByMinute <onboarding@resend.dev>') {
+            const errStr = JSON.stringify(resData).toLowerCase();
+            if (errStr.includes('domain') || errStr.includes('verify') || errStr.includes('validation')) {
+              console.warn(`[EmailService] Resend unverified domain detected for "${sendFrom}". Retrying with "HireByMinute <onboarding@resend.dev>"...`);
+              sendFrom = 'HireByMinute <onboarding@resend.dev>';
+              response = await fetch('https://api.resend.com/emails', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${config.apiKey}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  from: sendFrom,
+                  to: [to],
+                  reply_to: config.replyTo,
+                  subject,
+                  html,
+                  text
+                })
+              });
+              resData = await response.json().catch(() => ({}));
+            }
           }
+
+          if (!response.ok) {
+            const errDetail = resData.message || resData.error || JSON.stringify(resData);
+            throw new Error(`Resend provider error (${response.status}): ${errDetail}`);
+          }
+
+          if (resData && resData.id) {
+            providerMessageId = resData.id;
+          }
+          console.log(`[EmailService] Dispatched via Resend: ${providerMessageId} to ${to} (${subject})`);
         } else if (config.provider === 'sendgrid') {
           // Native SendGrid v3 API Call
           const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
@@ -89,18 +133,14 @@ class EmailService {
           console.log(`[EmailService] Production dispatch via provider "${config.provider}" to ${to} (${subject})`);
         }
       } else {
-        // Redact any OTP digits or tokens from console log
-        const sanitizedText = text
-          .replace(/\b\d{6}\b/g, '[REDACTED_OTP]')
-          .replace(/\b[a-f0-9]{32,64}\b/gi, '[REDACTED_TOKEN]');
-
-        console.log(`\n================== [HIREBYMINUTES EMAIL DISPATCH] ==================`);
+        // Development console mode: display OTP and email content clearly in terminal for local testing
+        console.log(`\n================== [HIREBYMINUTE EMAIL DISPATCH] ==================`);
         console.log(`TEMPLATE: ${template}`);
         console.log(`TO:       ${to}`);
         console.log(`FROM:     ${config.from}`);
         console.log(`SUBJECT:  ${subject}`);
         console.log(`--------------------------------------------------------------------`);
-        console.log(sanitizedText.trim());
+        console.log(text.trim());
         console.log(`====================================================================\n`);
       }
     } catch (err) {
@@ -115,7 +155,7 @@ class EmailService {
         this.db.prepare(`
           INSERT INTO email_logs (id, user_id, recipient, template, subject, status, provider_message_id, error_message)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(messageId, userId, to, template, subject, status, messageId, errorMessage);
+        `).run(messageId, userId, to, template, subject, status, providerMessageId, errorMessage);
       } catch (logErr) {
         // Non-blocking log error
       }
@@ -123,7 +163,7 @@ class EmailService {
 
     return {
       success: status === 'SENT',
-      messageId,
+      messageId: providerMessageId,
       status,
       error: errorMessage
     };
@@ -166,7 +206,7 @@ class EmailService {
       <td align="center">
         <div class="container">
           <div class="header">
-            <a href="${config.clientOrigin}" class="header-logo">HireByMinutes</a>
+            <a href="${config.clientOrigin}" class="header-logo">HireByMinute</a>
             <div class="header-tagline">Worldwide Expert Consultations by the Minute</div>
           </div>
           <div class="body">
@@ -180,7 +220,7 @@ class EmailService {
             ${warningNote ? `<div class="warning">${warningNote}</div>` : ''}
           </div>
           <div class="footer">
-            <p style="margin: 0 0 6px 0;">© 2026 HireByMinutes Inc. All rights reserved.</p>
+            <p style="margin: 0 0 6px 0;">© 2026 HireByMinute Inc. All rights reserved.</p>
             <p style="margin: 0;">This is an automated transactional message. Please do not reply directly.</p>
           </div>
         </div>
@@ -195,12 +235,12 @@ class EmailService {
   // 1. EMAIL VERIFICATION OTP
   // =========================================================================
   async sendVerificationOtp({ email, name, otp, expiryMinutes = 10, userId = null }) {
-    const subject = 'Verify your HireByMinutes account';
+    const subject = 'Verify your HireByMinute account';
     const preheader = `Your 6-digit verification code is ${otp}. Valid for ${expiryMinutes} minutes.`;
 
     const contentHtml = `
       <p class="paragraph">Hi <strong>${name || 'there'}</strong>,</p>
-      <p class="paragraph">Welcome to HireByMinutes. Please use the following one-time verification code to confirm your email address and activate your account:</p>
+      <p class="paragraph">Welcome to HireByMinute. Please use the following one-time verification code to confirm your email address and activate your account:</p>
       <div class="code-box">
         <span class="code-digits">${otp}</span>
       </div>
@@ -209,7 +249,7 @@ class EmailService {
 
     const text = `Hi ${name || 'there'},
 
-Welcome to HireByMinutes.
+Welcome to HireByMinute.
 
 Your 6-digit verification code is: ${otp}
 
@@ -217,7 +257,7 @@ This code expires in ${expiryMinutes} minutes.
 
 If you did not create this account, you can safely ignore this email.
 
-HireByMinutes Team`;
+HireByMinute Team`;
 
     return this.sendMail({
       to: email,
@@ -227,7 +267,7 @@ HireByMinutes Team`;
         title: 'Verify Your Email Address',
         preheader,
         contentHtml,
-        warningNote: 'If you did not sign up for HireByMinutes, you can safely disregard this email.'
+        warningNote: 'If you did not sign up for HireByMinute, you can safely disregard this email.'
       }),
       text,
       userId
@@ -240,18 +280,18 @@ HireByMinutes Team`;
   async sendPasswordReset({ email, name, resetToken, expiryMinutes = 30, userId = null }) {
     const config = this.getConfig();
     const resetUrl = `${config.clientOrigin}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
-    const subject = 'Reset your HireByMinutes password';
+    const subject = 'Reset your HireByMinute password';
     const preheader = `Follow this link to securely reset your password within ${expiryMinutes} minutes.`;
 
     const contentHtml = `
       <p class="paragraph">Hi <strong>${name || 'there'}</strong>,</p>
-      <p class="paragraph">We received a request to reset the password for your HireByMinutes account. Click the button below to choose a new password:</p>
+      <p class="paragraph">We received a request to reset the password for your HireByMinute account. Click the button below to choose a new password:</p>
       <p class="paragraph" style="font-size: 13px; color: #555;">⏱ This password reset link is valid for <strong>${expiryMinutes} minutes</strong> and can only be used once.</p>
     `;
 
     const text = `Hi ${name || 'there'},
 
-We received a request to reset the password for your HireByMinutes account.
+We received a request to reset the password for your HireByMinute account.
 
 Reset your password using the link below:
 ${resetUrl}
@@ -260,7 +300,7 @@ This link expires in ${expiryMinutes} minutes.
 
 If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.
 
-HireByMinutes Team`;
+HireByMinute Team`;
 
     return this.sendMail({
       to: email,
@@ -298,12 +338,12 @@ HireByMinutes Team`;
     const config = this.getConfig();
     const actionUrl = `${config.clientOrigin}/provider`;
     const timeDisplay = connectType === 'now' ? '⚡ Connect Now (Immediate On-Demand)' : '📅 Scheduled Consultation';
-    const subject = `New consultation request from ${clientName} on HireByMinutes`;
+    const subject = `New consultation request from ${clientName} on HireByMinute`;
     const preheader = `${clientName} requested a ${durationMinutes}-min consultation for "${serviceTitle}". Respond within 10 mins.`;
 
     const contentHtml = `
       <p class="paragraph">Hi <strong>${expertName}</strong>,</p>
-      <p class="paragraph"><strong>${clientName}</strong> has sent you a new consultation request on HireByMinutes:</p>
+      <p class="paragraph"><strong>${clientName}</strong> has sent you a new consultation request on HireByMinute:</p>
       
       <div class="info-card">
         <div class="info-row"><strong>Service:</strong> ${serviceTitle}</div>
@@ -337,7 +377,7 @@ ${actionUrl}
 
 Notice: No payment has been taken from the client yet.
 
-HireByMinutes Team`;
+HireByMinute Team`;
 
     return this.sendMail({
       to: expertEmail,
@@ -406,7 +446,7 @@ Total: $${Number(totalPrice).toFixed(2)}
 Complete payment now to enter your live session workspace:
 ${actionUrl}
 
-HireByMinutes Team`;
+HireByMinute Team`;
 
     return this.sendMail({
       to: clientEmail,
@@ -443,7 +483,7 @@ HireByMinutes Team`;
       </div>
 
       <p class="paragraph">
-        You can browse hundreds of other vetted experts across global domains on HireByMinutes right now:
+        You can browse hundreds of other vetted experts across global domains on HireByMinute right now:
       </p>
     `;
 
@@ -456,7 +496,7 @@ No payment was taken from your account.
 Browse other available domain experts:
 ${browseUrl}
 
-HireByMinutes Team`;
+HireByMinute Team`;
 
     return this.sendMail({
       to: clientEmail,
@@ -502,10 +542,10 @@ Your consultation request to ${expertName} for "${serviceTitle}" has expired aft
 
 No payment was taken.
 
-Find another available expert on HireByMinutes:
+Find another available expert on HireByMinute:
 ${browseUrl}
 
-HireByMinutes Team`;
+HireByMinute Team`;
 
     return this.sendMail({
       to: clientEmail,
@@ -540,7 +580,7 @@ HireByMinutes Team`;
   }) {
     const config = this.getConfig();
     const sessionUrl = `${config.clientOrigin}/session/${sessionId}`;
-    const subjectClient = `Payment confirmed — Your HireByMinutes session is ready (${serviceTitle})`;
+    const subjectClient = `Payment confirmed — Your HireByMinute session is ready (${serviceTitle})`;
     const subjectExpert = `Payment confirmed by ${clientName} — Session workspace active`;
 
     // 1. Send receipt to Client
@@ -564,7 +604,7 @@ Payment of $${Number(totalPrice).toFixed(2)} confirmed. Your session with ${expe
 Join live session:
 ${sessionUrl}
 
-HireByMinutes Team`;
+HireByMinute Team`;
 
     await this.sendMail({
       to: clientEmail,
@@ -602,7 +642,7 @@ ${clientName} has completed payment for "${serviceTitle}" (${durationMinutes} mi
 Enter workspace:
 ${sessionUrl}
 
-HireByMinutes Team`;
+HireByMinute Team`;
 
     await this.sendMail({
       to: expertEmail,
@@ -626,12 +666,12 @@ HireByMinutes Team`;
   async sendProviderVerified({ providerEmail, providerName, providerId }) {
     const config = this.getConfig();
     const profileUrl = `${config.clientOrigin}/provider`;
-    const subject = 'Your HireByMinutes profile has been verified!';
-    const preheader = `Congratulations! You now have a verified expert badge on HireByMinutes.`;
+    const subject = 'Your HireByMinute profile has been verified!';
+    const preheader = `Congratulations! You now have a verified expert badge on HireByMinute.`;
 
     const contentHtml = `
       <p class="paragraph">Hi <strong>${providerName}</strong>,</p>
-      <p class="paragraph">Congratulations! Our administration team has reviewed and <strong>approved your verified expert status</strong> on HireByMinutes.</p>
+      <p class="paragraph">Congratulations! Our administration team has reviewed and <strong>approved your verified expert status</strong> on HireByMinute.</p>
       
       <div style="background: #F0FDF4; border: 1px solid #86EFAC; padding: 16px; border-radius: 12px; margin: 18px 0;">
         <h4 style="margin: 0 0 6px 0; color: #15803D; font-size: 14px;">✓ Verified Badge Active</h4>
@@ -643,14 +683,14 @@ HireByMinutes Team`;
 
     const text = `Hi ${providerName},
 
-Congratulations! Your HireByMinutes expert profile has been verified by platform administration.
+Congratulations! Your HireByMinute expert profile has been verified by platform administration.
 
 Your profile now displays the Verified checkmark in marketplace discovery.
 
 View your provider dashboard:
 ${profileUrl}
 
-HireByMinutes Team`;
+HireByMinute Team`;
 
     return this.sendMail({
       to: providerEmail,
@@ -676,7 +716,7 @@ HireByMinutes Team`;
     const preheader = `Admin platform alert: ${subject}`;
 
     const contentHtml = `
-      <p class="paragraph"><strong>HireByMinutes Operations Alert:</strong></p>
+      <p class="paragraph"><strong>HireByMinute Operations Alert:</strong></p>
       <p class="paragraph">${message}</p>
       ${Object.keys(meta).length > 0 ? `
         <div class="info-card">
@@ -685,7 +725,7 @@ HireByMinutes Team`;
       ` : ''}
     `;
 
-    const text = `HireByMinutes Admin Alert:
+    const text = `HireByMinute Admin Alert:
 ${subject}
 
 ${message}

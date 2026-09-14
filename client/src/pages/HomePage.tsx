@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { Service, Category } from '../types';
 import { ExpertCard } from '../components/common/ExpertCard';
+import { Card } from '../components/common/Card';
+import { Button } from '../components/common/Button';
 import {
   Search,
   ArrowRight,
@@ -19,7 +21,8 @@ import {
   GraduationCap,
   Shield,
   Zap,
-  ArrowUpRight
+  ArrowUpRight,
+  X
 } from 'lucide-react';
 
 export const HomePage: React.FC = () => {
@@ -58,15 +61,15 @@ export const HomePage: React.FC = () => {
 
   const getCategoryIcon = (iconName: string) => {
     switch (iconName) {
-      case 'Code2': return <Code2 className="w-4 h-4" />;
-      case 'Cpu': return <Cpu className="w-4 h-4" />;
-      case 'Palette': return <Palette className="w-4 h-4" />;
-      case 'Megaphone': return <Megaphone className="w-4 h-4" />;
-      case 'Briefcase': return <Briefcase className="w-4 h-4" />;
-      case 'DollarSign': return <DollarSign className="w-4 h-4" />;
-      case 'Scale': return <Scale className="w-4 h-4" />;
-      case 'GraduationCap': return <GraduationCap className="w-4 h-4" />;
-      default: return <Sparkles className="w-4 h-4" />;
+      case 'Code2': return <Code2 className="w-5 h-5" />;
+      case 'Cpu': return <Cpu className="w-5 h-5" />;
+      case 'Palette': return <Palette className="w-5 h-5" />;
+      case 'Megaphone': return <Megaphone className="w-5 h-5" />;
+      case 'Briefcase': return <Briefcase className="w-5 h-5" />;
+      case 'DollarSign': return <DollarSign className="w-5 h-5" />;
+      case 'Scale': return <Scale className="w-5 h-5" />;
+      case 'GraduationCap': return <GraduationCap className="w-5 h-5" />;
+      default: return <Sparkles className="w-5 h-5" />;
     }
   };
 
@@ -78,102 +81,125 @@ export const HomePage: React.FC = () => {
       {/* ========================================================================= */}
       <section className="pt-10 sm:pt-16 max-w-5xl mx-auto px-4 sm:px-6 text-center">
         
-        <h1 className="text-3xl sm:text-5xl font-extrabold text-midnight tracking-tight max-w-2xl mx-auto leading-tight">
+        <h1 className="text-[32px] sm:text-5xl font-extrabold text-midnight tracking-tight max-w-2xl mx-auto leading-[1.15]">
           What brings you here?
         </h1>
         
-        <p className="mt-4 text-base sm:text-lg text-midnight/70 max-w-xl mx-auto leading-relaxed">
+        <p className="mt-4 sm:mt-5 text-base sm:text-lg text-midnight/70 max-w-xl mx-auto leading-relaxed">
           Hire expertise by the minute, or turn your expertise into a service people can book.
         </p>
 
-        {/* The Two Distinct Intent Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-10 text-left">
+        {/* ========================================================================= */}
+        {/* THE TWO INTENT CARDS — IMMEDIATE INTENT CHOICE */}
+        {/* ========================================================================= */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 mt-7 sm:mt-9 text-left">
           
           {/* Card 1: Need a service (Client) */}
-          <div className="water-surface-card bg-lightblue/30 border border-lightblue rounded-2xl p-7 sm:p-8 flex flex-col justify-between hover:bg-lightblue/45 transition-all shadow-subtle group">
+          <div className="bg-lightblue/35 border-2 border-lightblue/90 hover:border-moonstone/70 rounded-[22px] p-6 shadow-subtle flex flex-col justify-between transition-all duration-150">
             <div>
-              <div className="w-10 h-10 rounded-xl bg-lightblue/80 flex items-center justify-center text-midnight mb-5">
+              <div className="w-11 h-11 rounded-xl bg-white/90 border border-lightblue/80 text-midnight flex items-center justify-center mb-5 shrink-0 shadow-xs">
                 <Search className="w-5 h-5 text-midnight" />
               </div>
-              <h2 className="text-xl sm:text-2xl font-bold text-midnight mb-2">
+              <h2 className="text-xl sm:text-2xl font-bold text-midnight tracking-tight mb-2">
                 I need a service
               </h2>
-              <p className="text-sm text-midnight/75 leading-relaxed mb-6">
+              <p className="text-sm text-midnight/75 leading-relaxed">
                 Find someone who knows exactly what you need and hire them for the precise minutes you require.
               </p>
             </div>
-            <div>
-              <Link
+            <div className="mt-6 pt-1">
+              <Button
                 to="/services"
-                className="btn-shine inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-midnight text-aliceblue font-semibold text-sm hover:bg-midnight-hover transition-all shadow-subtle cursor-pointer"
+                variant="primary"
+                size="md"
+                className="w-auto min-w-[170px] max-w-[220px]"
+                iconRight={<ArrowRight className="w-4 h-4 text-moonstone" />}
               >
-                <span>Find an Expert</span>
-                <ArrowRight className="w-4 h-4 text-moonstone" />
-              </Link>
+                Find an Expert
+              </Button>
             </div>
           </div>
 
           {/* Card 2: Provide a service (Provider) */}
-          <div className="water-surface-card bg-midnight border border-midnight rounded-2xl p-7 sm:p-8 flex flex-col justify-between text-aliceblue hover:bg-midnight-light transition-all shadow-card group">
+          <div className="bg-midnight border border-midnight text-aliceblue rounded-[22px] p-6 shadow-card flex flex-col justify-between transition-all duration-150">
             <div>
-              <div className="w-10 h-10 rounded-xl bg-midnight-light flex items-center justify-center text-moonstone mb-5">
+              <div className="w-11 h-11 rounded-xl bg-midnight-light border border-white/10 text-moonstone flex items-center justify-center mb-5 shrink-0">
                 <Clock className="w-5 h-5 text-moonstone" />
               </div>
-              <h2 className="text-xl sm:text-2xl font-bold text-aliceblue mb-2">
+              <h2 className="text-xl sm:text-2xl font-bold text-aliceblue tracking-tight mb-2">
                 I provide a service
               </h2>
-              <p className="text-sm text-aliceblue/80 leading-relaxed mb-6">
-                Share what you know and get hired on your time. No long proposals, retainers, or timesheets.
+              <p className="text-sm text-aliceblue/80 leading-relaxed">
+                Share what you know and get hired by the minute.
               </p>
             </div>
-            <div>
-              <Link
+            <div className="mt-6 pt-1">
+              <Button
                 to="/provider/onboard"
-                className="btn-shine inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-moonstone text-white font-semibold text-sm hover:bg-moonstone-hover transition-all shadow-subtle cursor-pointer"
+                variant="accent"
+                size="md"
+                className="w-auto min-w-[190px] max-w-[240px]"
               >
-                <span>Become a Service Provider</span>
-                <ArrowRight className="w-4 h-4" />
-              </Link>
+                Become a Service Provider
+              </Button>
             </div>
           </div>
 
         </div>
 
         {/* ========================================================================= */}
-        {/* SEARCH BAR SECTION */}
+        {/* SEARCH BAR SECTION — MOVED AFTER INTENT CARDS */}
         {/* ========================================================================= */}
-        <div className="mt-12 max-w-3xl mx-auto">
-          <form onSubmit={handleSearchSubmit} className="relative">
-            <div className="flex items-center bg-white border-2 border-timberwolf rounded-2xl shadow-subtle p-2 focus-within:border-moonstone transition-all">
-              <Search className="w-5 h-5 text-midnight/40 ml-3 shrink-0" />
+        <div className="mt-8 sm:mt-10 max-w-3xl mx-auto">
+          <form onSubmit={handleSearchSubmit} className="relative w-full">
+            <div className="flex items-center bg-white border-2 border-timberwolf/90 rounded-2xl shadow-subtle p-1.5 sm:p-2 focus-within:border-moonstone focus-within:shadow-card transition-all">
+              <Search className="w-5 h-5 text-midnight/50 ml-3 shrink-0" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search for an expert, skill or service (e.g. Python, Figma, RAG, Tax, Copywriting)..."
-                className="w-full px-3 py-2 text-sm text-midnight placeholder:text-midnight/40 bg-transparent focus:outline-none"
+                placeholder="Search experts, skills, or services..."
+                className="min-w-0 flex-1 px-3 py-2 text-sm sm:text-base text-midnight placeholder:text-midnight/40 placeholder:truncate bg-transparent focus:outline-none"
               />
-              <button
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="p-1.5 mr-1 text-midnight/40 hover:text-midnight transition-colors cursor-pointer rounded-lg shrink-0"
+                  title="Clear search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+              <Button
                 type="submit"
-                className="px-5 py-2.5 rounded-xl bg-midnight text-aliceblue text-sm font-semibold hover:bg-midnight-hover shrink-0 transition-colors cursor-pointer"
+                variant="primary"
+                size="sm"
+                className="shrink-0 rounded-xl px-4 sm:px-5"
               >
                 Search
-              </button>
+              </Button>
             </div>
           </form>
 
-          {/* Search quick suggestions */}
-          <div className="flex flex-wrap items-center justify-center gap-2 mt-4 text-xs text-midnight/70">
-            <span className="text-midnight/50 font-medium">Popular:</span>
-            {['Python developer', 'Figma teardown', 'RAG architect', 'B2B growth audit', 'Tax advisor'].map((tag) => (
-              <button
-                key={tag}
-                onClick={() => navigate(`/services?search=${encodeURIComponent(tag)}`)}
-                className="px-2.5 py-1 rounded-full bg-white/80 border border-timberwolf/60 hover:border-moonstone hover:text-midnight transition-colors cursor-pointer"
-              >
-                {tag}
-              </button>
-            ))}
+          {/* Popular searches as horizontally scrollable chips (no wrapping wall, no clipping) */}
+          <div className="flex items-center gap-2 mt-3.5 sm:mt-4 text-xs text-midnight/70 overflow-x-auto no-scrollbar py-1.5 px-0.5 justify-start sm:justify-center">
+            <span className="text-midnight/50 font-medium shrink-0 flex items-center gap-1 pl-1">
+              <Sparkles className="w-3.5 h-3.5 text-moonstone shrink-0" />
+              Popular:
+            </span>
+            <div className="flex items-center gap-2 shrink-0 pr-4 sm:pr-0">
+              {['Python developer', 'Figma teardown', 'RAG architect', 'B2B growth audit', 'Tax advisor', 'AI Prompt Engineer', 'Fractional CTO'].map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => navigate(`/services?search=${encodeURIComponent(tag)}`)}
+                  className="shrink-0 min-h-[40px] px-3.5 py-2 rounded-full bg-white border border-timberwolf/80 hover:border-moonstone hover:text-midnight active:scale-95 transition-all text-midnight/80 font-medium whitespace-nowrap shadow-xs cursor-pointer text-xs"
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -200,17 +226,17 @@ export const HomePage: React.FC = () => {
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
           {categories.slice(0, 11).map((cat) => (
             <Link
               key={cat.id}
               to={`/services?category=${cat.slug}`}
-              className="water-surface-card bg-white/90 hover:bg-white border border-timberwolf/60 hover:border-moonstone/60 rounded-xl p-4 flex flex-col items-start gap-2.5 transition-all shadow-subtle group"
+              className="water-surface-card bg-white border border-timberwolf/70 hover:border-moonstone/80 rounded-[20px] p-4 sm:p-5 flex flex-col items-start justify-between min-h-[116px] sm:min-h-[122px] transition-all duration-150 shadow-subtle hover:shadow-card active:scale-[0.97] group cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-lg bg-aliceblue flex items-center justify-center text-midnight group-hover:text-moonstone transition-colors">
+              <div className="w-11 h-11 rounded-xl bg-aliceblue flex items-center justify-center text-midnight group-hover:bg-midnight group-hover:text-aliceblue transition-all duration-150 shrink-0">
                 {getCategoryIcon(cat.icon)}
               </div>
-              <span className="font-semibold text-xs sm:text-sm text-midnight group-hover:text-moonstone transition-colors">
+              <span className="font-bold text-sm sm:text-base text-midnight group-hover:text-moonstone tracking-tight line-clamp-1 mt-2">
                 {cat.name}
               </span>
             </Link>
@@ -218,12 +244,12 @@ export const HomePage: React.FC = () => {
 
           <Link
             to="/services"
-            className="water-surface-card bg-lightblue/30 hover:bg-lightblue/50 border border-lightblue rounded-xl p-4 flex flex-col items-center justify-center text-center gap-1 transition-all group"
+            className="water-surface-card bg-lightblue/25 hover:bg-lightblue/40 border-2 border-dashed border-lightblue/80 rounded-[20px] p-4 sm:p-5 flex flex-col items-center justify-center text-center min-h-[116px] sm:min-h-[122px] transition-all duration-150 active:scale-[0.97] group cursor-pointer"
           >
-            <span className="font-bold text-xs sm:text-sm text-midnight group-hover:text-moonstone">
+            <span className="font-bold text-sm sm:text-base text-midnight group-hover:text-moonstone">
               View All
             </span>
-            <span className="text-[11px] text-midnight/60">
+            <span className="text-xs text-midnight/60 mt-0.5 font-medium">
               {categories.length}+ Categories
             </span>
           </Link>

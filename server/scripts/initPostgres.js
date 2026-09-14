@@ -372,7 +372,7 @@ async function initPostgres(customPool = null) {
 
     // Insert Default Platform Settings
     const defaultSettings = [
-      ['platform_name', 'HireByMinutes', 'The public platform name'],
+      ['platform_name', 'HireByMinute', 'The public platform name'],
       ['platform_fee_percent', '15', 'Platform take rate percentage on consultations'],
       ['listing_fee_usd', '2.00', 'Flat fee charged to experts to activate a service listing'],
       ['min_session_duration', '5', 'Minimum consultation duration in minutes'],

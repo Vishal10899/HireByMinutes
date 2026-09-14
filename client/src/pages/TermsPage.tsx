@@ -52,7 +52,7 @@ export const TermsPage: React.FC = () => {
               <span>1. Acceptance of Terms & Eligibility</span>
             </h2>
             <p>
-              These Terms of Service ("Terms") govern your access to and use of the HireByMinutes platform, including all related websites, applications, signaling services, and communication features (collectively, the "Platform").
+              These Terms of Service ("Terms") govern your access to and use of the HireByMinute platform, including all related websites, applications, signaling services, and communication features (collectively, the "Platform").
             </p>
             <p>
               By registering an account, purchasing minute credits, or offering services, you represent and warrant that you are at least 18 years of age (or the legal age of majority in your jurisdiction) and possess the legal capacity to enter into binding contracts. If you are using the Platform on behalf of an entity, you represent that you are authorized to bind that entity to these Terms.
@@ -69,9 +69,9 @@ export const TermsPage: React.FC = () => {
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li>You are solely responsible for maintaining the confidentiality of your authentication credentials.</li>
-              <li>You must immediately notify HireByMinutes of any unauthorized use or suspected security breach of your account.</li>
+              <li>You must immediately notify HireByMinute of any unauthorized use or suspected security breach of your account.</li>
               <li>Usernames assigned upon registration are permanent identifiers and cannot be altered or transferred to third parties.</li>
-              <li>HireByMinutes reserves the right to suspend or terminate accounts that contain false, misleading, or fraudulent information.</li>
+              <li>HireByMinute reserves the right to suspend or terminate accounts that contain false, misleading, or fraudulent information.</li>
             </ul>
           </section>
 
@@ -81,10 +81,10 @@ export const TermsPage: React.FC = () => {
               3. Marketplace Model & Roles
             </h2>
             <p>
-              HireByMinutes operates as a two-sided marketplace connecting clients seeking consultative advice ("Clients") with independent professionals and domain experts ("Service Providers" or "Experts").
+              HireByMinute operates as a two-sided marketplace connecting clients seeking consultative advice ("Clients") with independent professionals and domain experts ("Service Providers" or "Experts").
             </p>
             <p>
-              <strong>Independent Contractor Relationship:</strong> Experts are independent third parties and are not employees, agents, joint venturers, or partners of HireByMinutes. HireByMinutes does not supervise, direct, or control the professional opinions, technical solutions, or consultative deliverables provided during sessions.
+              <strong>Independent Contractor Relationship:</strong> Experts are independent third parties and are not employees, agents, joint venturers, or partners of HireByMinute. HireByMinute does not supervise, direct, or control the professional opinions, technical solutions, or consultative deliverables provided during sessions.
             </p>
           </section>
 
@@ -129,7 +129,7 @@ export const TermsPage: React.FC = () => {
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li><strong>Payment Hold:</strong> Client funds are held securely upon authorization for the duration of the scheduled consultation.</li>
               <li><strong>Expert Payout (85%):</strong> Upon server-validated completion of the session, eighty-five percent (85%) of the consultation fee is credited to the verified Expert's payout ledger balance.</li>
-              <li><strong>Platform Commission (15%):</strong> HireByMinutes retains fifteen percent (15%) of the completed session amount to maintain real-time signaling servers, payment processing, fraud mitigation, and dispute handling.</li>
+              <li><strong>Platform Commission (15%):</strong> HireByMinute retains fifteen percent (15%) of the completed session amount to maintain real-time signaling servers, payment processing, fraud mitigation, and dispute handling.</li>
             </ul>
           </section>
 

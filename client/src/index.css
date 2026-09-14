@@ -66,6 +66,15 @@ body {
   background: #B2D5E2;
 }
 
+/* Utility to hide scrollbars while keeping horizontal scroll */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Subtle, Restrained Button & Interactive Micro-Interactions */
 button, a, input, select, textarea {
   transition-property: color, background-color, border-color, box-shadow, transform, opacity;
@@ -157,12 +166,21 @@ textarea:focus-visible {
   to { opacity: 1; transform: scale(1); }
 }
 
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
 .animate-fade-in {
   animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .animate-scale-up {
   animation: scaleUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* ==========================================================================

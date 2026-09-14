@@ -33,7 +33,7 @@ services:
       - key: ADMIN_PASSWORD
         sync: false
       - key: PLATFORM_NAME
-        value: HireByMinutes
+        value: HireByMinute
       - key: LISTING_FEE_USD
         value: "2.00"
       - key: PLATFORM_FEE_PERCENT
@@ -57,11 +57,13 @@ services:
       - key: EMAIL_PROVIDER
         value: resend
       - key: EMAIL_FROM
-        value: "HireByMinutes <no-reply@hirebyminutes.com>"
+        value: "HireByMinute <no-reply@hirebyminute.com>"
       - key: EMAIL_FROM_NAME
-        value: "HireByMinutes"
+        value: "HireByMinute"
       - key: EMAIL_REPLY_TO
-        value: "support@hirebyminutes.com"
+        value: "support@hirebyminute.com"
+      - key: RESEND_API_KEY
+        sync: false
       - key: EMAIL_API_KEY
         sync: false
       - key: RAZORPAY_KEY_ID

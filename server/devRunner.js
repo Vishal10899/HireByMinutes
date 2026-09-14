@@ -40,7 +40,7 @@ function checkHireByMinutesHealth(port) {
       res.on('end', () => {
         try {
           const data = JSON.parse(body);
-          if (res.statusCode === 200 && data.platform === 'HireByMinutes') {
+          if (res.statusCode === 200 && (data.platform === 'HireByMinute' || data.platform === 'HireByMinutes')) {
             resolve(true);
           } else {
             resolve(false);

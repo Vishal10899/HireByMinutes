@@ -260,7 +260,7 @@ export const AdminPage: React.FC = () => {
   // Add User State (Admin Special Flow)
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserPassword, setNewUserPassword] = useState('HireByMinutes2026!');
+  const [newUserPassword, setNewUserPassword] = useState('HireByMinute2026!');
   const [newUserRole, setNewUserRole] = useState<'provider' | 'client'>('provider');
   const [newUserHeadline, setNewUserHeadline] = useState('');
   const [newUserBio, setNewUserBio] = useState('');
@@ -915,9 +915,14 @@ export const AdminPage: React.FC = () => {
       {/* ========================================================================= */}
       <div className="flex-1 flex overflow-hidden min-h-[calc(100vh-4.5rem)]">
         
-        {/* ======================================================================= */}
-        {/* DESKTOP FIXED SIDEBAR & MOBILE DRAWER */}
-        {/* ======================================================================= */}
+        {/* Mobile Drawer Backdrop */}
+        {mobileMenuOpen && (
+          <div
+            className="fixed inset-0 bg-midnight/50 backdrop-blur-xs z-20 lg:hidden"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+        )}
+
         <aside
           className={`fixed inset-y-16 sm:inset-y-18 left-0 z-30 w-64 bg-white/95 backdrop-blur-md border-r border-timberwolf/60 flex flex-col justify-between transition-transform duration-200 lg:static lg:translate-x-0 ${
             mobileMenuOpen ? 'translate-x-0 shadow-modal' : '-translate-x-full lg:translate-x-0'
@@ -2080,7 +2085,7 @@ export const AdminPage: React.FC = () => {
                 <div className="bg-white rounded-2xl border border-timberwolf/70 p-10 text-center shadow-card space-y-3">
                   <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
                   <h3 className="text-base font-bold text-midnight">Review Queue is All Clear!</h3>
-                  <p className="text-xs text-midnight/60">All expert accounts on HireByMinutes have been reviewed.</p>
+                  <p className="text-xs text-midnight/60">All expert accounts on HireByMinute have been reviewed.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

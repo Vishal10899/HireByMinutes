@@ -474,7 +474,7 @@ export const ProviderDashboardPage: React.FC = () => {
                         type="button"
                         onClick={() => handleDeclineRequest(req.id)}
                         disabled={actionLoading === req.id}
-                        className="flex-1 py-2.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                        className="flex-1 min-h-[44px] py-2.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 active:scale-95"
                       >
                         Decline
                       </button>
@@ -482,7 +482,7 @@ export const ProviderDashboardPage: React.FC = () => {
                         type="button"
                         onClick={() => handleAcceptRequest(req.id)}
                         disabled={actionLoading === req.id}
-                        className="btn-shine flex-1 py-2.5 rounded-xl bg-midnight text-aliceblue hover:bg-midnight-hover text-xs font-bold transition-colors cursor-pointer shadow-subtle disabled:opacity-50 flex items-center justify-center gap-1.5"
+                        className="btn-shine flex-1 min-h-[44px] py-2.5 rounded-xl bg-midnight text-aliceblue hover:bg-midnight-hover text-xs font-bold transition-all cursor-pointer shadow-subtle disabled:opacity-50 flex items-center justify-center gap-1.5 active:scale-95"
                       >
                         {actionLoading === req.id ? (
                           <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -537,7 +537,7 @@ export const ProviderDashboardPage: React.FC = () => {
 
                 <Link
                   to={`/session/${session.id}`}
-                  className="px-4 py-2 rounded-lg bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover"
+                  className="min-h-[44px] px-4 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover flex items-center transition-all active:scale-95 shadow-subtle"
                 >
                   Enter Room
                 </Link>

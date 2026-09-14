@@ -340,11 +340,11 @@ export const ClientDashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-timberwolf/60 overflow-x-auto scrollbar-none pb-px">
+      {/* Tabs Navigation (Section 16: Horizontal scrollable no-scrollbar with 44px min touch height) */}
+      <div className="flex items-center gap-2 border-b border-timberwolf/60 overflow-x-auto no-scrollbar pb-px">
         <button
           onClick={() => setActiveTab('overview')}
-          className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer ${
+          className={`min-h-[44px] px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer flex items-center active:scale-95 ${
             activeTab === 'overview'
               ? 'border-moonstone text-moonstone'
               : 'border-transparent text-midnight/70 hover:text-midnight'
@@ -355,7 +355,7 @@ export const ClientDashboardPage: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('sessions')}
-          className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer ${
+          className={`min-h-[44px] px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer flex items-center active:scale-95 ${
             activeTab === 'sessions'
               ? 'border-moonstone text-moonstone'
               : 'border-transparent text-midnight/70 hover:text-midnight'
@@ -366,7 +366,7 @@ export const ClientDashboardPage: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('experts')}
-          className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer ${
+          className={`min-h-[44px] px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer flex items-center active:scale-95 ${
             activeTab === 'experts'
               ? 'border-moonstone text-moonstone'
               : 'border-transparent text-midnight/70 hover:text-midnight'
@@ -377,7 +377,7 @@ export const ClientDashboardPage: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('payments')}
-          className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer ${
+          className={`min-h-[44px] px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer flex items-center active:scale-95 ${
             activeTab === 'payments'
               ? 'border-moonstone text-moonstone'
               : 'border-transparent text-midnight/70 hover:text-midnight'

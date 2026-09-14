@@ -239,7 +239,7 @@ const handleHealthCheck = (req, res) => {
 
   res.status(200).json({
     status: 'healthy',
-    platform: 'HireByMinutes',
+    platform: 'HireByMinute',
     version: '2.4.0',
     environment: process.env.NODE_ENV || 'development',
     database: 'connected',

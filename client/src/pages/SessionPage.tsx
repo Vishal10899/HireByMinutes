@@ -69,6 +69,9 @@ export const SessionPage: React.FC = () => {
   const [extending, setExtending] = useState(false);
   const [showExtensionModal, setShowExtensionModal] = useState(false);
 
+  // Mobile Segmented Workspace Tab (Section 15)
+  const [mobileWorkspaceTab, setMobileWorkspaceTab] = useState<'video' | 'chat'>('video');
+
   // DOM & Media Refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -660,8 +663,8 @@ export const SessionPage: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5">
       
-      {/* ---------------- TOP HEADER ---------------- */}
-      <div className="bg-white rounded-2xl border border-timberwolf/70 p-4 sm:p-5 shadow-subtle flex flex-col sm:flex-row items-center justify-between gap-4">
+      {/* ---------------- TOP HEADER (Sticky on Mobile - Section 15) ---------------- */}
+      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-md rounded-2xl border border-timberwolf/70 p-3 sm:p-5 shadow-subtle flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
         
         {/* Back Link & Participant Identity */}
         <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -693,20 +696,20 @@ export const SessionPage: React.FC = () => {
         </div>
 
         {/* Server Authoritative Timer Display */}
-        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-          <div className={`px-5 py-2.5 rounded-xl border flex items-center gap-2.5 transition-all ${
+        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-between sm:justify-end flex-wrap">
+          <div className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl border flex items-center gap-2.5 transition-all ${
             isSessionCompleted
               ? 'bg-rose-50 border-rose-200 text-rose-700'
               : remainingSeconds <= 300 && remainingSeconds > 0
               ? 'bg-amber-50 border-amber-300 text-amber-800 animate-pulse'
               : 'bg-midnight border-midnight text-aliceblue shadow-subtle'
           }`}>
-            <Clock className="w-5 h-5 text-moonstone" />
+            <Clock className="w-5 h-5 text-moonstone shrink-0" />
             <div className="flex flex-col text-left">
               <span className="text-[9px] font-bold uppercase tracking-wider opacity-80">
                 {isSessionCompleted ? 'Session Ended' : isSessionActive ? 'Remaining Time' : 'Scheduled Duration'}
               </span>
-              <span className="font-mono font-extrabold text-xl tracking-tight leading-none mt-0.5">
+              <span className="font-mono font-extrabold text-lg sm:text-xl tracking-tight leading-none mt-0.5">
                 {isSessionCompleted ? '00:00' : formatTimer(remainingSeconds)}
               </span>
             </div>
@@ -715,7 +718,7 @@ export const SessionPage: React.FC = () => {
           {session.status === 'SCHEDULED' && (
             <button
               onClick={handleStartSession}
-              className="px-4 py-2.5 rounded-xl bg-moonstone text-white text-xs font-bold hover:bg-moonstone-hover shadow-subtle flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              className="min-h-[44px] px-4 py-2.5 rounded-xl bg-moonstone text-white text-xs font-bold hover:bg-moonstone-hover shadow-subtle flex items-center gap-1.5 cursor-pointer whitespace-nowrap active:scale-95"
             >
               <Sparkles className="w-4 h-4" /> Start Session Now
             </button>
@@ -724,7 +727,7 @@ export const SessionPage: React.FC = () => {
           {isSessionActive && user?.role === 'client' && (
             <button
               onClick={() => setShowExtensionModal(true)}
-              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-subtle flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              className="min-h-[44px] px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-subtle flex items-center gap-1.5 cursor-pointer whitespace-nowrap active:scale-95"
             >
               <Clock className="w-4 h-4" /> + Extend Time
             </button>
@@ -733,7 +736,7 @@ export const SessionPage: React.FC = () => {
           {isSessionActive && (
             <button
               onClick={handleEndSessionExplicit}
-              className="px-3.5 py-2.5 rounded-xl border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold shadow-subtle flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              className="min-h-[44px] px-3.5 py-2.5 rounded-xl border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold shadow-subtle flex items-center gap-1.5 cursor-pointer whitespace-nowrap active:scale-95"
               title="End session completely and trigger rating"
             >
               <PhoneOff className="w-4 h-4" /> End Session
@@ -741,6 +744,35 @@ export const SessionPage: React.FC = () => {
           )}
         </div>
 
+      </div>
+
+      {/* ---------------- MOBILE WORKSPACE SEGMENTED CONTROLS (Section 15) ---------------- */}
+      <div className="lg:hidden flex rounded-xl bg-aliceblue p-1 border border-timberwolf/60">
+        <button
+          type="button"
+          onClick={() => setMobileWorkspaceTab('video')}
+          className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer min-h-[44px] active:scale-95 ${
+            mobileWorkspaceTab === 'video'
+              ? 'bg-midnight text-aliceblue shadow-subtle'
+              : 'text-midnight/70 hover:text-midnight'
+          }`}
+        >
+          <Video className="w-4 h-4" />
+          <span>Video Stream</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMobileWorkspaceTab('chat')}
+          className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer min-h-[44px] active:scale-95 ${
+            mobileWorkspaceTab === 'chat'
+              ? 'bg-midnight text-aliceblue shadow-subtle'
+              : 'text-midnight/70 hover:text-midnight'
+          }`}
+        >
+          <Send className="w-4 h-4" />
+          <span>Chat & Files {messages.length > 0 && `(${messages.length})`}</span>
+        </button>
       </div>
 
       {/* Warning & Seamless Extension Bar (< 5 mins or warning active) */}
@@ -794,7 +826,9 @@ export const SessionPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-[580px]">
         
         {/* ---------------- LEFT / MAIN AREA: Video & Media Workspace ---------------- */}
-        <div className="lg:col-span-2 flex flex-col justify-between bg-midnight rounded-2xl border border-midnight shadow-card overflow-hidden relative p-4 sm:p-6 text-aliceblue min-h-[460px] lg:min-h-[580px]">
+        <div className={`lg:col-span-2 flex-col justify-between bg-midnight rounded-2xl border border-midnight shadow-card overflow-hidden relative p-4 sm:p-6 text-aliceblue min-h-[440px] lg:min-h-[580px] ${
+          mobileWorkspaceTab === 'video' ? 'flex' : 'hidden lg:flex'
+        }`}>
           
           {/* Top Status Bar */}
           <div className="flex items-center justify-between z-10">
@@ -931,15 +965,15 @@ export const SessionPage: React.FC = () => {
 
           </div>
 
-          {/* ---------------- BOTTOM MEDIA CONTROLS ---------------- */}
+          {/* ---------------- BOTTOM MEDIA CONTROLS (Section 15: >=48px Touch Targets) ---------------- */}
           {isSessionActive && !callEndedManually && (
-            <div className="flex items-center justify-center gap-3 z-10 pt-3 border-t border-timberwolf/10">
+            <div className="flex items-center justify-center gap-2.5 sm:gap-3 z-10 pt-3 border-t border-timberwolf/10 flex-wrap">
               
               {/* Microphone */}
               <button
                 type="button"
                 onClick={toggleMicrophone}
-                className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center gap-2 text-xs font-semibold ${
+                className={`min-h-[48px] min-w-[48px] p-3 sm:px-4 rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold active:scale-95 ${
                   micEnabled
                     ? 'bg-midnight-light border-timberwolf/30 text-aliceblue hover:bg-midnight-hover'
                     : 'bg-rose-500/20 border-rose-500/50 text-rose-400'
@@ -954,7 +988,7 @@ export const SessionPage: React.FC = () => {
               <button
                 type="button"
                 onClick={toggleCamera}
-                className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center gap-2 text-xs font-semibold ${
+                className={`min-h-[48px] min-w-[48px] p-3 sm:px-4 rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold active:scale-95 ${
                   videoEnabled
                     ? 'bg-midnight-light border-timberwolf/30 text-aliceblue hover:bg-midnight-hover'
                     : 'bg-rose-500/20 border-rose-500/50 text-rose-400'
@@ -965,11 +999,11 @@ export const SessionPage: React.FC = () => {
                 <span className="hidden sm:inline">{videoEnabled ? 'Stop Video' : 'Start Video'}</span>
               </button>
 
-              {/* Screen Share */}
+              {/* Screen Share (Hidden on small mobile screens where unsupported) */}
               <button
                 type="button"
                 onClick={toggleScreenShare}
-                className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center gap-2 text-xs font-semibold ${
+                className={`min-h-[48px] min-w-[48px] p-3 sm:px-4 rounded-xl border transition-all cursor-pointer items-center justify-center gap-2 text-xs font-semibold active:scale-95 hidden sm:flex ${
                   screenSharing
                     ? 'bg-moonstone border-moonstone text-white shadow-subtle'
                     : 'bg-midnight-light border-timberwolf/30 text-aliceblue hover:bg-midnight-hover'
@@ -984,7 +1018,7 @@ export const SessionPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleEndCall}
-                className="p-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white border border-rose-500 shadow-subtle transition-all cursor-pointer flex items-center gap-2 text-xs font-bold"
+                className="min-h-[48px] min-w-[48px] p-3 sm:px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white border border-rose-500 shadow-subtle transition-all cursor-pointer flex items-center justify-center gap-2 text-xs font-bold active:scale-95"
                 title="Leave Media Stream"
               >
                 <PhoneOff className="w-4 h-4" />
@@ -996,8 +1030,10 @@ export const SessionPage: React.FC = () => {
 
         </div>
 
-        {/* ---------------- RIGHT: CHAT & FILE SHARING PANEL ---------------- */}
-        <div className="lg:col-span-1 bg-white rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col justify-between overflow-hidden h-[540px] lg:h-[580px]">
+        {/* ---------------- RIGHT: CHAT & FILE SHARING PANEL (Section 15: Segmented on Mobile) ---------------- */}
+        <div className={`lg:col-span-1 bg-white rounded-2xl border border-timberwolf/70 shadow-subtle flex-col justify-between overflow-hidden h-[540px] lg:h-[580px] ${
+          mobileWorkspaceTab === 'chat' ? 'flex' : 'hidden lg:flex'
+        }`}>
           
           {/* Chat Header */}
           <div className="p-4 border-b border-timberwolf/40 bg-aliceblue/40 flex items-center justify-between">

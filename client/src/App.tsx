@@ -42,15 +42,26 @@ const AppRoutes: React.FC = () => {
     return <BrandedLoadingScreen />;
   }
 
-  const isFullHeightRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/session/');
+  const isAuthRoute =
+    location.pathname.startsWith('/auth') ||
+    location.pathname === '/login' ||
+    location.pathname === '/signup' ||
+    location.pathname === '/register' ||
+    location.pathname === '/forgot-password' ||
+    location.pathname === '/reset-password';
+
+  const isFullHeightRoute =
+    location.pathname.startsWith('/admin') ||
+    location.pathname.startsWith('/session/') ||
+    isAuthRoute;
 
   return (
     <div className="flex flex-col min-h-screen relative overflow-x-hidden selection:bg-lightblue selection:text-midnight bg-aliceblue text-midnight font-sans">
       <CustomCursor />
-      {/* Universal Global Header: 100% Identical on Landing Page, Marketplace, Profile, and Admin Dashboard */}
-      <Header />
+      {/* Universal Global Header: Suppressed on dedicated minimal authentication pages */}
+      {!isAuthRoute && <Header />}
       
-      <main className="flex-1 relative z-10 flex flex-col">
+      <main className="flex-1 relative z-10 flex flex-col w-full min-w-0 max-w-full">
         <Routes>
           {/* Core Platform Routes */}
           <Route path="/" element={<HomePage />} />
@@ -150,6 +161,9 @@ const AppRoutes: React.FC = () => {
 
           {/* Authentication & Password Reset */}
           <Route path="/auth" element={<AuthPage />} />
+          <Route path="/login" element={<AuthPage initialMode="login" />} />
+          <Route path="/signup" element={<AuthPage initialMode="register" />} />
+          <Route path="/register" element={<AuthPage initialMode="register" />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
 

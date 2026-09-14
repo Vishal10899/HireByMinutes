@@ -250,7 +250,7 @@ module.exports = function(timerEngine, io) {
     const memoryUsage = process.memoryUsage();
     return res.status(200).json({
       status: 'healthy',
-      platform: 'HireByMinutes',
+      platform: 'HireByMinute',
       version: '2.4.0',
       environment: process.env.NODE_ENV || 'development',
       database: 'connected',
@@ -312,6 +312,13 @@ module.exports = function(timerEngine, io) {
     }
     if (user.is_suspended) {
       return res.status(403).json({ error: 'Your account is suspended. Please contact platform administration.' });
+    }
+    if (user.role !== 'admin' && !user.email_verified) {
+      return res.status(403).json({
+        error: 'Email verification required. Please verify your email address to access platform features.',
+        requires_verification: true,
+        email: user.email
+      });
     }
     req.user = user;
     next();
@@ -376,6 +383,15 @@ module.exports = function(timerEngine, io) {
 
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    // Strictly require email verification for non-admin accounts before session issuance
+    if (user.role !== 'admin' && !user.email_verified) {
+      return res.status(403).json({
+        error: 'Please verify your email address to complete sign-in.',
+        requires_verification: true,
+        email: user.email
+      });
     }
 
     res.json({
@@ -516,20 +532,31 @@ module.exports = function(timerEngine, io) {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(`evt-${uuidv4().slice(0, 8)}`, id, cleanEmail, otpHash, expiresAt, nowIso);
 
-    // Dispatch verification OTP email
-    emailService.sendVerificationOtp({
+    // Dispatch verification OTP email and await delivery confirmation
+    const sendResult = await emailService.sendVerificationOtp({
       email: cleanEmail,
       name: full_name.trim(),
       otp: rawOtp,
       expiryMinutes,
       userId: id
-    }).catch(err => console.error('Failed to send verification email', err));
+    });
 
-    const newUser = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    if (!sendResult.success) {
+      // Rollback unverified user record to prevent orphaned unverified accounts
+      try {
+        db.prepare('DELETE FROM email_verification_tokens WHERE user_id = ?').run(id);
+        db.prepare('DELETE FROM users WHERE id = ?').run(id);
+      } catch (rollbackErr) {
+        console.error('Failed to rollback unverified registration record:', rollbackErr);
+      }
+      return res.status(502).json({
+        error: `Unable to dispatch verification email: ${sendResult.error || 'Provider delivery error'}. Please check your email address and try again.`,
+        email_failed: true,
+        email: cleanEmail
+      });
+    }
 
     res.status(201).json({
-      user: sanitizeUser(newUser),
-      token: generateToken(newUser),
       requires_verification: true,
       email: cleanEmail,
       message: 'Account created. We have sent a 6-digit verification code to your email.'
@@ -594,7 +621,9 @@ module.exports = function(timerEngine, io) {
 
     // Verify SHA-256 hash with timing safety
     const candidateHash = crypto.createHash('sha256').update(cleanCode + tokenRecord.user_id).digest('hex');
-    const isMatch = crypto.timingSafeEqual(Buffer.from(candidateHash), Buffer.from(tokenRecord.code_hash));
+    const candidateBuf = Buffer.from(candidateHash);
+    const tokenBuf = Buffer.from(tokenRecord.code_hash);
+    const isMatch = candidateBuf.length === tokenBuf.length && crypto.timingSafeEqual(candidateBuf, tokenBuf);
 
     if (!isMatch) {
       const nextAttempts = tokenRecord.attempts + 1;
@@ -616,12 +645,12 @@ module.exports = function(timerEngine, io) {
       verified: true,
       user: sanitizeUser(updatedUser),
       token: generateToken(updatedUser),
-      message: 'Email verified successfully! Welcome to HireByMinutes.'
+      message: 'Email verified successfully! Welcome to HireByMinute.'
     });
   });
 
   // Resend Verification OTP (with 60s cooldown and rate limiting)
-  router.post('/auth/resend-verification-otp', (req, res) => {
+  router.post('/auth/resend-verification-otp', async (req, res) => {
     const { email } = req.body;
     let targetEmail = email ? email.trim().toLowerCase() : null;
 
@@ -691,13 +720,20 @@ module.exports = function(timerEngine, io) {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(`evt-${uuidv4().slice(0, 8)}`, user.id, targetEmail, otpHash, expiresAt, nowIso);
 
-    emailService.sendVerificationOtp({
+    const sendResult = await emailService.sendVerificationOtp({
       email: targetEmail,
       name: user.full_name,
       otp: rawOtp,
       expiryMinutes,
       userId: user.id
-    }).catch(err => console.error('Failed to resend verification email', err));
+    });
+
+    if (!sendResult.success) {
+      return res.status(502).json({
+        error: `Could not send verification email: ${sendResult.error || 'Provider delivery error'}. Please try again later.`,
+        email_failed: true
+      });
+    }
 
     res.json({
       success: true,
@@ -706,7 +742,7 @@ module.exports = function(timerEngine, io) {
   });
 
   // Change Unverified Email (allows fixing email typos before OTP completion)
-  router.post('/auth/change-unverified-email', (req, res) => {
+  router.post('/auth/change-unverified-email', async (req, res) => {
     const { old_email, new_email } = req.body;
     if (!old_email || !new_email) {
       return res.status(400).json({ error: 'Both old and new email addresses are required.' });
@@ -751,13 +787,22 @@ module.exports = function(timerEngine, io) {
       VALUES (?, ?, ?, ?, ?)
     `).run(`evt-${uuidv4().slice(0, 8)}`, user.id, cleanNew, otpHash, expiresAt);
 
-    emailService.sendVerificationOtp({
+    const sendResult = await emailService.sendVerificationOtp({
       email: cleanNew,
       name: user.full_name,
       otp: rawOtp,
       expiryMinutes,
       userId: user.id
-    }).catch(err => console.error('Failed to send verification email to new address', err));
+    });
+
+    if (!sendResult.success) {
+      // Rollback email change on failure
+      db.prepare('UPDATE users SET email = ? WHERE id = ?').run(cleanOld, user.id);
+      return res.status(502).json({
+        error: `Could not send verification email to ${cleanNew}: ${sendResult.error || 'Provider delivery error'}. Email address was not changed.`,
+        email_failed: true
+      });
+    }
 
     res.json({
       success: true,
@@ -859,13 +904,13 @@ module.exports = function(timerEngine, io) {
     try {
       const result = await emailService.sendMail({
         to: recipient,
-        subject: 'HireByMinutes System Test Email',
+        subject: 'HireByMinute System Test Email',
         template: 'test_email',
         html: emailService.wrapHtml({
           title: 'Email Delivery Test',
-          contentHtml: `<p class="paragraph">This is a test notification confirming that the HireByMinutes email delivery system is functioning correctly.</p>`
+          contentHtml: `<p class="paragraph">This is a test notification confirming that the HireByMinute email delivery system is functioning correctly.</p>`
         }),
-        text: 'This is a test notification confirming that the HireByMinutes email delivery system is functioning correctly.',
+        text: 'This is a test notification confirming that the HireByMinute email delivery system is functioning correctly.',
         userId: req.user.id
       });
 
@@ -1136,7 +1181,7 @@ module.exports = function(timerEngine, io) {
       FROM services s
       JOIN users u ON s.provider_id = u.id
       JOIN categories c ON s.category_id = c.id
-      WHERE s.listing_status = 'active' AND u.is_suspended = 0
+      WHERE s.listing_status = 'active' AND u.is_suspended = 0 AND u.email_verified = 1
       ORDER BY u.rating DESC, u.sessions_completed DESC
       LIMIT 6
     `).all();
@@ -1169,7 +1214,7 @@ module.exports = function(timerEngine, io) {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 24));
     const offset = (page - 1) * limit;
 
-    let whereClause = ` WHERE s.listing_status = 'active' AND u.is_suspended = 0`;
+    let whereClause = ` WHERE s.listing_status = 'active' AND u.is_suspended = 0 AND u.email_verified = 1`;
     const params = [];
 
     if (category && category !== 'all') {
@@ -1367,7 +1412,7 @@ module.exports = function(timerEngine, io) {
       FROM services s
       JOIN users u ON s.provider_id = u.id
       JOIN categories c ON s.category_id = c.id
-      WHERE s.id = ?
+      WHERE s.id = ? AND u.is_suspended = 0 AND u.email_verified = 1
     `).get(req.params.id);
 
     if (!service) {
@@ -1765,7 +1810,7 @@ module.exports = function(timerEngine, io) {
       order_id: razorpay_order_id,
       payment_id: razorpay_payment_id,
       service_title: service.title,
-      description: `HireByMinutes $${listingFeeUsd.toFixed(2)} Service Listing Activation Fee`
+      description: `HireByMinute $${listingFeeUsd.toFixed(2)} Service Listing Activation Fee`
     }));
 
     db.prepare(`
@@ -1792,7 +1837,7 @@ module.exports = function(timerEngine, io) {
 
     res.json({
       success: true,
-      message: 'Razorpay payment verified. Your service is now live on HireByMinutes!',
+      message: 'Razorpay payment verified. Your service is now live on HireByMinute!',
       service: updatedService,
       paymentId,
       fee: listingFeeUsd
