@@ -16,10 +16,16 @@ import {
   Radio,
   Sparkles
 } from 'lucide-react';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const HowItWorksPage: React.FC = () => {
+  usePageSEO({
+    title: 'How It Works — HireByMinute',
+    description: 'Learn how HireByMinute works. Book vetted professionals for precision consultations with real-time per-minute billing and zero retainers.',
+    canonicalPath: '/how-it-works'
+  });
+
   useEffect(() => {
-    document.title = 'How It Works — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 

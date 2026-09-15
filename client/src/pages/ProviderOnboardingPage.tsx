@@ -15,8 +15,15 @@ import {
   HelpCircle
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const ProviderOnboardingPage: React.FC = () => {
+  usePageSEO({
+    title: 'Provider Onboarding — HireByMinute',
+    noindex: true,
+    canonicalPath: '/provider/onboard'
+  });
+
   const navigate = useNavigate();
   const { user, refreshUser } = useAuth();
 

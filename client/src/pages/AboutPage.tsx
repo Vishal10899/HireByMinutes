@@ -14,10 +14,16 @@ import {
   Sparkles,
   DollarSign
 } from 'lucide-react';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const AboutPage: React.FC = () => {
+  usePageSEO({
+    title: 'About Us — HireByMinute',
+    description: 'HireByMinute is the precision consultation marketplace connecting you directly with vetted specialists with server-authoritative per-minute billing.',
+    canonicalPath: '/about'
+  });
+
   useEffect(() => {
-    document.title = 'About Us — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 

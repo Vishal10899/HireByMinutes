@@ -3,8 +3,15 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { Lock, Eye, EyeOff, Check, AlertCircle, CheckCircle2, ArrowLeft, ArrowRight } from 'lucide-react';
 import { BrandLogo } from '../components/common/BrandLogo';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const ResetPasswordPage: React.FC = () => {
+  usePageSEO({
+    title: 'Reset Password — HireByMinute',
+    noindex: true,
+    canonicalPath: '/reset-password'
+  });
+
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 

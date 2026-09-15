@@ -687,6 +687,15 @@ export const api = {
     return res.json();
   },
 
+  applyOpportunity: async (opportunityId: string, data: {
+    message: string;
+    relevant_experience: string;
+    proposed_rate?: number;
+    availability: string;
+  }) => {
+    return api.applyForOpportunity(opportunityId, data);
+  },
+
   createOpportunityApplicationOrder: async (opportunityId: string) => {
     const res = await fetch(`${API_BASE}/opportunities/${opportunityId}/create-application-order`, {
       method: 'POST',
@@ -978,6 +987,12 @@ export const api = {
     return res.json();
   },
 
+  getPublicSettings: async () => {
+    const res = await fetch(`${API_BASE}/platform/settings`);
+    if (!res.ok) throw new Error('Failed to fetch platform settings');
+    return res.json();
+  },
+
   updateAdminSettings: async (data: any) => {
     const res = await fetch(`${API_BASE}/admin/settings`, {
       method: 'PUT',
@@ -985,6 +1000,38 @@ export const api = {
       body: JSON.stringify(data)
     });
     if (!res.ok) throw new Error('Update settings failed');
+    return res.json();
+  },
+
+  resetHeaderNavigation: async () => {
+    const res = await fetch(`${API_BASE}/admin/settings/reset-header-nav`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to reset navigation');
+    }
+    return res.json();
+  },
+
+  uploadLogo: async (file: File) => {
+    const token = localStorage.getItem('hbm_token');
+    const formData = new FormData();
+    formData.append('logo', file);
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await fetch(`${API_BASE}/admin/upload-logo`, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to upload logo');
+    }
     return res.json();
   },
 
@@ -1189,6 +1236,336 @@ export const api = {
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Failed to update base listing fee');
+    }
+    return res.json();
+  },
+
+  // Categories CMS additions
+  deleteAdminCategory: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/categories/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to delete category');
+    }
+    return res.json();
+  },
+
+  reorderAdminCategories: async (categories: Array<{ id: string; sort_order: number }>) => {
+    const res = await fetch(`${API_BASE}/admin/categories/reorder`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ categories })
+    });
+    if (!res.ok) throw new Error('Failed to reorder categories');
+    return res.json();
+  },
+
+  // Footer CMS
+  getPublicFooter: async () => {
+    const res = await fetch(`${API_BASE}/platform/footer`);
+    if (!res.ok) throw new Error('Failed to fetch footer settings');
+    return res.json();
+  },
+
+  getAdminFooter: async () => {
+    const res = await fetch(`${API_BASE}/admin/footer`, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch admin footer settings');
+    return res.json();
+  },
+
+  updateAdminFooter: async (footer: any) => {
+    const res = await fetch(`${API_BASE}/admin/footer`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ footer })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update footer settings');
+    }
+    return res.json();
+  },
+
+  // Contact Settings
+  getPublicContact: async () => {
+    const res = await fetch(`${API_BASE}/platform/contact`);
+    if (!res.ok) throw new Error('Failed to fetch contact information');
+    return res.json();
+  },
+
+  updateAdminContact: async (contact: any) => {
+    const res = await fetch(`${API_BASE}/admin/contact`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ contact })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update contact settings');
+    }
+    return res.json();
+  },
+
+  // Banners & Announcements
+  getPublicBanners: async (placement?: string) => {
+    const url = placement ? `${API_BASE}/banners?placement=${encodeURIComponent(placement)}` : `${API_BASE}/banners`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch banners');
+    return res.json();
+  },
+
+  getAdminBanners: async () => {
+    const res = await fetch(`${API_BASE}/admin/banners`, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch admin banners');
+    return res.json();
+  },
+
+  createAdminBanner: async (data: any) => {
+    const res = await fetch(`${API_BASE}/admin/banners`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create banner');
+    }
+    return res.json();
+  },
+
+  updateAdminBanner: async (id: string, data: any) => {
+    const res = await fetch(`${API_BASE}/admin/banners/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update banner');
+    }
+    return res.json();
+  },
+
+  toggleAdminBanner: async (id: string, is_active?: boolean) => {
+    const res = await fetch(`${API_BASE}/admin/banners/${id}/toggle`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ is_active })
+    });
+    if (!res.ok) throw new Error('Failed to toggle banner');
+    return res.json();
+  },
+
+  deleteAdminBanner: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/banners/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to delete banner');
+    return res.json();
+  },
+
+  // Static CMS Pages
+  getPublicCmsPage: async (slug: string) => {
+    const res = await fetch(`${API_BASE}/cms/pages/${encodeURIComponent(slug)}`);
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error('Failed to fetch page');
+    }
+    return res.json();
+  },
+
+  getAdminCmsPages: async () => {
+    const res = await fetch(`${API_BASE}/admin/cms/pages`, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch admin CMS pages');
+    return res.json();
+  },
+
+  getAdminCmsPage: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/cms/pages/${id}`, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch page');
+    return res.json();
+  },
+
+  createAdminCmsPage: async (data: any) => {
+    const res = await fetch(`${API_BASE}/admin/cms/pages`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create page');
+    }
+    return res.json();
+  },
+
+  updateAdminCmsPage: async (id: string, data: any) => {
+    const res = await fetch(`${API_BASE}/admin/cms/pages/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update page');
+    }
+    return res.json();
+  },
+
+  deleteAdminCmsPage: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/cms/pages/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to delete page');
+    }
+    return res.json();
+  },
+
+  // Reviews Moderation
+  getAdminReviews: async (params?: { page?: number; limit?: number; search?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', String(params.page));
+    if (params?.limit) query.append('limit', String(params.limit));
+    if (params?.search) query.append('search', params.search);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`${API_BASE}/admin/reviews${qs}`, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch reviews');
+    return res.json();
+  },
+
+  toggleAdminReviewVisibility: async (id: string, is_hidden: boolean, moderation_note?: string) => {
+    const res = await fetch(`${API_BASE}/admin/reviews/${id}/visibility`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ is_hidden, moderation_note })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update review visibility');
+    }
+    return res.json();
+  },
+
+  // Opportunities CMS additions
+  duplicateAdminOpportunity: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/opportunities/${id}/duplicate`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to duplicate opportunity');
+    }
+    return res.json();
+  },
+
+  // Services Moderation additions
+  toggleAdminServiceFeature: async (id: string, is_featured?: boolean) => {
+    const res = await fetch(`${API_BASE}/admin/services/${id}/feature`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ is_featured })
+    });
+    if (!res.ok) throw new Error('Failed to toggle featured status');
+    return res.json();
+  },
+
+  // Homepage CMS Settings
+  getHomepageSettings: async () => {
+    const res = await fetch(`${API_BASE}/platform/homepage`);
+    if (!res.ok) throw new Error('Failed to fetch homepage settings');
+    return res.json();
+  },
+
+  updateHomepageSettings: async (data: any) => {
+    const res = await fetch(`${API_BASE}/admin/homepage`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update homepage settings');
+    }
+    return res.json();
+  },
+
+  // SEO & Social Meta Settings
+  getSeoSettings: async () => {
+    const res = await fetch(`${API_BASE}/platform/seo`);
+    if (!res.ok) throw new Error('Failed to fetch SEO settings');
+    return res.json();
+  },
+
+  updateSeoSettings: async (data: any) => {
+    const res = await fetch(`${API_BASE}/admin/seo`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update SEO settings');
+    }
+    return res.json();
+  },
+
+  // FAQs Management
+  getFaqs: async () => {
+    const res = await fetch(`${API_BASE}/faqs`);
+    if (!res.ok) throw new Error('Failed to fetch FAQs');
+    return res.json();
+  },
+
+  getAdminFaqs: async () => {
+    const res = await fetch(`${API_BASE}/admin/faqs`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch admin FAQs');
+    return res.json();
+  },
+
+  createAdminFaq: async (data: { question: string; answer: string; category?: string; sort_order?: number; is_published?: number | boolean }) => {
+    const res = await fetch(`${API_BASE}/admin/faqs`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create FAQ');
+    }
+    return res.json();
+  },
+
+  updateAdminFaq: async (id: string, data: { question?: string; answer?: string; category?: string; sort_order?: number; is_published?: number | boolean }) => {
+    const res = await fetch(`${API_BASE}/admin/faqs/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update FAQ');
+    }
+    return res.json();
+  },
+
+  deleteAdminFaq: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/faqs/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to delete FAQ');
     }
     return res.json();
   }

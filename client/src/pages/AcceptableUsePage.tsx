@@ -10,10 +10,16 @@ import {
   Mail,
   ShieldCheck
 } from 'lucide-react';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const AcceptableUsePage: React.FC = () => {
+  usePageSEO({
+    title: 'Acceptable Use Policy — HireByMinute',
+    description: 'Platform rules and acceptable use guidelines prohibiting harmful, illegal, or abusive conduct across the HireByMinute network.',
+    canonicalPath: '/acceptable-use'
+  });
+
   useEffect(() => {
-    document.title = 'Acceptable Use Policy — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 

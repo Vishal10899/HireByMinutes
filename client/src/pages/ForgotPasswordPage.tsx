@@ -3,8 +3,15 @@ import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { Mail, ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
 import { BrandLogo } from '../components/common/BrandLogo';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const ForgotPasswordPage: React.FC = () => {
+  usePageSEO({
+    title: 'Forgot Password — HireByMinute',
+    noindex: true,
+    canonicalPath: '/forgot-password'
+  });
+
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);

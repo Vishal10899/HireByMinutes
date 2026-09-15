@@ -109,6 +109,43 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+// =============================================================================
+// SEO & CANONICAL DOMAIN ENFORCEMENT
+// =============================================================================
+// Canonical Production Domain: 301 Permanent Redirect www.hirebyminute.com -> https://hirebyminute.com
+app.use((req, res, next) => {
+  const host = (req.headers.host || '').toLowerCase();
+  if (host.startsWith('www.hirebyminute.com')) {
+    const canonicalUrl = `https://hirebyminute.com${req.originalUrl}`;
+    return res.redirect(301, canonicalUrl);
+  }
+  next();
+});
+
+// Search Indexing Protection: Set noindex on administrative panels, private dashboards, sessions, auth, and APIs
+const PRIVATE_INDEXING_PREFIXES = [
+  '/admin',
+  '/client',
+  '/provider',
+  '/session',
+  '/profile',
+  '/auth',
+  '/login',
+  '/signup',
+  '/register',
+  '/forgot-password',
+  '/reset-password',
+  '/api'
+];
+
+app.use((req, res, next) => {
+  const isPrivate = PRIVATE_INDEXING_PREFIXES.some(prefix => req.path === prefix || req.path.startsWith(prefix + '/'));
+  if (isPrivate) {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  }
+  next();
+});
+
 // HTTP Security Headers
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -259,28 +296,343 @@ app.get('/health', handleHealthCheck);
 app.head('/health', handleHealthCheck);
 
 // =============================================================================
-// PRODUCTION CLIENT STATIC SERVING & SPA FALLBACK
-// Enables 1-click single service deployment on Render Web Services
+// PRODUCTION SEARCH ENGINE OPTIMIZATION (SEO) & CRAWLER DIRECTIVES
 // =============================================================================
-const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
-if (fs.existsSync(clientDistPath)) {
-  app.use(express.static(clientDistPath));
 
-  // SPA fallback for all client GET routes (excluding /health, /api, /uploads, /socket.io)
-  app.use((req, res, next) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-    if (
-      req.path === '/health' ||
-      req.path.startsWith('/health/') ||
-      req.path.startsWith('/api') ||
-      req.path.startsWith('/uploads') ||
-      req.path.startsWith('/socket.io')
-    ) {
-      return next();
+// Dedicated robots.txt endpoint (strictly returns text/plain with crawler directives)
+const handleRobotsTxt = (req, res) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  if (req.method === 'HEAD') return res.status(200).end();
+
+  const robotsFilePath = path.join(__dirname, '..', 'client', 'public', 'robots.txt');
+  if (fs.existsSync(robotsFilePath)) {
+    return res.sendFile(robotsFilePath);
+  }
+
+  const fallbackRobots = [
+    '# https://hirebyminute.com/robots.txt',
+    'User-agent: *',
+    'Allow: /',
+    'Allow: /services',
+    'Allow: /opportunities',
+    'Allow: /about',
+    'Allow: /how-it-works',
+    'Allow: /contact',
+    'Allow: /terms',
+    'Allow: /privacy',
+    'Allow: /refund-policy',
+    'Allow: /expert-policy',
+    'Allow: /acceptable-use',
+    'Allow: /p/',
+    'Allow: /sitemap.xml',
+    'Allow: /favicon.svg',
+    'Allow: /og-image.png',
+    '',
+    '# Disallow private dashboards, admin areas, sessions, and internal APIs',
+    'Disallow: /admin',
+    'Disallow: /admin/',
+    'Disallow: /client',
+    'Disallow: /client/',
+    'Disallow: /provider',
+    'Disallow: /provider/',
+    'Disallow: /session/',
+    'Disallow: /profile',
+    'Disallow: /profile/',
+    'Disallow: /auth',
+    'Disallow: /login',
+    'Disallow: /signup',
+    'Disallow: /register',
+    'Disallow: /forgot-password',
+    'Disallow: /reset-password',
+    'Disallow: /api/',
+    '',
+    'Sitemap: https://hirebyminute.com/sitemap.xml'
+  ].join('\n');
+
+  return res.send(fallbackRobots);
+};
+
+app.get('/robots.txt', handleRobotsTxt);
+app.head('/robots.txt', handleRobotsTxt);
+
+// Dedicated sitemap.xml endpoint (strictly returns application/xml with real indexable URLs)
+const handleSitemapXml = (req, res) => {
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  if (req.method === 'HEAD') return res.status(200).end();
+
+  // Core verified public indexable pages
+  const coreUrls = [
+    { loc: 'https://hirebyminute.com/', priority: '1.0', changefreq: 'daily' },
+    { loc: 'https://hirebyminute.com/services', priority: '0.9', changefreq: 'daily' },
+    { loc: 'https://hirebyminute.com/opportunities', priority: '0.8', changefreq: 'daily' },
+    { loc: 'https://hirebyminute.com/how-it-works', priority: '0.8', changefreq: 'weekly' },
+    { loc: 'https://hirebyminute.com/about', priority: '0.7', changefreq: 'monthly' },
+    { loc: 'https://hirebyminute.com/contact', priority: '0.7', changefreq: 'monthly' },
+    { loc: 'https://hirebyminute.com/terms', priority: '0.5', changefreq: 'monthly' },
+    { loc: 'https://hirebyminute.com/privacy', priority: '0.5', changefreq: 'monthly' },
+    { loc: 'https://hirebyminute.com/refund-policy', priority: '0.5', changefreq: 'monthly' },
+    { loc: 'https://hirebyminute.com/expert-policy', priority: '0.5', changefreq: 'monthly' },
+    { loc: 'https://hirebyminute.com/acceptable-use', priority: '0.5', changefreq: 'monthly' }
+  ];
+
+  const dynamicUrls = [];
+  try {
+    if (db) {
+      // Include active published services
+      const activeServices = db.prepare("SELECT id, updated_at FROM services WHERE listing_status = 'active' LIMIT 500").all();
+      if (Array.isArray(activeServices)) {
+        for (const s of activeServices) {
+          dynamicUrls.push({
+            loc: `https://hirebyminute.com/services/${s.id}`,
+            priority: '0.7',
+            changefreq: 'weekly',
+            lastmod: s.updated_at ? new Date(s.updated_at).toISOString().split('T')[0] : undefined
+          });
+        }
+      }
+
+      // Include published custom CMS pages
+      const publishedCms = db.prepare("SELECT slug, updated_at FROM cms_pages WHERE status = 'published' LIMIT 100").all();
+      if (Array.isArray(publishedCms)) {
+        const reservedSlugs = ['about', 'contact', 'terms', 'privacy', 'refund-policy', 'expert-policy', 'acceptable-use', 'faq'];
+        for (const p of publishedCms) {
+          if (!reservedSlugs.includes(p.slug)) {
+            dynamicUrls.push({
+              loc: `https://hirebyminute.com/p/${p.slug}`,
+              priority: '0.6',
+              changefreq: 'monthly',
+              lastmod: p.updated_at ? new Date(p.updated_at).toISOString().split('T')[0] : undefined
+            });
+          }
+        }
+      }
     }
-    res.sendFile(path.join(clientDistPath, 'index.html'));
-  });
+  } catch (err) {
+    // Graceful fallback to coreUrls
+  }
+
+  const allUrls = [...coreUrls, ...dynamicUrls];
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9 http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+${allUrls.map(u => `  <url>
+    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>${u.lastmod}</lastmod>` : ''}
+    <changefreq>${u.changefreq}</changefreq>
+    <priority>${u.priority}</priority>
+  </url>`).join('\n')}
+</urlset>`;
+
+  return res.send(xml);
+};
+
+app.get('/sitemap.xml', handleSitemapXml);
+app.head('/sitemap.xml', handleSitemapXml);
+
+// Google Search Console file verification route
+app.get('/google:hash.html', (req, res, next) => {
+  const hash = req.params.hash;
+  if (/^[a-f0-9]+$/i.test(hash)) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(`google-site-verification: google${hash}.html`);
+  }
+  next();
+});
+
+// =============================================================================
+// PRODUCTION CLIENT STATIC SERVING & SEO SPA FALLBACK
+// Injects exact canonical URLs, title, description, and OpenGraph/Twitter tags
+// into HTML for Googlebot, social crawlers, and first-paint browsers.
+// =============================================================================
+const PUBLIC_ROUTE_METADATA = {
+  '/': {
+    title: 'HireByMinute — Hire Experts by the Minute',
+    description: 'Find the right expert and hire them by the minute. Get real-time help from skilled professionals and pay only for the time you need.',
+    canonical: 'https://hirebyminute.com/'
+  },
+  '/services': {
+    title: 'Browse Expert Services — HireByMinute',
+    description: 'Discover vetted specialists across tech, design, marketing, and business. Pay only for the minutes you use.',
+    canonical: 'https://hirebyminute.com/services'
+  },
+  '/opportunities': {
+    title: 'Consultation Opportunities — HireByMinute',
+    description: 'Browse active consultation requests and opportunities posted by clients seeking specialized expertise.',
+    canonical: 'https://hirebyminute.com/opportunities'
+  },
+  '/how-it-works': {
+    title: 'How It Works — HireByMinute',
+    description: 'Learn how HireByMinute works. Book vetted professionals for precision consultations with real-time per-minute billing.',
+    canonical: 'https://hirebyminute.com/how-it-works'
+  },
+  '/about': {
+    title: 'About Us — HireByMinute',
+    description: 'HireByMinute is the on-demand marketplace connecting individuals and teams with specialized experts for precision consultations.',
+    canonical: 'https://hirebyminute.com/about'
+  },
+  '/contact': {
+    title: 'Contact & Support — HireByMinute',
+    description: 'Get in touch with the HireByMinute team for questions, assistance, or partnership inquiries.',
+    canonical: 'https://hirebyminute.com/contact'
+  },
+  '/terms': {
+    title: 'Terms of Service — HireByMinute',
+    description: 'Read the Terms of Service governing your use of the HireByMinute consultation platform.',
+    canonical: 'https://hirebyminute.com/terms'
+  },
+  '/privacy': {
+    title: 'Privacy Policy — HireByMinute',
+    description: 'Read the Privacy Policy to understand how HireByMinute collects, uses, and protects your data.',
+    canonical: 'https://hirebyminute.com/privacy'
+  },
+  '/refund-policy': {
+    title: 'Refund & Cancellation Policy — HireByMinute',
+    description: 'Review our clear policies on refunds, session cancellations, and technical dispute mediation.',
+    canonical: 'https://hirebyminute.com/refund-policy'
+  },
+  '/expert-policy': {
+    title: 'Expert Quality Standards & Policy — HireByMinute',
+    description: 'Quality standards, conduct requirements, and verification guidelines for verified experts on HireByMinute.',
+    canonical: 'https://hirebyminute.com/expert-policy'
+  },
+  '/acceptable-use': {
+    title: 'Acceptable Use Policy — HireByMinute',
+    description: 'Platform rules and acceptable use guidelines for all users and service providers.',
+    canonical: 'https://hirebyminute.com/acceptable-use'
+  }
+};
+
+function renderSeoHtml(templateHtml, reqPath) {
+  let html = templateHtml;
+  const cleanPath = reqPath.split('?')[0].replace(/\/$/, '') || '/';
+  let meta = PUBLIC_ROUTE_METADATA[cleanPath];
+
+  // Dynamic route lookup for services: /services/:id
+  if (!meta && cleanPath.startsWith('/services/')) {
+    const serviceId = cleanPath.replace('/services/', '').trim();
+    if (serviceId && db) {
+      try {
+        const s = db.prepare('SELECT title, description FROM services WHERE id = ?').get(serviceId);
+        if (s) {
+          meta = {
+            title: `${s.title} — HireByMinute`,
+            description: (s.description || '').replace(/[#*`_~]/g, '').slice(0, 160),
+            canonical: `https://hirebyminute.com/services/${serviceId}`
+          };
+        }
+      } catch (e) {
+        // Fallback to default
+      }
+    }
+  }
+
+  // Dynamic route lookup for CMS pages: /p/:slug
+  if (!meta && cleanPath.startsWith('/p/')) {
+    const slug = cleanPath.replace('/p/', '').trim();
+    if (slug && db) {
+      try {
+        const page = db.prepare("SELECT title, meta_title, meta_description FROM cms_pages WHERE slug = ? AND status = 'published'").get(slug);
+        if (page) {
+          meta = {
+            title: page.meta_title || `${page.title} — HireByMinute`,
+            description: page.meta_description || `Read ${page.title} on HireByMinute.`,
+            canonical: `https://hirebyminute.com/p/${slug}`
+          };
+        }
+      } catch (e) {
+        // Fallback to default
+      }
+    }
+  }
+
+  if (meta) {
+    html = html.replace(/<title>.*?<\/title>/i, `<title>${meta.title}</title>`);
+    html = html.replace(/<meta\s+name="title"\s+content=".*?"\s*\/?>/i, `<meta name="title" content="${meta.title}" />`);
+    html = html.replace(/<meta\s+name="description"\s+content=".*?"\s*\/?>/i, `<meta name="description" content="${meta.description}" />`);
+    html = html.replace(/<link\s+rel="canonical"\s+href=".*?"\s*\/?>/i, `<link rel="canonical" href="${meta.canonical}" />`);
+    html = html.replace(/<meta\s+property="og:title"\s+content=".*?"\s*\/?>/i, `<meta property="og:title" content="${meta.title}" />`);
+    html = html.replace(/<meta\s+property="og:description"\s+content=".*?"\s*\/?>/i, `<meta property="og:description" content="${meta.description}" />`);
+    html = html.replace(/<meta\s+property="og:url"\s+content=".*?"\s*\/?>/i, `<meta property="og:url" content="${meta.canonical}" />`);
+    html = html.replace(/<meta\s+name="twitter:title"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:title" content="${meta.title}" />`);
+    html = html.replace(/<meta\s+name="twitter:description"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:description" content="${meta.description}" />`);
+    html = html.replace(/<meta\s+name="twitter:url"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:url" content="${meta.canonical}" />`);
+  }
+
+  // Inject Google Site Verification code if present in environment
+  const gscCode = process.env.GOOGLE_SITE_VERIFICATION;
+  if (gscCode) {
+    html = html.replace(/<meta\s+name="google-site-verification"\s+content=".*?"\s*\/?>/i, `<meta name="google-site-verification" content="${gscCode}" />`);
+  }
+
+  return html;
 }
+
+const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+const clientPublicPath = path.join(__dirname, '..', 'client', 'public');
+
+// Serve static assets from client/dist (production build) and client/public
+if (fs.existsSync(clientDistPath)) {
+  app.use(express.static(clientDistPath, {
+    index: false,
+    maxAge: isProduction ? '1y' : 0
+  }));
+}
+if (fs.existsSync(clientPublicPath)) {
+  app.use(express.static(clientPublicPath, {
+    index: false,
+    maxAge: isProduction ? '1d' : 0
+  }));
+}
+
+// In-memory cache for index.html template
+let cachedIndexHtml = null;
+let lastIndexMtime = 0;
+
+function getIndexTemplate() {
+  const indexPath = path.join(clientDistPath, 'index.html');
+  if (!fs.existsSync(indexPath)) return null;
+  try {
+    const stats = fs.statSync(indexPath);
+    if (!cachedIndexHtml || stats.mtimeMs > lastIndexMtime) {
+      cachedIndexHtml = fs.readFileSync(indexPath, 'utf8');
+      lastIndexMtime = stats.mtimeMs;
+    }
+    return cachedIndexHtml;
+  } catch (err) {
+    return null;
+  }
+}
+
+// SPA fallback for all client GET & HEAD routes (excluding /health, /api, /uploads, /socket.io)
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  if (
+    req.path === '/health' ||
+    req.path.startsWith('/health/') ||
+    req.path.startsWith('/api') ||
+    req.path.startsWith('/uploads') ||
+    req.path.startsWith('/socket.io')
+  ) {
+    return next();
+  }
+
+  const template = getIndexTemplate();
+  if (!template) {
+    return res.status(404).send('Application build not found. Please run npm run build.');
+  }
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+
+  if (req.method === 'HEAD') {
+    return res.status(200).end();
+  }
+
+  const rendered = renderSeoHtml(template, req.path);
+  return res.status(200).send(rendered);
+});
 
 // Socket.io JWT authentication middleware
 const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev-jwt-secret-hirebyminutes-key' : null);

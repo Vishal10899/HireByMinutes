@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SiteSettingsProvider } from './context/SiteSettingsContext';
 import { SocketProvider } from './context/SocketContext';
 import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
@@ -32,6 +33,9 @@ import { RefundPolicyPage } from './pages/RefundPolicyPage';
 import { ExpertPolicyPage } from './pages/ExpertPolicyPage';
 import { AcceptableUsePage } from './pages/AcceptableUsePage';
 import { ContactPage } from './pages/ContactPage';
+import { FaqPage } from './pages/FaqPage';
+import { DynamicCmsPage } from './pages/DynamicCmsPage';
+import { BannerAnnouncement } from './components/common/BannerAnnouncement';
 
 const AppRoutes: React.FC = () => {
   const { authInitialized, loading } = useAuth();
@@ -60,6 +64,7 @@ const AppRoutes: React.FC = () => {
       <CustomCursor />
       {/* Universal Global Header: Suppressed on dedicated minimal authentication pages */}
       {!isAuthRoute && <Header />}
+      {!isAuthRoute && <BannerAnnouncement placement="global" />}
       
       <main className="flex-1 relative z-10 flex flex-col w-full min-w-0 max-w-full">
         <Routes>
@@ -78,6 +83,8 @@ const AppRoutes: React.FC = () => {
           <Route path="/expert-policy" element={<ExpertPolicyPage />} />
           <Route path="/acceptable-use" element={<AcceptableUsePage />} />
           <Route path="/contact" element={<ContactPage />} />
+          <Route path="/faq" element={<FaqPage />} />
+          <Route path="/p/:slug" element={<DynamicCmsPage />} />
 
           {/* Protected Live Session & Client Dashboard */}
           <Route
@@ -181,11 +188,13 @@ const AppRoutes: React.FC = () => {
 export const App: React.FC = () => {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <SocketProvider>
-          <AppRoutes />
-        </SocketProvider>
-      </AuthProvider>
+      <SiteSettingsProvider>
+        <AuthProvider>
+          <SocketProvider>
+            <AppRoutes />
+          </SocketProvider>
+        </AuthProvider>
+      </SiteSettingsProvider>
     </BrowserRouter>
   );
 };

@@ -136,7 +136,9 @@ function initPostgresSchema(db) {
       description TEXT,
       sort_order INTEGER DEFAULT 0,
       active INTEGER DEFAULT 1,
-      service_count INTEGER DEFAULT 0
+      service_count INTEGER DEFAULT 0,
+      subcategories_json TEXT DEFAULT '[]',
+      image_url TEXT
     );
 
     CREATE TABLE IF NOT EXISTS services (
@@ -245,6 +247,10 @@ function initPostgresSchema(db) {
       service_id VARCHAR(64) NOT NULL REFERENCES services(id) ON DELETE CASCADE,
       rating NUMERIC(3,2) NOT NULL,
       comment TEXT NOT NULL,
+      is_hidden INTEGER DEFAULT 0,
+      moderation_note TEXT,
+      moderated_by VARCHAR(64),
+      moderated_at TIMESTAMP WITH TIME ZONE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -272,7 +278,16 @@ function initPostgresSchema(db) {
       languages_json TEXT DEFAULT '["English"]',
       deadline TIMESTAMP WITH TIME ZONE,
       short_description TEXT,
-      status VARCHAR(32) NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'in_review', 'awarded', 'closed')),
+      pricing_type VARCHAR(32) NOT NULL DEFAULT 'free' CHECK(pricing_type IN ('free', 'paid')),
+      entry_fee_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+      is_featured INTEGER DEFAULT 0,
+      skills_json TEXT DEFAULT '[]',
+      requirements TEXT,
+      attachment_url TEXT,
+      visibility VARCHAR(32) DEFAULT 'public' CHECK(visibility IN ('public', 'unlisted')),
+      start_date TIMESTAMP WITH TIME ZONE,
+      end_date TIMESTAMP WITH TIME ZONE,
+      status VARCHAR(32) NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'in_review', 'awarded', 'closed', 'draft', 'archived')),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -396,6 +411,53 @@ function initPostgresSchema(db) {
       processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS banners_announcements (
+      id VARCHAR(64) PRIMARY KEY,
+      title VARCHAR(255) NOT NULL,
+      message TEXT NOT NULL,
+      link_url TEXT,
+      link_text VARCHAR(128),
+      placement VARCHAR(32) NOT NULL DEFAULT 'global' CHECK(placement IN ('global', 'hero', 'announcement', 'services', 'opportunities')),
+      priority INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      bg_color VARCHAR(32) DEFAULT 'moonstone',
+      text_color VARCHAR(32) DEFAULT 'white',
+      start_date TIMESTAMP WITH TIME ZONE,
+      end_date TIMESTAMP WITH TIME ZONE,
+      created_by VARCHAR(64),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS cms_pages (
+      id VARCHAR(64) PRIMARY KEY,
+      slug VARCHAR(128) UNIQUE NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      meta_title VARCHAR(255),
+      meta_description TEXT,
+      content TEXT NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'published' CHECK(status IN ('draft', 'published')),
+      updated_by VARCHAR(64),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS faqs (
+      id VARCHAR(64) PRIMARY KEY,
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      category VARCHAR(64) DEFAULT 'General',
+      sort_order INTEGER DEFAULT 0,
+      is_published INTEGER DEFAULT 1,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_banners_active_placement ON banners_announcements(is_active, placement);
+    CREATE INDEX IF NOT EXISTS idx_cms_slug ON cms_pages(slug);
+    CREATE INDEX IF NOT EXISTS idx_cms_status ON cms_pages(status);
+    CREATE INDEX IF NOT EXISTS idx_faqs_pub_order ON faqs(is_published, sort_order);
+
     -- Production Indexes for Performance and Integrity
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username));
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
@@ -421,6 +483,7 @@ function initPostgresSchema(db) {
   ensureDefaultCategories(db);
   ensureSettingsAndAdmin(db);
   ensureDefaultCampaigns(db);
+  ensureDefaultCmsPages(db);
 }
 
 function initSqliteSchema(db) {
@@ -467,7 +530,9 @@ function initSqliteSchema(db) {
       description TEXT,
       sort_order INTEGER DEFAULT 0,
       active INTEGER DEFAULT 1,
-      service_count INTEGER DEFAULT 0
+      service_count INTEGER DEFAULT 0,
+      subcategories_json TEXT DEFAULT '[]',
+      image_url TEXT
     );
 
     CREATE TABLE IF NOT EXISTS services (
@@ -591,6 +656,10 @@ function initSqliteSchema(db) {
       service_id TEXT NOT NULL,
       rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
       comment TEXT NOT NULL,
+      is_hidden INTEGER DEFAULT 0,
+      moderation_note TEXT,
+      moderated_by TEXT,
+      moderated_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
@@ -624,7 +693,16 @@ function initSqliteSchema(db) {
       languages_json TEXT DEFAULT '["English"]',
       deadline DATETIME,
       short_description TEXT,
-      status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'in_review', 'awarded', 'closed')),
+      pricing_type TEXT NOT NULL DEFAULT 'free' CHECK(pricing_type IN ('free', 'paid')),
+      entry_fee_usd REAL NOT NULL DEFAULT 0.00,
+      is_featured INTEGER DEFAULT 0,
+      skills_json TEXT DEFAULT '[]',
+      requirements TEXT,
+      attachment_url TEXT,
+      visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'unlisted')),
+      start_date DATETIME,
+      end_date DATETIME,
+      status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'in_review', 'awarded', 'closed', 'draft', 'archived')),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE RESTRICT
@@ -763,6 +841,54 @@ function initSqliteSchema(db) {
       processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS banners_announcements (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      link_url TEXT,
+      link_text TEXT,
+      placement TEXT NOT NULL DEFAULT 'global' CHECK(placement IN ('global', 'hero', 'announcement', 'services', 'opportunities')),
+      priority INTEGER DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      bg_color TEXT DEFAULT 'moonstone',
+      text_color TEXT DEFAULT 'white',
+      start_date DATETIME,
+      end_date DATETIME,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_banners_active_placement ON banners_announcements(is_active, placement);
+
+    CREATE TABLE IF NOT EXISTS cms_pages (
+      id TEXT PRIMARY KEY,
+      slug TEXT UNIQUE NOT NULL,
+      title TEXT NOT NULL,
+      meta_title TEXT,
+      meta_description TEXT,
+      content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'published' CHECK(status IN ('draft', 'published')),
+      updated_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS faqs (
+      id TEXT PRIMARY KEY,
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      category TEXT DEFAULT 'General',
+      sort_order INTEGER DEFAULT 0,
+      is_published INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cms_slug ON cms_pages(slug);
+    CREATE INDEX IF NOT EXISTS idx_cms_status ON cms_pages(status);
+    CREATE INDEX IF NOT EXISTS idx_faqs_pub_order ON faqs(is_published, sort_order);
+
     -- Production Indexes for Performance and Integrity
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username));
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
@@ -788,6 +914,31 @@ function initSqliteSchema(db) {
   } catch (e) {
     // Column already exists
   }
+
+  const safeAddColumn = (table, colDef) => {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${colDef}`);
+    } catch (e) {
+      // Column already exists
+    }
+  };
+
+  safeAddColumn('categories', "subcategories_json TEXT DEFAULT '[]'");
+  safeAddColumn('categories', 'image_url TEXT');
+  safeAddColumn('opportunities', "pricing_type TEXT DEFAULT 'free'");
+  safeAddColumn('opportunities', 'entry_fee_usd REAL DEFAULT 0.00');
+  safeAddColumn('opportunities', 'is_featured INTEGER DEFAULT 0');
+  safeAddColumn('opportunities', "skills_json TEXT DEFAULT '[]'");
+  safeAddColumn('opportunities', 'requirements TEXT');
+  safeAddColumn('opportunities', 'attachment_url TEXT');
+  safeAddColumn('opportunities', "visibility TEXT DEFAULT 'public'");
+  safeAddColumn('opportunities', 'start_date DATETIME');
+  safeAddColumn('opportunities', 'end_date DATETIME');
+  safeAddColumn('applications', 'fee_paid REAL DEFAULT 0.00');
+  safeAddColumn('reviews', 'is_hidden INTEGER DEFAULT 0');
+  safeAddColumn('reviews', 'moderation_note TEXT');
+  safeAddColumn('reviews', 'moderated_by TEXT');
+  safeAddColumn('reviews', 'moderated_at DATETIME');
 
   try {
     const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='payments'").get();
@@ -821,6 +972,7 @@ function initSqliteSchema(db) {
   ensureDefaultCategories(db);
   ensureSettingsAndAdmin(db);
   ensureDefaultCampaigns(db);
+  ensureDefaultCmsPages(db);
 }
 
 function cleanupFakeAndDemoData(dbInstance) {
@@ -912,6 +1064,176 @@ function ensureSettingsAndAdmin(dbInstance) {
   insertSetting.run('platform_fee_percent', '15', 'Standard percentage fee taken from completed session payments');
   insertSetting.run('default_response_time', 'Within 15 mins', 'Target response time for verified providers');
   insertSetting.run('payout_schedule', 'Instant on completion', 'Frequency of expert earnings settlement');
+  insertSetting.run('logo_url', '', 'Custom brand logo image URL');
+  insertSetting.run('header_navigation', JSON.stringify([
+    { id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true, is_external: false },
+    { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 2, is_visible: true, is_external: false },
+    { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 3, is_visible: true, is_external: false }
+  ]), 'Configurable header navigation items and ordering');
+  insertSetting.run('header_cta_label', 'Sign In / Join', 'Header call-to-action button label');
+  insertSetting.run('header_cta_url', '/auth', 'Header call-to-action destination URL');
+  insertSetting.run('footer_settings', JSON.stringify({
+    company_description: 'The precision marketplace for on-demand consultations. Hire verified experts for exactly the minutes you need, or monetize specialized knowledge with zero retainers.',
+    contact_email: 'support@hirebyminute.com',
+    contact_phone: '+1 (800) 555-0199',
+    address: 'San Francisco, CA, United States',
+    copyright_text: '© {year} HireByMinute. All rights reserved.',
+    designer_credit: 'Designed & Developed by Vishal Chaudhary',
+    social_links: [
+      { platform: 'twitter', url: 'https://twitter.com/hirebyminute', is_visible: true },
+      { platform: 'linkedin', url: 'https://linkedin.com/company/hirebyminute', is_visible: true },
+      { platform: 'github', url: 'https://github.com/hirebyminute', is_visible: true }
+    ],
+    sections: {
+      platform: [
+        { id: 'about', label: 'About Us', url: '/about', order: 1, is_visible: true },
+        { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 2, is_visible: true },
+        { id: 'services', label: 'Browse Services', url: '/services', order: 3, is_visible: true },
+        { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 4, is_visible: true, is_new: true }
+      ],
+      policies: [
+        { id: 'terms', label: 'Terms of Service', url: '/terms', order: 1, is_visible: true },
+        { id: 'privacy', label: 'Privacy Policy', url: '/privacy', order: 2, is_visible: true },
+        { id: 'refund', label: 'Refund & Cancellation', url: '/refund-policy', order: 3, is_visible: true },
+        { id: 'expert-policy', label: 'Expert Policy', url: '/expert-policy', order: 4, is_visible: true },
+        { id: 'acceptable-use', label: 'Acceptable Use', url: '/acceptable-use', order: 5, is_visible: true }
+      ],
+      support: [
+        { id: 'contact', label: 'Contact / Support', url: '/contact', order: 1, is_visible: true, icon: 'mail' },
+        { id: 'become-provider', label: 'Become a Provider', url: '/provider/onboard', order: 2, is_visible: true },
+        { id: 'provider-dashboard', label: 'Provider Dashboard', url: '/provider', order: 3, is_visible: true }
+      ]
+    }
+  }), 'Configurable footer links, sections, and legal notices');
+
+  insertSetting.run('contact_settings', JSON.stringify({
+    support_email: 'support@hirebyminute.com',
+    business_email: 'business@hirebyminute.com',
+    phone: '+1 (800) 555-0199',
+    support_hours: 'Monday – Friday: 9:00 AM – 6:00 PM EST (24/7 Escalation Desk)',
+    address: 'San Francisco, CA, United States',
+    whatsapp_url: '',
+    contact_form_enabled: true
+  }), 'Configurable customer support and platform contact channels');
+
+  insertSetting.run('homepage_settings', JSON.stringify({
+    hero_headline: 'What brings you here?',
+    hero_subheadline: 'Hire expertise by the minute, or turn your expertise into a service people can book.',
+    hero_badge_text: '⚡ Instant 1-on-1 Consultations • Pay Per Exact Minute',
+    primary_cta_label: 'Find an Expert',
+    primary_cta_url: '/services',
+    secondary_cta_label: 'Become a Service Provider',
+    secondary_cta_url: '/provider/onboard',
+    search_placeholder: 'Search experts, skills, or services...',
+    popular_tags: ['Python developer', 'Figma teardown', 'RAG architect', 'B2B growth audit', 'Tax advisor', 'AI Prompt Engineer', 'Fractional CTO'],
+    intent_client_title: 'Find an expert',
+    intent_client_desc: 'Pay only for the exact minutes you spend with a vetted professional. No retainers or minimum commitments.',
+    intent_client_button: 'Browse Experts',
+    intent_provider_title: 'List your service',
+    intent_provider_desc: 'Set your own per-minute rate, choose your hours, and get booked by clients who value your time.',
+    intent_provider_button: 'Become a Service Provider',
+    how_it_works_title: 'How HireByMinute works',
+    how_it_works_subtitle: 'From finding the right person to finishing your timed consultation in four easy steps.',
+    how_it_works_steps: [
+      { step: '01', title: 'Find an Expert', description: 'Find someone who knows exactly what you need without wading through bloated project agencies.' },
+      { step: '02', title: 'Choose Your Time', description: 'Choose exactly how many minutes or hours you need: 15m, 30m, 45m, or custom duration.' },
+      { step: '03', title: 'Live Timed Session', description: 'Chat, call, video, or share files while the server-authoritative countdown clock is active.' },
+      { step: '04', title: 'Session Completes', description: 'When time ends, communication closes naturally. No scope creep, surprise invoices, or billing disputes.' }
+    ],
+    cta_title: 'Ready to experience precision consulting?',
+    cta_subtitle: 'Connect with verified specialists right now and pay strictly for the minutes you use.',
+    cta_button_label: 'Get Started Today',
+    cta_button_url: '/services',
+    visibility: {
+      hero: true,
+      intent_cards: true,
+      search: true,
+      popular_categories: true,
+      featured_experts: true,
+      how_it_works: true,
+      cta: true
+    }
+  }), 'Configurable homepage content, hero copy, intent cards, and section visibility');
+
+  insertSetting.run('seo_settings', JSON.stringify({
+    site_title: 'HireByMinute — Instant 1-on-1 Consultations by the Minute',
+    meta_description: 'Connect with verified experts instantly for 1-on-1 audio/video consultations. Pay only for the exact minutes you use with zero upfront retainers.',
+    canonical_url: 'https://hirebyminute.com',
+    og_title: 'HireByMinute — Instant 1-on-1 Consultations by the Minute',
+    og_description: 'Pay strictly for the minutes you consult. Real-time audio/video consultations with verified experts.',
+    og_image: 'https://hirebyminute.com/og-image.png',
+    twitter_card: 'summary_large_image',
+    twitter_site: '@hirebyminute'
+  }), 'Platform global SEO meta tags, social sharing cards, and crawl policies');
+
+  // Seed authentic initial FAQs if table empty
+  try {
+    const faqCount = dbInstance.prepare('SELECT COUNT(*) as count FROM faqs').get();
+    const countNum = Number(faqCount?.count || 0);
+    if (countNum === 0) {
+      const defaultFaqs = [
+        {
+          id: 'faq-1',
+          question: 'How does per-minute billing work?',
+          answer: 'You pay strictly for the elapsed minutes of your consultation. A temporary authorization is held before the session starts, and upon completion, you are charged only for the exact duration spent. Any unused authorized amount is immediately released.',
+          category: 'Billing & Pricing',
+          sort_order: 1,
+          is_published: 1
+        },
+        {
+          id: 'faq-2',
+          question: 'How do I join as a verified expert?',
+          answer: 'Click "Become a Provider", fill out your profile with your professional background and domain expertise, and submit your identity/credential verification. Our operations team verifies expert qualifications within 24 hours.',
+          category: 'Experts & Providers',
+          sort_order: 2,
+          is_published: 1
+        },
+        {
+          id: 'faq-3',
+          question: 'What happens if there is a technical disconnection during a call?',
+          answer: 'Our server-authoritative timer automatically pauses if either party loses WebRTC connectivity. If the connection cannot be restored promptly, you can request an immediate refund or session reschedule with zero penalties.',
+          category: 'Sessions & Audio/Video',
+          sort_order: 3,
+          is_published: 1
+        },
+        {
+          id: 'faq-4',
+          question: 'What payment methods are supported on HireByMinute?',
+          answer: 'We support all major debit/credit cards (Visa, MasterCard, Amex), UPI, net banking, and international multi-currency processing via PCI-DSS certified Razorpay gateway.',
+          category: 'Billing & Pricing',
+          sort_order: 4,
+          is_published: 1
+        },
+        {
+          id: 'faq-5',
+          question: 'Can I extend my consultation while it is in progress?',
+          answer: 'Yes! Both client and expert can agree to add 5, 15, or 30 minutes directly inside the live consultation room before the countdown clock expires.',
+          category: 'Sessions & Audio/Video',
+          sort_order: 5,
+          is_published: 1
+        },
+        {
+          id: 'faq-6',
+          question: 'Are consultation calls and shared files private and secure?',
+          answer: 'Yes. Live audio/video communications are peer-to-peer encrypted via WebRTC. Chat transcripts and uploaded files are protected by strict access control policies and never shared with unauthorized parties.',
+          category: 'Security & Trust',
+          sort_order: 6,
+          is_published: 1
+        }
+      ];
+
+      const insertFaq = dbInstance.prepare(`
+        INSERT INTO faqs (id, question, answer, category, sort_order, is_published)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO NOTHING
+      `);
+      for (const f of defaultFaqs) {
+        insertFaq.run(f.id, f.question, f.answer, f.category, f.sort_order, f.is_published);
+      }
+    }
+  } catch (faqErr) {
+    console.warn('[Database] FAQ seed check notice:', faqErr?.message || faqErr);
+  }
 
   // Check or upsert admin account
   const existingAdmin = dbInstance.prepare('SELECT * FROM users WHERE LOWER(email) = ? OR role = \'admin\' ORDER BY (LOWER(email) = ?) DESC LIMIT 1').get(adminEmail, adminEmail);
@@ -973,6 +1295,100 @@ function ensureDefaultCampaigns(dbInstance) {
     now.toISOString(),
     end.toISOString()
   );
+}
+
+function ensureDefaultCmsPages(dbInstance) {
+  try {
+    const pageCountResult = dbInstance.prepare('SELECT COUNT(*) as count FROM cms_pages').get();
+    const count = pageCountResult ? (typeof pageCountResult.count === 'number' ? pageCountResult.count : parseInt(pageCountResult.count, 10)) : 0;
+    if (count > 0) return;
+
+    const insertPage = dbInstance.prepare(`
+      INSERT INTO cms_pages (id, slug, title, meta_title, meta_description, content, status, updated_by)
+      VALUES (?, ?, ?, ?, ?, ?, 'published', 'system')
+    `);
+
+    const defaultPages = [
+      {
+        id: 'page-about',
+        slug: 'about',
+        title: 'About HireByMinute',
+        meta_title: 'About Us — HireByMinute On-Demand Consultation Platform',
+        meta_description: 'HireByMinute connects professionals, founders, developers, and creators with verified domain experts for exactly the minutes required to solve high-stakes challenges.',
+        content: `# About HireByMinute\n\n## The Precision Marketplace for Expertise\n\nHireByMinute connects professionals, founders, developers, and creators with verified domain experts for exactly the minutes required to solve high-stakes challenges.\n\n### The Problem with Traditional Consulting\nWhen engineering teams encounter complex architecture roadblocks, designers review critical launch designs, or founders assess legal trade-offs, they rarely need an expensive multi-week statement of work or a mandatory minimum retainer. What they need is 15 to 30 minutes of focused, direct clarity from someone who has navigated that exact challenge before.\n\nTraditional marketplaces force practitioners into lengthy proposal bidding cycles, arbitrary hourly minimums, and protracted onboarding. HireByMinute eliminates that friction by introducing **minute-accurate consultation rooms** backed by automated escrow protection and transparent per-minute pricing.\n\n### Core Pillars\n- **Minute-Based Precision**: Book consultations in increments tailored to your actual query. Pay strictly for the time spent.\n- **Verified Practitioners**: Rigorous multi-stage vetting ensures authentic domain mastery across engineering, AI, design, legal, and business.\n- **Protected Payments**: Funds are securely held and disbursed upon session completion.\n- **Real-Time Video Collaboration**: Low-latency WebRTC video, crystal-clear audio, code snippets, and in-room time tracking.`
+      },
+      {
+        id: 'page-how-it-works',
+        slug: 'how-it-works',
+        title: 'How HireByMinute Works',
+        meta_title: 'How It Works — Step-by-Step Consultation Flow',
+        meta_description: 'Learn how to discover verified experts, book instant or scheduled consultations, and get precise answers by the minute.',
+        content: `# How HireByMinute Works\n\n## Fast, Transparent, Precision Consultations\n\n### For Clients\n1. **Browse & Filter Experts**: Explore verified practitioners across engineering, design, AI, finance, marketing, and legal domains.\n2. **Select Time & Book**: Choose an instant consultation or schedule for a specific time window.\n3. **Collaborate in Precision Rooms**: Connect via encrypted WebRTC video, screen share, and synchronized session timers.\n4. **Pay Only for Actual Minutes**: Session fees are calculated strictly based on duration. No surprise retainers.\n\n### For Experts\n1. **Create Profile & Set Rate**: Define your specialty skills, experience, and per-minute consulting fee.\n2. **Verify Credentials**: Complete the verification review to earn the verified expert badge.\n3. **Accept Consultations**: Receive instant requests or scheduled sessions matching your availability calendar.\n4. **Receive Fast Payouts**: Guaranteed settlement upon successful session completion.`
+      },
+      {
+        id: 'page-terms',
+        slug: 'terms',
+        title: 'Terms of Service',
+        meta_title: 'Terms of Service — HireByMinute',
+        meta_description: 'Official Terms of Service governing access to and use of HireByMinute consultation services, accounts, and payments.',
+        content: `# Terms of Service\n\n**Last Updated:** August 28, 2026\n\n### 1. Acceptance of Terms & Eligibility\nThese Terms of Service ("Terms") govern your access to and use of the HireByMinute platform, including all related websites, applications, signaling services, and communication features (collectively, the "Platform").\n\nBy registering an account, purchasing minute credits, or offering services, you represent and warrant that you are at least 18 years of age and possess the legal capacity to enter into binding contracts.\n\n### 2. Account Registration & Security\nTo access core features of the Platform, you must create an account. You agree to provide accurate, current, and complete information, including a valid email address and legal name.\n- You are solely responsible for maintaining the confidentiality of your authentication credentials.\n- Usernames assigned upon registration are permanent identifiers and cannot be altered or transferred.\n- HireByMinute reserves the right to suspend or terminate accounts that contain false, misleading, or fraudulent information.\n\n### 3. Consultation Mechanics & Per-Minute Metering\n- Consultations occur in synchronized WebRTC rooms with automated minute tracking.\n- Both parties must abide by professional conduct standards during sessions.\n- Billing is calculated per minute at the published rate agreed upon at booking.\n\n### 4. Platform Fees & Settlement\n- HireByMinute retains a standard platform fee (15%) on completed consultation transactions to cover infrastructure, payment processing, video signaling, and dispute mediation.\n- Expert payouts are processed following session sign-off.`
+      },
+      {
+        id: 'page-privacy',
+        slug: 'privacy',
+        title: 'Privacy Policy',
+        meta_title: 'Privacy Policy — HireByMinute',
+        meta_description: 'How HireByMinute collects, uses, protects, and handles personal data and consultation information.',
+        content: `# Privacy Policy\n\n**Last Updated:** August 28, 2026\n\n### 1. Information We Collect\nWe collect information you provide directly when registering, completing profile details, requesting consultations, or messaging on the Platform:\n- **Identity Information**: Full name, username, email address, avatar photo, and professional biography.\n- **Payment Information**: Transaction IDs, payment gateway authorization references (payment card details are processed directly by PCI-DSS compliant gateways like Razorpay/Stripe and are never stored on our servers).\n- **Session Metadata**: Consultation timestamps, duration, and connection diagnostics.\n\n### 2. How We Use Information\nWe use collected information to:\n- Facilitate expert discovery, booking, and real-time WebRTC connections.\n- Process financial transactions and calculate per-minute billing.\n- Prevent fraud, abusive conduct, and unauthorized account access.\n- Comply with applicable legal, accounting, and tax reporting requirements.\n\n### 3. Data Protection & Security\nWe implement industry-standard encryption protocols (TLS 1.3 in transit, AES-256 for sensitive credentials at rest). Password hashes use bcrypt with high-cost salt factors.`
+      },
+      {
+        id: 'page-refund-policy',
+        slug: 'refund-policy',
+        title: 'Refund & Cancellation Policy',
+        meta_title: 'Refund & Cancellation Policy — HireByMinute',
+        meta_description: 'Clear rules and dispute procedures for consultation refunds, no-shows, and technical session interruptions.',
+        content: `# Refund & Cancellation Policy\n\n**Last Updated:** August 28, 2026\n\n### 1. Pre-Session Cancellations\n- **Client Cancellation**: You may cancel a scheduled consultation up to 2 hours before the session start time for a 100% full refund.\n- **Expert Cancellation**: If an expert cancels or fails to join a scheduled consultation, the client receives a 100% immediate full refund.\n\n### 2. Session Technical Disruptions\nIf a verified technical failure on the platform (e.g. server outage or signaling failure) prevents communication during the first 5 minutes of a session, a full refund or session reschedule is guaranteed upon submission of a support ticket.\n\n### 3. Dispute Resolution Process\nIf you believe a session did not meet professional standards or was interrupted prematurely, submit a dispute ticket through the Support Center within 24 hours of session completion.`
+      },
+      {
+        id: 'page-expert-policy',
+        slug: 'expert-policy',
+        title: 'Expert Quality Standards & Policy',
+        meta_title: 'Expert Quality Standards & Guidelines — HireByMinute',
+        meta_description: 'Quality standards, conduct requirements, and verification guidelines for verified experts on HireByMinute.',
+        content: `# Expert Quality Standards & Guidelines\n\n**Last Updated:** August 28, 2026\n\n### 1. Practitioner Conduct & Professionalism\nVerified experts represent the core credibility of the HireByMinute marketplace. All experts agree to:\n- Arrive punctually for scheduled sessions.\n- Deliver direct, actionable, and courteous professional insight.\n- Keep client discussions, proprietary code, and strategic data strictly confidential.\n\n### 2. Prohibited Conduct\n- Solicit off-platform payments or circumvent the platform escrow system.\n- Misrepresent professional background, credentials, or affiliations.\n- Record sessions without explicit mutual written consent.`
+      },
+      {
+        id: 'page-acceptable-use',
+        slug: 'acceptable-use',
+        title: 'Acceptable Use Policy',
+        meta_title: 'Acceptable Use Policy — HireByMinute',
+        meta_description: 'Acceptable use rules prohibiting harmful, illegal, or abusive activities across the HireByMinute network.',
+        content: `# Acceptable Use Policy\n\n**Last Updated:** August 28, 2026\n\n### 1. Platform Integrity\nUsers may not attempt to reverse engineer, disrupt, overload, or exploit vulnerabilities in the platform infrastructure, API endpoints, or WebRTC signaling.\n\n### 2. Prohibited Content & Behavior\n- Harassment, hate speech, or defamatory statements.\n- Uploading malicious software, viruses, or unauthorized tracking scripts.\n- Providing fraudulent, deceptive, or unlicensed regulated advice (e.g. unauthorized legal practice or unqualified medical advice).`
+      },
+      {
+        id: 'page-contact',
+        slug: 'contact',
+        title: 'Contact & Support Desk',
+        meta_title: 'Contact Us — HireByMinute Help & Escalation Desk',
+        meta_description: 'Reach out to HireByMinute platform administration, support, or partnership teams.',
+        content: `# Contact & Support Desk\n\nNeed assistance with a consultation, billing question, or expert verification? Our support team is ready to help.\n\n- **Support Email**: support@hirebyminute.com\n- **Business Inquiries**: business@hirebyminute.com\n- **Support Hours**: Monday – Friday: 9:00 AM – 6:00 PM EST (24/7 Escalation Desk)\n- **Office Location**: San Francisco, CA, United States`
+      },
+      {
+        id: 'page-faq',
+        slug: 'faq',
+        title: 'Frequently Asked Questions',
+        meta_title: 'FAQ — HireByMinute Common Questions Answered',
+        meta_description: 'Frequently asked questions about consultations, per-minute billing, expert verification, and security.',
+        content: `# Frequently Asked Questions\n\n### How does per-minute billing work?\nWhen you book a session, an authorization hold is placed for the expected duration. When the session finishes, the room timer calculates the exact minutes elapsed, and only that amount is charged.\n\n### What if the expert does not show up?\nIf an expert fails to appear for a scheduled session within 10 minutes of start time, the session is cancelled and 100% of your payment hold is immediately released.\n\n### How do experts get paid?\nExpert earnings are accumulated in their platform balance after successful session completion and settled according to the platform payout schedule.`
+      }
+    ];
+
+    for (const p of defaultPages) {
+      insertPage.run(p.id, p.slug, p.title, p.meta_title, p.meta_description, p.content);
+    }
+  } catch (e) {
+    // Already seeded or table error
+  }
 }
 
 module.exports = db;

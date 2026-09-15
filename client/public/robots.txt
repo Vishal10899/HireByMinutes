@@ -1,0 +1,39 @@
+# https://hirebyminute.com/robots.txt
+# Directive file for search engine crawlers
+
+User-agent: *
+Allow: /
+Allow: /services
+Allow: /opportunities
+Allow: /about
+Allow: /how-it-works
+Allow: /contact
+Allow: /terms
+Allow: /privacy
+Allow: /refund-policy
+Allow: /expert-policy
+Allow: /acceptable-use
+Allow: /p/
+Allow: /sitemap.xml
+Allow: /favicon.svg
+Allow: /og-image.png
+
+# Disallow private dashboards, admin areas, authenticated sessions, auth routes, and internal APIs
+Disallow: /admin
+Disallow: /admin/
+Disallow: /client
+Disallow: /client/
+Disallow: /provider
+Disallow: /provider/
+Disallow: /session/
+Disallow: /profile
+Disallow: /profile/
+Disallow: /auth
+Disallow: /login
+Disallow: /signup
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /api/
+
+Sitemap: https://hirebyminute.com/sitemap.xml

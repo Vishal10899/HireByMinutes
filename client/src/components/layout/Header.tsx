@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useSiteSettings, NavItem } from '../../context/SiteSettingsContext';
 import { Clock, Menu, X, ChevronDown, UserCheck, Shield, PlusCircle, LogOut, LayoutDashboard } from 'lucide-react';
 import { BrandLogo } from '../common/BrandLogo';
 
 export const Header: React.FC = () => {
   const { user, logout, loading, authInitialized } = useAuth();
+  const { siteName, logoUrl, navItems, ctaLabel, ctaUrl } = useSiteSettings();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -20,43 +22,82 @@ export const Header: React.FC = () => {
 
   const isCurrent = (path: string) => location.pathname === path;
 
+  // Filter and sort navigation items by order
+  const visibleNavItems = useMemo(() => {
+    return [...navItems]
+      .filter((item) => item.is_visible !== false)
+      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+  }, [navItems]);
+
+  const renderNavLink = (item: NavItem, isMobile = false) => {
+    const isHash = item.url.startsWith('/#') || item.url.startsWith('#');
+    const isExternal = item.is_external || item.url.startsWith('http://') || item.url.startsWith('https://');
+
+    const baseClasses = isMobile
+      ? `flex items-center min-h-[44px] px-3 rounded-xl text-base font-medium transition-colors ${
+          isCurrent(item.url) ? 'text-moonstone font-semibold bg-lightblue/30' : 'text-midnight hover:bg-lightblue/30 hover:text-moonstone'
+        }`
+      : `transition-colors hover:text-moonstone ${
+          isCurrent(item.url) ? 'text-moonstone font-semibold' : 'text-midnight/80'
+        }`;
+
+    if (isExternal) {
+      return (
+        <a
+          key={item.id}
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => isMobile && setMobileMenuOpen(false)}
+          className={baseClasses}
+        >
+          {item.label}
+        </a>
+      );
+    }
+
+    if (isHash) {
+      const hashTarget = item.url.replace(/^\/?#/, '');
+      return (
+        <Link
+          key={item.id}
+          to={item.url}
+          onClick={(e) => {
+            if (isMobile) setMobileMenuOpen(false);
+            if (location.pathname === '/' || location.pathname === '') {
+              e.preventDefault();
+              document.getElementById(hashTarget)?.scrollIntoView({ behavior: 'smooth' });
+            }
+          }}
+          className={baseClasses}
+        >
+          {item.label}
+        </Link>
+      );
+    }
+
+    return (
+      <Link
+        key={item.id}
+        to={item.url}
+        onClick={() => isMobile && setMobileMenuOpen(false)}
+        className={baseClasses}
+      >
+        {item.label}
+      </Link>
+    );
+  };
+
   return (
     <header className="sticky top-0 z-40 bg-aliceblue/95 backdrop-blur-sm border-b border-timberwolf/40 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-18">
           {/* Brand Logo */}
-          <BrandLogo size="md" />
+          <BrandLogo size="md" customSiteName={siteName} customLogoUrl={logoUrl} />
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-7 text-sm font-medium">
-            <Link
-              to="/services"
-              className={`transition-colors hover:text-moonstone ${
-                isCurrent('/services') ? 'text-moonstone font-semibold' : 'text-midnight/80'
-              }`}
-            >
-              Services
-            </Link>
-            <Link
-              to="/opportunities"
-              className={`transition-colors hover:text-moonstone ${
-                isCurrent('/opportunities') ? 'text-moonstone font-semibold' : 'text-midnight/80'
-              }`}
-            >
-              Opportunities
-            </Link>
-            <Link
-              to="/#how-it-works"
-              onClick={(e) => {
-                if (location.pathname === '/') {
-                  e.preventDefault();
-                  document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' });
-                }
-              }}
-              className="text-midnight/80 hover:text-moonstone transition-colors"
-            >
-              How It Works
-            </Link>
+            {visibleNavItems.map((item) => renderNavLink(item, false))}
           </nav>
 
           {/* Desktop Right CTA */}
@@ -150,10 +191,10 @@ export const Header: React.FC = () => {
                   Sign In
                 </Link>
                 <Link
-                  to="/signup"
+                  to={ctaUrl || '/signup'}
                   className="btn-shine px-4 py-2 text-sm font-semibold rounded-lg bg-midnight text-aliceblue hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
                 >
-                  Get Started
+                  {ctaLabel || 'Get Started'}
                 </Link>
               </div>
             )}
@@ -192,27 +233,7 @@ export const Header: React.FC = () => {
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div className="md:hidden border-t border-timberwolf/40 bg-aliceblue px-4 pt-3 pb-6 space-y-2 animate-fade-in">
-          <Link
-            to="/services"
-            onClick={() => setMobileMenuOpen(false)}
-            className="flex items-center min-h-[44px] px-3 rounded-xl text-base font-medium text-midnight hover:bg-lightblue/30 hover:text-moonstone transition-colors"
-          >
-            Services
-          </Link>
-          <Link
-            to="/opportunities"
-            onClick={() => setMobileMenuOpen(false)}
-            className="flex items-center min-h-[44px] px-3 rounded-xl text-base font-medium text-midnight hover:bg-lightblue/30 hover:text-moonstone transition-colors"
-          >
-            Opportunities
-          </Link>
-          <Link
-            to="/#how-it-works"
-            onClick={() => setMobileMenuOpen(false)}
-            className="flex items-center min-h-[44px] px-3 rounded-xl text-base font-medium text-midnight hover:bg-lightblue/30 hover:text-moonstone transition-colors"
-          >
-            How It Works
-          </Link>
+          {visibleNavItems.map((item) => renderNavLink(item, true))}
 
           <div className="border-t border-timberwolf/40 pt-3 flex flex-col gap-2.5">
             {!authInitialized || loading ? (
@@ -253,11 +274,11 @@ export const Header: React.FC = () => {
                   Sign In
                 </Link>
                 <Link
-                  to="/signup"
+                  to={ctaUrl || '/signup'}
                   onClick={() => setMobileMenuOpen(false)}
                   className="w-full min-h-[48px] flex items-center justify-center text-center py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-sm hover:bg-midnight-hover shadow-subtle transition-colors"
                 >
-                  Get Started
+                  {ctaLabel || 'Get Started'}
                 </Link>
               </>
             )}

@@ -10,10 +10,16 @@ import {
   Mail,
   DollarSign
 } from 'lucide-react';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const RefundPolicyPage: React.FC = () => {
+  usePageSEO({
+    title: 'Refund & Cancellation Policy — HireByMinute',
+    description: 'Clear rules and procedures for consultation refunds, cancellations, and technical session disputes.',
+    canonicalPath: '/refund-policy'
+  });
+
   useEffect(() => {
-    document.title = 'Refund & Cancellation Policy — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 

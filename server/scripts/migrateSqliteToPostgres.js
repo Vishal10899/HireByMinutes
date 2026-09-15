@@ -59,7 +59,9 @@ async function migrateData(customPool = null) {
     'password_reset_tokens',
     'email_logs',
     'profile_visits',
-    'registration_campaigns'
+    'registration_campaigns',
+    'banners_announcements',
+    'cms_pages'
   ];
 
   try {

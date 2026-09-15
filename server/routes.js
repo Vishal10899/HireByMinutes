@@ -273,6 +273,267 @@ module.exports = function(timerEngine, io) {
     res.json(feeData);
   });
 
+  // Public Platform Settings (Site Identity, Brand Logo, Header Navigation, Header CTA)
+  router.get('/platform/settings', (req, res) => {
+    try {
+      const rows = db.prepare(`
+        SELECT key, value FROM platform_settings 
+        WHERE key IN ('platform_name', 'logo_url', 'header_navigation', 'header_cta_label', 'header_cta_url')
+      `).all();
+
+      const defaultNav = [
+        { id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true, is_external: false },
+        { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 2, is_visible: true, is_external: false },
+        { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 3, is_visible: true, is_external: false }
+      ];
+
+      const result = {
+        platform_name: 'HireByMinute',
+        logo_url: '',
+        header_navigation: defaultNav,
+        header_cta_label: 'Sign In / Join',
+        header_cta_url: '/auth'
+      };
+
+      rows.forEach(r => {
+        if (r.key === 'header_navigation') {
+          try {
+            const parsed = JSON.parse(r.value);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              result.header_navigation = parsed.sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+            }
+          } catch (e) {
+            result.header_navigation = defaultNav;
+          }
+        } else if (r.key === 'platform_name') {
+          result.platform_name = r.value || 'HireByMinute';
+        } else if (r.key === 'logo_url') {
+          result.logo_url = r.value || '';
+        } else if (r.key === 'header_cta_label') {
+          result.header_cta_label = r.value || 'Sign In / Join';
+        } else if (r.key === 'header_cta_url') {
+          result.header_cta_url = r.value || '/auth';
+        }
+      });
+
+      res.json(result);
+    } catch (err) {
+      console.error('[Platform Settings] Error:', err.message);
+      res.status(500).json({ error: 'Failed to retrieve platform settings' });
+    }
+  });
+
+  // Public Platform Footer Configuration (Guaranteed: Admin Console is strictly excluded)
+  router.get('/platform/footer', (req, res) => {
+    try {
+      const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'footer_settings'").get();
+      const defaultFooter = {
+        company_description: 'The precision marketplace for on-demand consultations. Hire verified experts for exactly the minutes you need, or monetize specialized knowledge with zero retainers.',
+        contact_email: 'support@hirebyminute.com',
+        contact_phone: '+1 (800) 555-0199',
+        address: 'San Francisco, CA, United States',
+        copyright_text: '© {year} HireByMinute. All rights reserved.',
+        designer_credit: 'Designed & Developed by Vishal Chaudhary',
+        social_links: [
+          { platform: 'twitter', url: 'https://twitter.com/hirebyminute', is_visible: true },
+          { platform: 'linkedin', url: 'https://linkedin.com/company/hirebyminute', is_visible: true },
+          { platform: 'github', url: 'https://github.com/hirebyminute', is_visible: true }
+        ],
+        sections: {
+          platform: [
+            { id: 'about', label: 'About Us', url: '/about', order: 1, is_visible: true },
+            { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 2, is_visible: true },
+            { id: 'services', label: 'Browse Services', url: '/services', order: 3, is_visible: true },
+            { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 4, is_visible: true, is_new: true }
+          ],
+          policies: [
+            { id: 'terms', label: 'Terms of Service', url: '/terms', order: 1, is_visible: true },
+            { id: 'privacy', label: 'Privacy Policy', url: '/privacy', order: 2, is_visible: true },
+            { id: 'refund', label: 'Refund & Cancellation', url: '/refund-policy', order: 3, is_visible: true },
+            { id: 'expert-policy', label: 'Expert Policy', url: '/expert-policy', order: 4, is_visible: true },
+            { id: 'acceptable-use', label: 'Acceptable Use', url: '/acceptable-use', order: 5, is_visible: true }
+          ],
+          support: [
+            { id: 'contact', label: 'Contact / Support', url: '/contact', order: 1, is_visible: true, icon: 'mail' },
+            { id: 'become-provider', label: 'Become a Provider', url: '/provider/onboard', order: 2, is_visible: true },
+            { id: 'provider-dashboard', label: 'Provider Dashboard', url: '/provider', order: 3, is_visible: true }
+          ]
+        }
+      };
+
+      let footerData = defaultFooter;
+      if (setting && setting.value) {
+        try {
+          const parsed = JSON.parse(setting.value);
+          if (parsed && typeof parsed === 'object') {
+            footerData = { ...defaultFooter, ...parsed };
+          }
+        } catch (e) {
+          footerData = defaultFooter;
+        }
+      }
+
+      // Security Audit: Sanitize and strictly filter out any links pointing to /admin or internal admin routes
+      if (footerData.sections) {
+        Object.keys(footerData.sections).forEach(secKey => {
+          if (Array.isArray(footerData.sections[secKey])) {
+            footerData.sections[secKey] = footerData.sections[secKey].filter(item => {
+              const url = String(item.url || '').toLowerCase();
+              const label = String(item.label || '').toLowerCase();
+              return !url.includes('/admin') && !label.includes('admin console') && !label.includes('admin portal');
+            });
+          }
+        });
+      }
+
+      res.json({ footer: footerData });
+    } catch (err) {
+      console.error('[Footer Settings] Error:', err.message);
+      res.status(500).json({ error: 'Failed to retrieve footer settings' });
+    }
+  });
+
+  // Public Platform Contact Information
+  router.get('/platform/contact', (req, res) => {
+    try {
+      const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'contact_settings'").get();
+      const defaultContact = {
+        support_email: 'support@hirebyminute.com',
+        business_email: 'business@hirebyminute.com',
+        phone: '+1 (800) 555-0199',
+        support_hours: 'Monday – Friday: 9:00 AM – 6:00 PM EST (24/7 Escalation Desk)',
+        address: 'San Francisco, CA, United States',
+        whatsapp_url: '',
+        contact_form_enabled: true
+      };
+
+      let contactData = defaultContact;
+      if (setting && setting.value) {
+        try {
+          const parsed = JSON.parse(setting.value);
+          if (parsed && typeof parsed === 'object') {
+            contactData = { ...defaultContact, ...parsed };
+          }
+        } catch (e) {
+          contactData = defaultContact;
+        }
+      }
+
+      res.json({ contact: contactData });
+    } catch (err) {
+      console.error('[Contact Settings] Error:', err.message);
+      res.status(500).json({ error: 'Failed to retrieve contact settings' });
+    }
+  });
+
+  // Public Homepage Settings
+  router.get('/platform/homepage', (req, res) => {
+    try {
+      const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'homepage_settings'").get();
+      const defaultHomepage = {
+        hero_headline: 'What brings you here?',
+        hero_subheadline: 'Hire expertise by the minute, or turn your expertise into a service people can book.',
+        hero_badge_text: '⚡ Instant 1-on-1 Consultations • Pay Per Exact Minute',
+        primary_cta_label: 'Find an Expert',
+        primary_cta_url: '/services',
+        secondary_cta_label: 'Become a Service Provider',
+        secondary_cta_url: '/provider/onboard',
+        search_placeholder: 'Search experts, skills, or services...',
+        popular_tags: ['Python developer', 'Figma teardown', 'RAG architect', 'B2B growth audit', 'Tax advisor', 'AI Prompt Engineer', 'Fractional CTO'],
+        intent_client_title: 'Find an expert',
+        intent_client_desc: 'Pay only for the exact minutes you spend with a vetted professional. No retainers or minimum commitments.',
+        intent_client_button: 'Browse Experts',
+        intent_provider_title: 'List your service',
+        intent_provider_desc: 'Set your own per-minute rate, choose your hours, and get booked by clients who value your time.',
+        intent_provider_button: 'Become a Service Provider',
+        how_it_works_title: 'How HireByMinute works',
+        how_it_works_subtitle: 'From finding the right person to finishing your timed consultation in four easy steps.',
+        how_it_works_steps: [
+          { step: '01', title: 'Find an Expert', description: 'Find someone who knows exactly what you need without wading through bloated project agencies.' },
+          { step: '02', title: 'Choose Your Time', description: 'Choose exactly how many minutes or hours you need: 15m, 30m, 45m, or custom duration.' },
+          { step: '03', title: 'Live Timed Session', description: 'Chat, call, video, or share files while the server-authoritative countdown clock is active.' },
+          { step: '04', title: 'Session Completes', description: 'When time ends, communication closes naturally. No scope creep, surprise invoices, or billing disputes.' }
+        ],
+        cta_title: 'Ready to experience precision consulting?',
+        cta_subtitle: 'Connect with verified specialists right now and pay strictly for the minutes you use.',
+        cta_button_label: 'Get Started Today',
+        cta_button_url: '/services',
+        visibility: {
+          hero: true,
+          intent_cards: true,
+          search: true,
+          popular_categories: true,
+          featured_experts: true,
+          how_it_works: true,
+          cta: true
+        }
+      };
+
+      let homepageData = defaultHomepage;
+      if (setting && setting.value) {
+        try {
+          const parsed = JSON.parse(setting.value);
+          if (parsed && typeof parsed === 'object') {
+            homepageData = { ...defaultHomepage, ...parsed };
+          }
+        } catch (e) {
+          homepageData = defaultHomepage;
+        }
+      }
+
+      res.json({ homepage: homepageData });
+    } catch (err) {
+      console.error('[Homepage Settings] Error:', err.message);
+      res.status(500).json({ error: 'Failed to retrieve homepage settings' });
+    }
+  });
+
+  // Public SEO Metadata & Social Sharing Tags
+  router.get('/platform/seo', (req, res) => {
+    try {
+      const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'seo_settings'").get();
+      const defaultSeo = {
+        site_title: 'HireByMinute — Instant 1-on-1 Consultations by the Minute',
+        meta_description: 'Connect with verified experts instantly for 1-on-1 audio/video consultations. Pay only for the exact minutes you use with zero upfront retainers.',
+        canonical_url: 'https://hirebyminute.com',
+        og_title: 'HireByMinute — Instant 1-on-1 Consultations by the Minute',
+        og_description: 'Pay strictly for the minutes you consult. Real-time audio/video consultations with verified experts.',
+        og_image: 'https://hirebyminute.com/og-image.png',
+        twitter_card: 'summary_large_image',
+        twitter_site: '@hirebyminute'
+      };
+
+      let seoData = defaultSeo;
+      if (setting && setting.value) {
+        try {
+          const parsed = JSON.parse(setting.value);
+          if (parsed && typeof parsed === 'object') {
+            seoData = { ...defaultSeo, ...parsed };
+          }
+        } catch (e) {
+          seoData = defaultSeo;
+        }
+      }
+
+      res.json({ seo: seoData });
+    } catch (err) {
+      console.error('[SEO Settings] Error:', err.message);
+      res.status(500).json({ error: 'Failed to retrieve SEO settings' });
+    }
+  });
+
+  // Public FAQs Endpoint
+  router.get('/faqs', (req, res) => {
+    try {
+      const faqs = db.prepare('SELECT id, question, answer, category, sort_order, is_published FROM faqs WHERE is_published = 1 ORDER BY sort_order ASC, created_at ASC').all();
+      res.json({ faqs: faqs || [] });
+    } catch (err) {
+      console.error('[FAQs] Error:', err.message);
+      res.status(500).json({ error: 'Failed to retrieve FAQs' });
+    }
+  });
+  router.get('/platform/faqs', (req, res) => res.redirect(307, '/api/faqs'));
+
   // --- HELPER AUTH MIDDLEWARES ---
   const authMiddleware = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -968,6 +1229,56 @@ module.exports = function(timerEngine, io) {
     next();
   });
 
+  const logoUpload = multer({
+    storage: memoryStorage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit for logo
+    fileFilter: (req, file, cb) => {
+      const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg', 'image/svg+xml'];
+      const ext = path.extname(file.originalname).toLowerCase();
+      const allowedExts = ['.jpg', '.jpeg', '.png', '.webp', '.svg'];
+
+      if (!allowedMimes.includes(file.mimetype) || !allowedExts.includes(ext)) {
+        return cb(new Error('Invalid logo format. Supported formats: PNG, JPG, WEBP, SVG.'));
+      }
+      cb(null, true);
+    }
+  });
+
+  router.post('/admin/upload-logo', adminAuthMiddleware, logoUpload.single('logo'), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No logo file provided for upload.' });
+    }
+    try {
+      const uploadResult = await storageService.upload({
+        buffer: req.file.buffer,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        folder: 'branding'
+      });
+      const logoUrl = uploadResult.url;
+      const updateStmt = db.prepare(`
+        INSERT OR REPLACE INTO platform_settings (key, value, description, updated_at)
+        VALUES ('logo_url', ?, 'Custom brand logo image URL', CURRENT_TIMESTAMP)
+      `);
+      updateStmt.run(logoUrl);
+      logAuditAction(req.user, 'BRAND_LOGO_UPLOADED', 'system', 'platform_settings', { logoUrl });
+      res.json({
+        success: true,
+        url: logoUrl,
+        filename: uploadResult.filename,
+        message: 'Brand logo uploaded and applied successfully.'
+      });
+    } catch (err) {
+      console.error('[Admin Logo Upload Error]', err.message);
+      res.status(500).json({ error: 'Failed to process logo upload' });
+    }
+  }, (err, req, res, next) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'Logo upload failed.' });
+    }
+    next();
+  });
+
   // ==========================================
   // PROFILE MANAGEMENT (GET & PATCH)
   // ==========================================
@@ -1467,7 +1778,7 @@ module.exports = function(timerEngine, io) {
       SELECT r.*, c.full_name as client_name, c.avatar_url as client_avatar
       FROM reviews r
       JOIN users c ON r.client_id = c.id
-      WHERE r.service_id = ?
+      WHERE r.service_id = ? AND COALESCE(r.is_hidden, 0) = 0
       ORDER BY r.created_at DESC
       LIMIT 10
     `).all(service.id);
@@ -3583,7 +3894,7 @@ module.exports = function(timerEngine, io) {
       FROM reviews r
       JOIN users c ON r.client_id = c.id
       JOIN services srv ON r.service_id = srv.id
-      WHERE r.provider_id = ?
+      WHERE r.provider_id = ? AND COALESCE(r.is_hidden, 0) = 0
       ORDER BY r.created_at DESC
     `).all(userId);
 
@@ -3672,8 +3983,20 @@ module.exports = function(timerEngine, io) {
       return res.status(400).json({ error: 'You have already submitted an application for this opportunity.' });
     }
 
-    const appFee = 2.00;
-    const amountInPaise = 200;
+    const isFree = (opp.pricing_type || 'free') === 'free' || Number(opp.entry_fee_usd || 0) <= 0;
+    if (isFree) {
+      return res.json({
+        is_free: true,
+        amount: 0.00,
+        amount_paise: 0,
+        currency: 'USD',
+        key_id: process.env.RAZORPAY_KEY_ID || 'rzp_live_placeholder',
+        opportunity_id: opp.id
+      });
+    }
+
+    const appFee = Number(opp.entry_fee_usd);
+    const amountInPaise = Math.round(appFee * 100);
     const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_live_placeholder';
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
@@ -3699,6 +4022,7 @@ module.exports = function(timerEngine, io) {
         }
         const rzpOrder = await rzpRes.json();
         return res.json({
+          is_free: false,
           order_id: rzpOrder.id,
           amount: appFee,
           amount_paise: amountInPaise,
@@ -3709,6 +4033,7 @@ module.exports = function(timerEngine, io) {
       } else {
         const simulatedOrderId = `order_app_${uuidv4().replace(/-/g, '').slice(0, 14)}`;
         return res.json({
+          is_free: false,
           order_id: simulatedOrderId,
           amount: appFee,
           amount_paise: amountInPaise,
@@ -3723,7 +4048,7 @@ module.exports = function(timerEngine, io) {
     }
   });
 
-  // Verify Razorpay Payment and Submit Application for $2 Opportunity Fee
+  // Verify Razorpay Payment and Submit Application for Opportunity Entry Fee
   router.post('/opportunities/:id/verify-application-payment', authMiddleware, async (req, res) => {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, message, relevant_experience, proposed_rate, availability } = req.body;
     const opp = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(req.params.id);
@@ -3767,13 +4092,15 @@ module.exports = function(timerEngine, io) {
       return res.status(409).json({ error: 'Payment ID has already been processed for this or another transaction.' });
     }
 
+    const appFee = Number(opp.entry_fee_usd) || 2.00;
     const appId = `app-${uuidv4().slice(0, 8)}`;
     db.prepare(`
       INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
-      VALUES (?, ?, 'application_fee', 2.00, 'succeeded', ?, ?)
+      VALUES (?, ?, 'application_fee', ?, 'succeeded', ?, ?)
     `).run(
       razorpay_payment_id,
       req.user.id,
+      appFee,
       appId,
       JSON.stringify({
         opportunity_id: opp.id,
@@ -3805,13 +4132,13 @@ module.exports = function(timerEngine, io) {
       application_id: appId,
       application,
       payment_id: razorpay_payment_id,
-      message: 'Application submitted and $2 entry fee verified successfully!'
+      message: 'Application submitted and entry fee verified successfully!'
     });
   });
 
-  // Direct application endpoint (falls back gracefully in non-production or for free promotions)
+  // Direct application endpoint with authoritative server-side fee verification
   router.post('/opportunities/:id/apply', authMiddleware, (req, res) => {
-    const { message, relevant_experience, proposed_rate, availability } = req.body;
+    const { message, relevant_experience, proposed_rate, availability, payment_id } = req.body;
     const opp = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(req.params.id);
 
     if (!opp) return res.status(404).json({ error: 'Opportunity not found.' });
@@ -3830,13 +4157,46 @@ module.exports = function(timerEngine, io) {
       return res.status(400).json({ error: 'You have already applied for this opportunity.' });
     }
 
+    const isFree = (opp.pricing_type || 'free') === 'free' || Number(opp.entry_fee_usd || 0) <= 0;
+    let verifiedPaymentId = null;
+
+    if (!isFree) {
+      if (!payment_id) {
+        return res.status(402).json({
+          error: `This opportunity requires a verified application fee of $${Number(opp.entry_fee_usd).toFixed(2)}. Please complete payment before submitting.`
+        });
+      }
+      const payment = db.prepare(`
+        SELECT * FROM payments 
+        WHERE id = ? AND user_id = ? AND type = 'application_fee' AND status = 'succeeded'
+      `).get(payment_id, req.user.id);
+
+      if (!payment || Number(payment.amount) < Number(opp.entry_fee_usd)) {
+        return res.status(402).json({
+          error: 'Valid payment record for the required application fee was not found or payment amount was insufficient.'
+        });
+      }
+      verifiedPaymentId = payment.id;
+    }
+
     const id = `app-${uuidv4().slice(0, 8)}`;
     db.prepare(`
-      INSERT INTO applications (id, opportunity_id, provider_id, message, relevant_experience, proposed_rate, availability, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-    `).run(id, opp.id, req.user.id, message, relevant_experience, proposed_rate ? Number(proposed_rate) : null, availability);
+      INSERT INTO applications (id, opportunity_id, provider_id, message, relevant_experience, proposed_rate, availability, payment_id, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    `).run(id, opp.id, req.user.id, message, relevant_experience, proposed_rate ? Number(proposed_rate) : null, availability, verifiedPaymentId);
 
-    res.status(201).json({ success: true, message: 'Your application has been submitted.' });
+    // Notify opportunity creator
+    db.prepare(`
+      INSERT INTO notifications (id, user_id, title, message, type, link)
+      VALUES (?, ?, 'New Application Received', ?, 'info', ?)
+    `).run(
+      `notif-${uuidv4().slice(0, 8)}`,
+      opp.creator_id,
+      `${req.user.full_name} applied for "${opp.title}".`,
+      `/opportunities`
+    );
+
+    res.status(201).json({ success: true, message: 'Your application has been submitted successfully.' });
   });
 
   // User report endpoint
@@ -4468,40 +4828,133 @@ module.exports = function(timerEngine, io) {
       FROM categories c 
       LEFT JOIN services s ON c.id = s.category_id 
       GROUP BY c.id 
-      ORDER BY c.sort_order ASC
-    `).all();
+      ORDER BY c.sort_order ASC, c.name ASC
+    `).all().map(c => {
+      let subcats = [];
+      try {
+        subcats = JSON.parse(c.subcategories_json || '[]');
+      } catch (e) {
+        subcats = [];
+      }
+      return {
+        ...c,
+        sort_order: Number(c.sort_order) || 0,
+        services_count: Number(c.services_count) || 0,
+        subcategories: Array.isArray(subcats) ? subcats : []
+      };
+    });
     res.json({ categories });
   });
 
   router.post('/admin/categories', adminAuthMiddleware, (req, res) => {
-    const { name, slug, icon = 'Tag', description = '', sort_order = 99 } = req.body;
+    const { name, slug, icon = 'Tag', description = '', sort_order = 99, subcategories = [], image_url = '' } = req.body;
     if (!name || !slug) return res.status(400).json({ error: 'Name and slug are required.' });
 
-    const existing = db.prepare('SELECT id FROM categories WHERE slug = ?').get(slug);
+    const cleanSlug = String(slug).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    const existing = db.prepare('SELECT id FROM categories WHERE slug = ?').get(cleanSlug);
     if (existing) {
-      return res.status(409).json({ error: `Category with slug "${slug}" already exists.` });
+      return res.status(409).json({ error: `Category with slug "${cleanSlug}" already exists.` });
     }
 
     const id = `cat-${uuidv4().slice(0, 8)}`;
-    db.prepare(`
-      INSERT INTO categories (id, slug, name, icon, description, sort_order, active)
-      VALUES (?, ?, ?, ?, ?, ?, 1)
-    `).run(id, slug, name, icon, description, Number(sort_order));
+    const subcatsJson = JSON.stringify(Array.isArray(subcategories) ? subcategories : []);
 
-    logAuditAction(req.user, 'CATEGORY_CREATED', 'category', id, { name, slug });
-    res.status(201).json({ success: true, id });
+    db.prepare(`
+      INSERT INTO categories (id, slug, name, icon, description, sort_order, active, subcategories_json, image_url)
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `).run(id, cleanSlug, String(name).trim(), String(icon || 'Tag').trim(), String(description || '').trim(), Number(sort_order) || 0, subcatsJson, String(image_url || '').trim());
+
+    logAuditAction(req.user, 'CATEGORY_CREATED', 'category', id, { name, slug: cleanSlug });
+    const created = db.prepare('SELECT * FROM categories WHERE id = ?').get(id);
+    res.status(201).json({ success: true, id, category: created });
   });
 
   router.put('/admin/categories/:id', adminAuthMiddleware, (req, res) => {
-    const { name, slug, icon, description, sort_order } = req.body;
+    const { name, slug, icon, description, sort_order, subcategories, image_url, active } = req.body;
+    const cat = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
+    if (!cat) return res.status(404).json({ error: 'Category not found' });
+
+    const newSlug = slug ? String(slug).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') : cat.slug;
+    if (newSlug !== cat.slug) {
+      const existing = db.prepare('SELECT id FROM categories WHERE slug = ? AND id != ?').get(newSlug, cat.id);
+      if (existing) {
+        return res.status(409).json({ error: `Category with slug "${newSlug}" already exists.` });
+      }
+    }
+
+    const subcatsJson = subcategories !== undefined 
+      ? JSON.stringify(Array.isArray(subcategories) ? subcategories : []) 
+      : cat.subcategories_json;
+
     db.prepare(`
       UPDATE categories 
-      SET name = ?, slug = ?, icon = ?, description = ?, sort_order = ? 
+      SET name = COALESCE(?, name), 
+          slug = ?, 
+          icon = COALESCE(?, icon), 
+          description = COALESCE(?, description), 
+          sort_order = COALESCE(?, sort_order),
+          active = COALESCE(?, active),
+          subcategories_json = ?,
+          image_url = COALESCE(?, image_url)
       WHERE id = ?
-    `).run(name, slug, icon, description, Number(sort_order), req.params.id);
+    `).run(
+      name ? String(name).trim() : null,
+      newSlug,
+      icon ? String(icon).trim() : null,
+      description !== undefined ? String(description).trim() : null,
+      sort_order !== undefined ? Number(sort_order) : null,
+      active !== undefined ? (active ? 1 : 0) : null,
+      subcatsJson,
+      image_url !== undefined ? String(image_url).trim() : null,
+      cat.id
+    );
 
-    logAuditAction(req.user, 'CATEGORY_UPDATED', 'category', req.params.id, { name, slug });
-    res.json({ success: true });
+    logAuditAction(req.user, 'CATEGORY_UPDATED', 'category', cat.id, req.body);
+    const updated = db.prepare('SELECT * FROM categories WHERE id = ?').get(cat.id);
+    res.json({ success: true, category: updated });
+  });
+
+  router.delete('/admin/categories/:id', adminAuthMiddleware, (req, res) => {
+    const cat = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
+    if (!cat) return res.status(404).json({ error: 'Category not found' });
+
+    const serviceCountResult = db.prepare('SELECT COUNT(*) as count FROM services WHERE category_id = ?').get(cat.id);
+    const serviceCount = serviceCountResult ? (Number(serviceCountResult.count) || 0) : 0;
+
+    if (serviceCount > 0) {
+      db.prepare('UPDATE categories SET active = 0 WHERE id = ?').run(cat.id);
+      logAuditAction(req.user, 'CATEGORY_SOFT_DEACTIVATED', 'category', cat.id, {
+        name: cat.name,
+        service_count: serviceCount,
+        reason: 'Existing services reference this category. Deactivated instead of deleted to protect listing integrity.'
+      });
+      return res.json({
+        success: true,
+        soft_deleted: true,
+        message: `Category "${cat.name}" has ${serviceCount} associated services. It has been deactivated instead of permanently deleted to preserve catalog integrity.`
+      });
+    }
+
+    db.prepare('DELETE FROM categories WHERE id = ?').run(cat.id);
+    logAuditAction(req.user, 'CATEGORY_DELETED', 'category', cat.id, { name: cat.name });
+    res.json({ success: true, message: `Category "${cat.name}" deleted successfully.` });
+  });
+
+  router.put('/admin/categories/reorder', adminAuthMiddleware, (req, res) => {
+    const { order } = req.body;
+    if (!Array.isArray(order)) {
+      return res.status(400).json({ error: 'Order must be an array of { id, sort_order }.' });
+    }
+
+    const updateStmt = db.prepare('UPDATE categories SET sort_order = ? WHERE id = ?');
+    for (const item of order) {
+      if (item.id && typeof item.sort_order === 'number') {
+        updateStmt.run(item.sort_order, item.id);
+      }
+    }
+
+    logAuditAction(req.user, 'CATEGORIES_REORDERED', 'category', 'all', { count: order.length });
+    res.json({ success: true, message: 'Categories order updated successfully.' });
   });
 
   router.patch('/admin/categories/:id/toggle', adminAuthMiddleware, (req, res) => {
@@ -4742,14 +5195,25 @@ module.exports = function(timerEngine, io) {
       JOIN users u ON o.creator_id = u.id
       LEFT JOIN applications a ON o.id = a.opportunity_id
       GROUP BY o.id
-      ORDER BY o.created_at DESC
+      ORDER BY o.is_featured DESC, o.created_at DESC
     `).all();
-    const normalizedOpps = opps.map(o => ({
-      ...o,
-      budget: Number(o.budget) || 0,
-      duration_minutes: Number(o.duration_minutes) || 0,
-      applications_count: Number(o.applications_count) || 0
-    }));
+    const normalizedOpps = opps.map(o => {
+      let skills = [];
+      let languages = [];
+      try { skills = JSON.parse(o.skills_json || '[]'); } catch (e) { skills = []; }
+      try { languages = JSON.parse(o.languages_json || '[]'); } catch (e) { languages = ['English']; }
+      return {
+        ...o,
+        budget: Number(o.budget) || 0,
+        entry_fee_usd: Number(o.entry_fee_usd) || 0,
+        duration_minutes: Number(o.duration_minutes) || 0,
+        applications_count: Number(o.applications_count) || 0,
+        is_featured: Number(o.is_featured) || 0,
+        pricing_type: o.pricing_type || (Number(o.entry_fee_usd) > 0 ? 'paid' : 'free'),
+        skills: Array.isArray(skills) ? skills : [],
+        languages: Array.isArray(languages) ? languages : ['English']
+      };
+    });
     res.json({ opportunities: normalizedOpps, count: normalizedOpps.length });
   });
 
@@ -4765,6 +5229,15 @@ module.exports = function(timerEngine, io) {
       duration_minutes = 45,
       budget = 75,
       deadline = null,
+      pricing_type = 'free',
+      entry_fee_usd = 0.00,
+      is_featured = 0,
+      skills = [],
+      requirements = '',
+      attachment_url = '',
+      visibility = 'public',
+      start_date = null,
+      end_date = null,
       status = 'open'
     } = req.body;
 
@@ -4772,13 +5245,18 @@ module.exports = function(timerEngine, io) {
       return res.status(400).json({ error: 'Title, category, and description are required.' });
     }
 
+    const cleanPricingType = pricing_type === 'paid' ? 'paid' : 'free';
+    const cleanFee = cleanPricingType === 'paid' ? (Number(entry_fee_usd) || 0.00) : 0.00;
     const id = `opp-${uuidv4().slice(0, 8)}`;
+
     db.prepare(`
       INSERT INTO opportunities (
         id, creator_id, title, short_description, description, category_id, subcategory,
-        location, languages_json, duration_minutes, budget, deadline, status
+        location, languages_json, duration_minutes, budget, deadline, pricing_type,
+        entry_fee_usd, is_featured, skills_json, requirements, attachment_url, visibility,
+        start_date, end_date, status
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       req.user.id,
@@ -4788,46 +5266,131 @@ module.exports = function(timerEngine, io) {
       category_id,
       subcategory,
       location,
-      JSON.stringify(languages),
+      JSON.stringify(Array.isArray(languages) ? languages : ['English']),
       Number(duration_minutes) || 45,
       Number(budget) || 75,
-      deadline,
+      deadline || null,
+      cleanPricingType,
+      cleanFee,
+      is_featured ? 1 : 0,
+      JSON.stringify(Array.isArray(skills) ? skills : []),
+      requirements ? requirements.trim() : '',
+      attachment_url ? attachment_url.trim() : '',
+      visibility === 'unlisted' ? 'unlisted' : 'public',
+      start_date || null,
+      end_date || null,
       status || 'open'
     );
 
-    logAuditAction(req.user, 'OPPORTUNITY_CREATED_BY_ADMIN', 'opportunity', id, { title, budget });
+    logAuditAction(req.user, 'OPPORTUNITY_CREATED_BY_ADMIN', 'opportunity', id, { title, budget, pricing_type: cleanPricingType, entry_fee_usd: cleanFee });
     const created = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(id);
     res.status(201).json({ success: true, opportunity: created });
   });
 
   router.patch('/admin/opportunities/:id', adminAuthMiddleware, (req, res) => {
-    const { status, title, description, budget, duration_minutes, subcategory, location } = req.body;
+    const { 
+      status, title, description, short_description, budget, duration_minutes, 
+      subcategory, location, pricing_type, entry_fee_usd, is_featured, 
+      skills, requirements, attachment_url, visibility, deadline, start_date, end_date 
+    } = req.body;
+    
     const opp = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(req.params.id);
     if (!opp) return res.status(404).json({ error: 'Opportunity not found' });
+
+    const cleanPricingType = pricing_type !== undefined ? (pricing_type === 'paid' ? 'paid' : 'free') : opp.pricing_type;
+    const cleanFee = entry_fee_usd !== undefined ? Number(entry_fee_usd) : opp.entry_fee_usd;
+    const skillsJson = skills !== undefined ? JSON.stringify(Array.isArray(skills) ? skills : []) : opp.skills_json;
 
     db.prepare(`
       UPDATE opportunities SET
         status = COALESCE(?, status),
         title = COALESCE(?, title),
         description = COALESCE(?, description),
+        short_description = COALESCE(?, short_description),
         budget = COALESCE(?, budget),
         duration_minutes = COALESCE(?, duration_minutes),
         subcategory = COALESCE(?, subcategory),
-        location = COALESCE(?, location)
+        location = COALESCE(?, location),
+        pricing_type = ?,
+        entry_fee_usd = ?,
+        is_featured = COALESCE(?, is_featured),
+        skills_json = ?,
+        requirements = COALESCE(?, requirements),
+        attachment_url = COALESCE(?, attachment_url),
+        visibility = COALESCE(?, visibility),
+        deadline = COALESCE(?, deadline),
+        start_date = COALESCE(?, start_date),
+        end_date = COALESCE(?, end_date)
       WHERE id = ?
     `).run(
       status || null,
       title ? title.trim() : null,
       description ? description.trim() : null,
+      short_description ? short_description.trim() : null,
       budget !== undefined ? Number(budget) : null,
       duration_minutes !== undefined ? Number(duration_minutes) : null,
       subcategory || null,
       location || null,
+      cleanPricingType,
+      cleanFee,
+      is_featured !== undefined ? (is_featured ? 1 : 0) : null,
+      skillsJson,
+      requirements !== undefined ? String(requirements).trim() : null,
+      attachment_url !== undefined ? String(attachment_url).trim() : null,
+      visibility || null,
+      deadline || null,
+      start_date || null,
+      end_date || null,
       opp.id
     );
 
     logAuditAction(req.user, 'OPPORTUNITY_UPDATED', 'opportunity', opp.id, req.body);
-    res.json({ success: true });
+    const updated = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(opp.id);
+    res.json({ success: true, opportunity: updated });
+  });
+
+  router.post('/admin/opportunities/:id/duplicate', adminAuthMiddleware, (req, res) => {
+    const opp = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(req.params.id);
+    if (!opp) return res.status(404).json({ error: 'Opportunity not found' });
+
+    const newId = `opp-${uuidv4().slice(0, 8)}`;
+    const newTitle = `${opp.title} (Copy)`;
+
+    db.prepare(`
+      INSERT INTO opportunities (
+        id, creator_id, title, short_description, description, category_id, subcategory,
+        location, languages_json, duration_minutes, budget, deadline, pricing_type,
+        entry_fee_usd, is_featured, skills_json, requirements, attachment_url, visibility,
+        start_date, end_date, status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+    `).run(
+      newId,
+      req.user.id,
+      newTitle,
+      opp.short_description || newTitle,
+      opp.description,
+      opp.category_id,
+      opp.subcategory,
+      opp.location,
+      opp.languages_json,
+      opp.duration_minutes,
+      opp.budget,
+      opp.deadline,
+      opp.pricing_type || 'free',
+      opp.entry_fee_usd || 0.00,
+      opp.is_featured || 0,
+      opp.skills_json || '[]',
+      opp.requirements || '',
+      opp.attachment_url || '',
+      opp.visibility || 'public',
+      opp.start_date || null,
+      opp.end_date || null
+    );
+
+    logAuditAction(req.user, 'OPPORTUNITY_DUPLICATED', 'opportunity', newId, { source_id: opp.id, title: newTitle });
+    const created = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(newId);
+    res.status(201).json({ success: true, opportunity: created, message: 'Opportunity duplicated successfully.' });
   });
 
   router.post('/admin/opportunities/:id/publish', adminAuthMiddleware, (req, res) => {
@@ -4941,21 +5504,688 @@ module.exports = function(timerEngine, io) {
   });
 
   router.put('/admin/settings', adminAuthMiddleware, (req, res) => {
-    const { platform_name, listing_fee_usd, platform_fee_percent, default_response_time, payout_schedule } = req.body;
+    const { 
+      platform_name, 
+      listing_fee_usd, 
+      platform_fee_percent, 
+      default_response_time, 
+      payout_schedule,
+      logo_url,
+      header_navigation,
+      header_cta_label,
+      header_cta_url
+    } = req.body;
 
     const updateStmt = db.prepare(`
       INSERT OR REPLACE INTO platform_settings (key, value, description, updated_at)
-      VALUES (?, ?, (SELECT description FROM platform_settings WHERE key = ?), CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
     `);
 
-    if (platform_name) updateStmt.run('platform_name', platform_name, 'platform_name');
-    if (listing_fee_usd) updateStmt.run('listing_fee_usd', String(listing_fee_usd), 'listing_fee_usd');
-    if (platform_fee_percent) updateStmt.run('platform_fee_percent', String(platform_fee_percent), 'platform_fee_percent');
-    if (default_response_time) updateStmt.run('default_response_time', default_response_time, 'default_response_time');
-    if (payout_schedule) updateStmt.run('payout_schedule', payout_schedule, 'payout_schedule');
+    if (platform_name !== undefined) {
+      const cleanName = String(platform_name).trim();
+      if (!cleanName) {
+        return res.status(400).json({ error: 'Site name cannot be empty.' });
+      }
+      updateStmt.run('platform_name', cleanName, 'The official platform brand name');
+    }
+    if (listing_fee_usd !== undefined) updateStmt.run('listing_fee_usd', String(listing_fee_usd), 'One-time fee in USD to publish a service listing');
+    
+    if (platform_fee_percent !== undefined) {
+      const currentSetting = db.prepare("SELECT value FROM platform_settings WHERE key = 'platform_fee_percent'").get();
+      const currentRate = currentSetting ? currentSetting.value : '15';
+      const cleanRate = String(platform_fee_percent).trim();
+      updateStmt.run('platform_fee_percent', cleanRate, 'Standard percentage fee taken from completed session payments');
+      if (cleanRate !== currentRate) {
+        logAuditAction(req.user, 'PLATFORM_COMMISSION_UPDATED', 'platform_settings', 'platform_fee_percent', {
+          old_rate_percent: currentRate,
+          new_rate_percent: cleanRate,
+          note: 'Historical transactions remain immutable. New rate applies only to future completed sessions.'
+        });
+      }
+    }
+
+    if (default_response_time !== undefined) updateStmt.run('default_response_time', default_response_time, 'Target response time for verified providers');
+    if (payout_schedule !== undefined) updateStmt.run('payout_schedule', payout_schedule, 'Frequency of expert earnings settlement');
+    if (logo_url !== undefined) {
+      updateStmt.run('logo_url', String(logo_url).trim(), 'Custom brand logo image URL');
+    }
+    if (header_cta_label !== undefined) {
+      const cleanLabel = String(header_cta_label).trim();
+      if (!cleanLabel) return res.status(400).json({ error: 'Header CTA label cannot be empty.' });
+      updateStmt.run('header_cta_label', cleanLabel, 'Header call-to-action button label');
+    }
+    if (header_cta_url !== undefined) {
+      const cleanUrl = String(header_cta_url).trim();
+      if (!cleanUrl) return res.status(400).json({ error: 'Header CTA destination URL cannot be empty.' });
+      if (cleanUrl.toLowerCase().startsWith('/admin')) {
+        return res.status(400).json({ error: 'Header CTA destination cannot point to administration routes.' });
+      }
+      updateStmt.run('header_cta_url', cleanUrl, 'Header call-to-action destination URL');
+    }
+    if (header_navigation !== undefined) {
+      let navArr = header_navigation;
+      if (typeof navArr === 'string') {
+        try {
+          navArr = JSON.parse(navArr);
+        } catch (e) {
+          return res.status(400).json({ error: 'Invalid header_navigation JSON format.' });
+        }
+      }
+      if (!Array.isArray(navArr)) {
+        return res.status(400).json({ error: 'header_navigation must be an array of navigation items.' });
+      }
+      const sanitizedNav = navArr.map((item, idx) => ({
+        id: String(item.id || `nav-${Date.now()}-${idx}`),
+        label: String(item.label || 'Link').trim(),
+        url: String(item.url || '/').trim(),
+        order: Number(item.order) || (idx + 1),
+        is_visible: item.is_visible !== false,
+        is_external: Boolean(item.is_external)
+      })).sort((a, b) => a.order - b.order);
+
+      // System route protection: ensure admin routes cannot be injected into public navigation
+      for (const item of sanitizedNav) {
+        const u = item.url.toLowerCase();
+        if (u === '/admin' || u.startsWith('/admin/')) {
+          return res.status(400).json({ error: 'Administrative routes cannot be exposed in the public header navigation.' });
+        }
+      }
+
+      updateStmt.run('header_navigation', JSON.stringify(sanitizedNav), 'header_navigation');
+    }
 
     logAuditAction(req.user, 'PLATFORM_SETTINGS_UPDATED', 'system', 'platform_settings', req.body);
     res.json({ success: true, message: 'Settings updated successfully.' });
+  });
+
+  router.put('/admin/footer', adminAuthMiddleware, (req, res) => {
+    const { company_description, contact_email, contact_phone, address, copyright_text, designer_credit, social_links, sections } = req.body;
+
+    // Security Audit: Explicitly reject any attempts to expose /admin in footer links
+    if (sections && typeof sections === 'object') {
+      for (const [secName, links] of Object.entries(sections)) {
+        if (Array.isArray(links)) {
+          for (const item of links) {
+            const url = String(item.url || '').toLowerCase();
+            const label = String(item.label || '').toLowerCase();
+            if (url.includes('/admin') || label.includes('admin console') || label.includes('admin portal')) {
+              return res.status(400).json({
+                error: 'Security Policy Violation: The Admin Console must not be linked in the public footer. Admin routes remain strictly private.'
+              });
+            }
+          }
+        }
+      }
+    }
+
+    const cleanFooter = {
+      company_description: company_description !== undefined ? String(company_description).trim() : 'The precision marketplace for on-demand consultations.',
+      contact_email: contact_email !== undefined ? String(contact_email).trim() : 'support@hirebyminute.com',
+      contact_phone: contact_phone !== undefined ? String(contact_phone).trim() : '+1 (800) 555-0199',
+      address: address !== undefined ? String(address).trim() : 'San Francisco, CA, United States',
+      copyright_text: copyright_text !== undefined ? String(copyright_text).trim() : '© {year} HireByMinute. All rights reserved.',
+      designer_credit: designer_credit !== undefined ? String(designer_credit).trim() : 'Designed & Developed by Vishal Chaudhary',
+      social_links: Array.isArray(social_links) ? social_links : [],
+      sections: sections && typeof sections === 'object' ? sections : {}
+    };
+
+    db.prepare(`
+      INSERT OR REPLACE INTO platform_settings (key, value, description, updated_at)
+      VALUES ('footer_settings', ?, 'Configurable footer links, sections, and legal notices', CURRENT_TIMESTAMP)
+    `).run(JSON.stringify(cleanFooter));
+
+    logAuditAction(req.user, 'PLATFORM_FOOTER_UPDATED', 'system', 'footer_settings', cleanFooter);
+    res.json({ success: true, footer: cleanFooter, message: 'Footer configuration saved successfully.' });
+  });
+
+  router.put('/admin/contact', adminAuthMiddleware, (req, res) => {
+    const { support_email, business_email, phone, support_hours, address, whatsapp_url, contact_form_enabled } = req.body;
+
+    const cleanContact = {
+      support_email: support_email !== undefined ? String(support_email).trim() : 'support@hirebyminute.com',
+      business_email: business_email !== undefined ? String(business_email).trim() : 'business@hirebyminute.com',
+      phone: phone !== undefined ? String(phone).trim() : '+1 (800) 555-0199',
+      support_hours: support_hours !== undefined ? String(support_hours).trim() : 'Monday – Friday: 9:00 AM – 6:00 PM EST (24/7 Escalation Desk)',
+      address: address !== undefined ? String(address).trim() : 'San Francisco, CA, United States',
+      whatsapp_url: whatsapp_url !== undefined ? String(whatsapp_url).trim() : '',
+      contact_form_enabled: contact_form_enabled !== false
+    };
+
+    db.prepare(`
+      INSERT OR REPLACE INTO platform_settings (key, value, description, updated_at)
+      VALUES ('contact_settings', ?, 'Configurable customer support and platform contact channels', CURRENT_TIMESTAMP)
+    `).run(JSON.stringify(cleanContact));
+
+    logAuditAction(req.user, 'CONTACT_SETTINGS_UPDATED', 'system', 'contact_settings', cleanContact);
+    res.json({ success: true, contact: cleanContact, message: 'Contact settings saved successfully.' });
+  });
+
+  // Admin Homepage CMS Control
+  router.put('/admin/homepage', adminAuthMiddleware, (req, res) => {
+    try {
+      const {
+        hero_headline,
+        hero_subheadline,
+        hero_badge_text,
+        primary_cta_label,
+        primary_cta_url,
+        secondary_cta_label,
+        secondary_cta_url,
+        search_placeholder,
+        popular_tags,
+        intent_client_title,
+        intent_client_desc,
+        intent_client_button,
+        intent_provider_title,
+        intent_provider_desc,
+        intent_provider_button,
+        how_it_works_title,
+        how_it_works_subtitle,
+        how_it_works_steps,
+        cta_title,
+        cta_subtitle,
+        cta_button_label,
+        cta_button_url,
+        visibility
+      } = req.body;
+
+      const cleanHomepage = {
+        hero_headline: hero_headline !== undefined ? String(hero_headline).trim() : 'What brings you here?',
+        hero_subheadline: hero_subheadline !== undefined ? String(hero_subheadline).trim() : 'Hire expertise by the minute, or turn your expertise into a service people can book.',
+        hero_badge_text: hero_badge_text !== undefined ? String(hero_badge_text).trim() : '⚡ Instant 1-on-1 Consultations • Pay Per Exact Minute',
+        primary_cta_label: primary_cta_label !== undefined ? String(primary_cta_label).trim() : 'Find an Expert',
+        primary_cta_url: primary_cta_url !== undefined ? String(primary_cta_url).trim() : '/services',
+        secondary_cta_label: secondary_cta_label !== undefined ? String(secondary_cta_label).trim() : 'Become a Service Provider',
+        secondary_cta_url: secondary_cta_url !== undefined ? String(secondary_cta_url).trim() : '/provider/onboard',
+        search_placeholder: search_placeholder !== undefined ? String(search_placeholder).trim() : 'Search experts, skills, or services...',
+        popular_tags: Array.isArray(popular_tags) ? popular_tags : [],
+        intent_client_title: intent_client_title !== undefined ? String(intent_client_title).trim() : 'Find an expert',
+        intent_client_desc: intent_client_desc !== undefined ? String(intent_client_desc).trim() : '',
+        intent_client_button: intent_client_button !== undefined ? String(intent_client_button).trim() : 'Browse Experts',
+        intent_provider_title: intent_provider_title !== undefined ? String(intent_provider_title).trim() : 'List your service',
+        intent_provider_desc: intent_provider_desc !== undefined ? String(intent_provider_desc).trim() : '',
+        intent_provider_button: intent_provider_button !== undefined ? String(intent_provider_button).trim() : 'Become a Service Provider',
+        how_it_works_title: how_it_works_title !== undefined ? String(how_it_works_title).trim() : 'How HireByMinute works',
+        how_it_works_subtitle: how_it_works_subtitle !== undefined ? String(how_it_works_subtitle).trim() : '',
+        how_it_works_steps: Array.isArray(how_it_works_steps) ? how_it_works_steps : [],
+        cta_title: cta_title !== undefined ? String(cta_title).trim() : 'Ready to experience precision consulting?',
+        cta_subtitle: cta_subtitle !== undefined ? String(cta_subtitle).trim() : '',
+        cta_button_label: cta_button_label !== undefined ? String(cta_button_label).trim() : 'Get Started Today',
+        cta_button_url: cta_button_url !== undefined ? String(cta_button_url).trim() : '/services',
+        visibility: visibility && typeof visibility === 'object' ? visibility : {
+          hero: true,
+          intent_cards: true,
+          search: true,
+          popular_categories: true,
+          featured_experts: true,
+          how_it_works: true,
+          cta: true
+        }
+      };
+
+      db.prepare(`
+        INSERT OR REPLACE INTO platform_settings (key, value, description, updated_at)
+        VALUES ('homepage_settings', ?, 'Configurable homepage content, hero copy, intent cards, and section visibility', CURRENT_TIMESTAMP)
+      `).run(JSON.stringify(cleanHomepage));
+
+      logAuditAction(req.user, 'ADMIN_UPDATED_HOMEPAGE', 'system', 'homepage_settings', cleanHomepage);
+      res.json({ success: true, homepage: cleanHomepage, message: 'Homepage configuration saved successfully.' });
+    } catch (err) {
+      console.error('[Admin Homepage] Save error:', err.message);
+      res.status(500).json({ error: 'Failed to update homepage settings' });
+    }
+  });
+
+  // Admin SEO Meta Settings Control
+  router.put('/admin/seo', adminAuthMiddleware, (req, res) => {
+    try {
+      const { site_title, meta_description, canonical_url, og_title, og_description, og_image, twitter_card, twitter_site } = req.body;
+
+      const cleanSeo = {
+        site_title: site_title !== undefined ? String(site_title).trim() : 'HireByMinute — Instant 1-on-1 Consultations by the Minute',
+        meta_description: meta_description !== undefined ? String(meta_description).trim() : '',
+        canonical_url: canonical_url !== undefined ? String(canonical_url).trim() : 'https://hirebyminute.com',
+        og_title: og_title !== undefined ? String(og_title).trim() : (site_title || 'HireByMinute'),
+        og_description: og_description !== undefined ? String(og_description).trim() : (meta_description || ''),
+        og_image: og_image !== undefined ? String(og_image).trim() : 'https://hirebyminute.com/og-image.png',
+        twitter_card: twitter_card === 'summary' ? 'summary' : 'summary_large_image',
+        twitter_site: twitter_site !== undefined ? String(twitter_site).trim() : '@hirebyminute'
+      };
+
+      db.prepare(`
+        INSERT OR REPLACE INTO platform_settings (key, value, description, updated_at)
+        VALUES ('seo_settings', ?, 'Platform global SEO meta tags, social sharing cards, and crawl policies', CURRENT_TIMESTAMP)
+      `).run(JSON.stringify(cleanSeo));
+
+      logAuditAction(req.user, 'ADMIN_UPDATED_SEO', 'system', 'seo_settings', cleanSeo);
+      res.json({ success: true, seo: cleanSeo, message: 'SEO configuration saved successfully.' });
+    } catch (err) {
+      console.error('[Admin SEO] Save error:', err.message);
+      res.status(500).json({ error: 'Failed to update SEO settings' });
+    }
+  });
+
+  // Admin FAQs Management (Full CRUD)
+  router.get('/admin/faqs', adminAuthMiddleware, (req, res) => {
+    try {
+      const faqs = db.prepare('SELECT * FROM faqs ORDER BY sort_order ASC, created_at ASC').all();
+      res.json({ faqs: faqs || [] });
+    } catch (err) {
+      console.error('[Admin FAQs] Fetch error:', err.message);
+      res.status(500).json({ error: 'Failed to retrieve FAQs' });
+    }
+  });
+
+  router.post('/admin/faqs', adminAuthMiddleware, (req, res) => {
+    try {
+      const { question, answer, category = 'General', sort_order = 0, is_published = 1 } = req.body;
+      if (!question || !question.trim()) {
+        return res.status(400).json({ error: 'FAQ question is required.' });
+      }
+      if (!answer || !answer.trim()) {
+        return res.status(400).json({ error: 'FAQ answer is required.' });
+      }
+
+      const id = `faq-${uuidv4().slice(0, 8)}`;
+      db.prepare(`
+        INSERT INTO faqs (id, question, answer, category, sort_order, is_published, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).run(id, question.trim(), answer.trim(), (category || 'General').trim(), Number(sort_order) || 0, is_published ? 1 : 0);
+
+      const created = db.prepare('SELECT * FROM faqs WHERE id = ?').get(id);
+      logAuditAction(req.user, 'ADMIN_CREATED_FAQ', 'faq', id, { question, category });
+      res.status(201).json({ success: true, faq: created, message: 'FAQ created successfully.' });
+    } catch (err) {
+      console.error('[Admin FAQs] Create error:', err.message);
+      res.status(500).json({ error: 'Failed to create FAQ' });
+    }
+  });
+
+  router.put('/admin/faqs/:id', adminAuthMiddleware, (req, res) => {
+    try {
+      const { id } = req.params;
+      const existing = db.prepare('SELECT * FROM faqs WHERE id = ?').get(id);
+      if (!existing) {
+        return res.status(404).json({ error: 'FAQ not found.' });
+      }
+
+      const { question, answer, category, sort_order, is_published } = req.body;
+      const cleanQ = question !== undefined ? String(question).trim() : existing.question;
+      const cleanA = answer !== undefined ? String(answer).trim() : existing.answer;
+      const cleanC = category !== undefined ? String(category).trim() : existing.category;
+      const cleanO = sort_order !== undefined ? (Number(sort_order) || 0) : existing.sort_order;
+      const cleanP = is_published !== undefined ? (is_published ? 1 : 0) : existing.is_published;
+
+      db.prepare(`
+        UPDATE faqs
+        SET question = ?, answer = ?, category = ?, sort_order = ?, is_published = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(cleanQ, cleanA, cleanC, cleanO, cleanP, id);
+
+      const updated = db.prepare('SELECT * FROM faqs WHERE id = ?').get(id);
+      logAuditAction(req.user, 'ADMIN_UPDATED_FAQ', 'faq', id, { question: cleanQ, is_published: cleanP });
+      res.json({ success: true, faq: updated, message: 'FAQ updated successfully.' });
+    } catch (err) {
+      console.error('[Admin FAQs] Update error:', err.message);
+      res.status(500).json({ error: 'Failed to update FAQ' });
+    }
+  });
+
+  router.delete('/admin/faqs/:id', adminAuthMiddleware, (req, res) => {
+    try {
+      const { id } = req.params;
+      const existing = db.prepare('SELECT * FROM faqs WHERE id = ?').get(id);
+      if (!existing) {
+        return res.status(404).json({ error: 'FAQ not found.' });
+      }
+
+      db.prepare('DELETE FROM faqs WHERE id = ?').run(id);
+      logAuditAction(req.user, 'ADMIN_DELETED_FAQ', 'faq', id, { question: existing.question });
+      res.json({ success: true, message: 'FAQ deleted successfully.' });
+    } catch (err) {
+      console.error('[Admin FAQs] Delete error:', err.message);
+      res.status(500).json({ error: 'Failed to delete FAQ' });
+    }
+  });
+
+  // ==========================================
+  // BANNERS & ANNOUNCEMENTS APIS
+  // ==========================================
+  router.get('/banners', (req, res) => {
+    try {
+      const { placement } = req.query;
+      let query = `
+        SELECT * FROM banners_announcements 
+        WHERE is_active = 1 
+          AND (start_date IS NULL OR start_date <= CURRENT_TIMESTAMP)
+          AND (end_date IS NULL OR end_date >= CURRENT_TIMESTAMP)
+      `;
+      const params = [];
+      if (placement && placement !== 'all') {
+        query += ` AND (placement = ? OR placement = 'global')`;
+        params.push(placement);
+      }
+      query += ` ORDER BY priority DESC, created_at DESC`;
+
+      const banners = db.prepare(query).all(...params).map(b => ({
+        ...b,
+        priority: Number(b.priority) || 0,
+        is_active: Number(b.is_active) === 1
+      }));
+
+      res.json({ banners, count: banners.length });
+    } catch (err) {
+      console.error('[Banners Fetch Error]', err.message);
+      res.status(500).json({ error: 'Failed to retrieve announcements' });
+    }
+  });
+
+  router.get('/admin/banners', adminAuthMiddleware, (req, res) => {
+    try {
+      const banners = db.prepare(`SELECT * FROM banners_announcements ORDER BY priority DESC, created_at DESC`).all().map(b => ({
+        ...b,
+        priority: Number(b.priority) || 0,
+        is_active: Number(b.is_active) === 1
+      }));
+      res.json({ banners, count: banners.length });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to retrieve banners' });
+    }
+  });
+
+  router.post('/admin/banners', adminAuthMiddleware, (req, res) => {
+    const { title, message, link_url = '', link_text = '', placement = 'global', priority = 0, bg_color = 'moonstone', text_color = 'white', start_date = null, end_date = null, is_active = 1 } = req.body;
+
+    if (!title || !message) {
+      return res.status(400).json({ error: 'Banner title and message are required.' });
+    }
+
+    const id = `banner-${uuidv4().slice(0, 8)}`;
+    db.prepare(`
+      INSERT INTO banners_announcements (
+        id, title, message, link_url, link_text, placement, priority, bg_color, text_color, start_date, end_date, is_active, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      String(title).trim(),
+      String(message).trim(),
+      String(link_url || '').trim(),
+      String(link_text || '').trim(),
+      String(placement || 'global').trim(),
+      Number(priority) || 0,
+      String(bg_color || 'moonstone').trim(),
+      String(text_color || 'white').trim(),
+      start_date ? new Date(start_date).toISOString() : null,
+      end_date ? new Date(end_date).toISOString() : null,
+      is_active ? 1 : 0,
+      req.user.id
+    );
+
+    logAuditAction(req.user, 'BANNER_CREATED', 'banner', id, { title, placement });
+    const created = db.prepare('SELECT * FROM banners_announcements WHERE id = ?').get(id);
+    res.status(201).json({ success: true, banner: created });
+  });
+
+  router.put('/admin/banners/:id', adminAuthMiddleware, (req, res) => {
+    const banner = db.prepare('SELECT * FROM banners_announcements WHERE id = ?').get(req.params.id);
+    if (!banner) return res.status(404).json({ error: 'Banner not found' });
+
+    const { title, message, link_url, link_text, placement, priority, bg_color, text_color, start_date, end_date, is_active } = req.body;
+
+    db.prepare(`
+      UPDATE banners_announcements SET
+        title = COALESCE(?, title),
+        message = COALESCE(?, message),
+        link_url = COALESCE(?, link_url),
+        link_text = COALESCE(?, link_text),
+        placement = COALESCE(?, placement),
+        priority = COALESCE(?, priority),
+        bg_color = COALESCE(?, bg_color),
+        text_color = COALESCE(?, text_color),
+        start_date = COALESCE(?, start_date),
+        end_date = COALESCE(?, end_date),
+        is_active = COALESCE(?, is_active),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      title ? String(title).trim() : null,
+      message ? String(message).trim() : null,
+      link_url !== undefined ? String(link_url).trim() : null,
+      link_text !== undefined ? String(link_text).trim() : null,
+      placement || null,
+      priority !== undefined ? Number(priority) : null,
+      bg_color || null,
+      text_color || null,
+      start_date ? new Date(start_date).toISOString() : null,
+      end_date ? new Date(end_date).toISOString() : null,
+      is_active !== undefined ? (is_active ? 1 : 0) : null,
+      banner.id
+    );
+
+    logAuditAction(req.user, 'BANNER_UPDATED', 'banner', banner.id, req.body);
+    const updated = db.prepare('SELECT * FROM banners_announcements WHERE id = ?').get(banner.id);
+    res.json({ success: true, banner: updated });
+  });
+
+  router.patch('/admin/banners/:id/toggle', adminAuthMiddleware, (req, res) => {
+    const banner = db.prepare('SELECT * FROM banners_announcements WHERE id = ?').get(req.params.id);
+    if (!banner) return res.status(404).json({ error: 'Banner not found' });
+
+    const newActive = banner.is_active ? 0 : 1;
+    db.prepare('UPDATE banners_announcements SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newActive, banner.id);
+    logAuditAction(req.user, newActive ? 'BANNER_ACTIVATED' : 'BANNER_DEACTIVATED', 'banner', banner.id, { title: banner.title });
+    res.json({ success: true, is_active: newActive === 1 });
+  });
+
+  router.delete('/admin/banners/:id', adminAuthMiddleware, (req, res) => {
+    const banner = db.prepare('SELECT * FROM banners_announcements WHERE id = ?').get(req.params.id);
+    if (!banner) return res.status(404).json({ error: 'Banner not found' });
+
+    db.prepare('DELETE FROM banners_announcements WHERE id = ?').run(banner.id);
+    logAuditAction(req.user, 'BANNER_DELETED', 'banner', banner.id, { title: banner.title });
+    res.json({ success: true, message: 'Banner deleted successfully.' });
+  });
+
+  // ==========================================
+  // STATIC PAGE CMS APIS
+  // ==========================================
+  router.get('/cms/pages/:slug', (req, res) => {
+    try {
+      const page = db.prepare(`SELECT * FROM cms_pages WHERE slug = ? AND status = 'published'`).get(req.params.slug);
+      if (!page) {
+        return res.status(404).json({ error: `Page "${req.params.slug}" not found or not published.` });
+      }
+      res.json({ page });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to retrieve page' });
+    }
+  });
+
+  router.get('/admin/cms/pages', adminAuthMiddleware, (req, res) => {
+    try {
+      const pages = db.prepare(`SELECT id, slug, title, meta_title, meta_description, status, updated_by, created_at, updated_at FROM cms_pages ORDER BY slug ASC`).all();
+      res.json({ pages, count: pages.length });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to retrieve CMS pages' });
+    }
+  });
+
+  router.get('/admin/cms/pages/:id', adminAuthMiddleware, (req, res) => {
+    try {
+      const page = db.prepare(`SELECT * FROM cms_pages WHERE id = ? OR slug = ?`).get(req.params.id, req.params.id);
+      if (!page) return res.status(404).json({ error: 'Page not found' });
+      res.json({ page });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to retrieve page' });
+    }
+  });
+
+  router.post('/admin/cms/pages', adminAuthMiddleware, (req, res) => {
+    const { slug, title, meta_title = '', meta_description = '', content, status = 'published' } = req.body;
+    if (!slug || !title || !content) {
+      return res.status(400).json({ error: 'Slug, title, and content are required.' });
+    }
+
+    const cleanSlug = String(slug).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    const existing = db.prepare('SELECT id FROM cms_pages WHERE slug = ?').get(cleanSlug);
+    if (existing) {
+      return res.status(409).json({ error: `CMS page with slug "${cleanSlug}" already exists.` });
+    }
+
+    const id = `page-${uuidv4().slice(0, 8)}`;
+    db.prepare(`
+      INSERT INTO cms_pages (id, slug, title, meta_title, meta_description, content, status, updated_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, cleanSlug, String(title).trim(), String(meta_title || '').trim(), String(meta_description || '').trim(), String(content).trim(), status === 'draft' ? 'draft' : 'published', req.user.id);
+
+    logAuditAction(req.user, 'CMS_PAGE_CREATED', 'cms_page', id, { slug: cleanSlug, title });
+    const created = db.prepare('SELECT * FROM cms_pages WHERE id = ?').get(id);
+    res.status(201).json({ success: true, page: created });
+  });
+
+  router.put('/admin/cms/pages/:id', adminAuthMiddleware, (req, res) => {
+    const page = db.prepare('SELECT * FROM cms_pages WHERE id = ? OR slug = ?').get(req.params.id, req.params.id);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+
+    const { slug, title, meta_title, meta_description, content, status } = req.body;
+
+    let newSlug = page.slug;
+    if (slug) {
+      newSlug = String(slug).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+      if (newSlug !== page.slug) {
+        const existing = db.prepare('SELECT id FROM cms_pages WHERE slug = ? AND id != ?').get(newSlug, page.id);
+        if (existing) {
+          return res.status(409).json({ error: `Slug "${newSlug}" is already taken.` });
+        }
+      }
+    }
+
+    db.prepare(`
+      UPDATE cms_pages SET
+        slug = ?,
+        title = COALESCE(?, title),
+        meta_title = COALESCE(?, meta_title),
+        meta_description = COALESCE(?, meta_description),
+        content = COALESCE(?, content),
+        status = COALESCE(?, status),
+        updated_by = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      newSlug,
+      title ? String(title).trim() : null,
+      meta_title !== undefined ? String(meta_title).trim() : null,
+      meta_description !== undefined ? String(meta_description).trim() : null,
+      content !== undefined ? String(content).trim() : null,
+      status || null,
+      req.user.id,
+      page.id
+    );
+
+    logAuditAction(req.user, 'CMS_PAGE_UPDATED', 'cms_page', page.id, { slug: newSlug, title, status });
+    const updated = db.prepare('SELECT * FROM cms_pages WHERE id = ?').get(page.id);
+    res.json({ success: true, page: updated });
+  });
+
+  router.delete('/admin/cms/pages/:id', adminAuthMiddleware, (req, res) => {
+    const page = db.prepare('SELECT * FROM cms_pages WHERE id = ? OR slug = ?').get(req.params.id, req.params.id);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+
+    const PROTECTED_SYSTEM_PAGES = ['about', 'how-it-works', 'terms', 'privacy', 'refund-policy', 'expert-policy', 'acceptable-use', 'contact', 'faq'];
+    if (PROTECTED_SYSTEM_PAGES.includes(page.slug)) {
+      return res.status(400).json({
+        error: `Cannot delete essential legal/system page "${page.slug}". You can edit its content or mark it as draft instead.`
+      });
+    }
+
+    db.prepare('DELETE FROM cms_pages WHERE id = ?').run(page.id);
+    logAuditAction(req.user, 'CMS_PAGE_DELETED', 'cms_page', page.id, { slug: page.slug, title: page.title });
+    res.json({ success: true, message: `Page "${page.title}" deleted successfully.` });
+  });
+
+  // ==========================================
+  // REVIEWS MODERATION APIS
+  // ==========================================
+  router.get('/admin/reviews', adminAuthMiddleware, (req, res) => {
+    try {
+      const reviews = db.prepare(`
+        SELECT r.*, 
+               c.full_name as client_name, c.email as client_email, c.avatar_url as client_avatar,
+               p.full_name as provider_name, p.email as provider_email, p.avatar_url as provider_avatar,
+               srv.title as service_title
+        FROM reviews r
+        JOIN users c ON r.client_id = c.id
+        JOIN users p ON r.provider_id = p.id
+        JOIN services srv ON r.service_id = srv.id
+        ORDER BY r.created_at DESC
+      `).all().map(r => ({
+        ...r,
+        rating: Number(r.rating) || 5,
+        is_hidden: Number(r.is_hidden) === 1
+      }));
+
+      res.json({ reviews, count: reviews.length });
+    } catch (err) {
+      console.error('[Admin Reviews Fetch Error]', err.message);
+      res.status(500).json({ error: 'Failed to retrieve reviews' });
+    }
+  });
+
+  router.patch('/admin/reviews/:id/visibility', adminAuthMiddleware, (req, res) => {
+    const { is_hidden, moderation_note } = req.body;
+    const review = db.prepare('SELECT * FROM reviews WHERE id = ?').get(req.params.id);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+
+    const hiddenVal = is_hidden !== undefined ? (is_hidden ? 1 : 0) : (review.is_hidden ? 0 : 1);
+    const note = moderation_note !== undefined ? String(moderation_note).trim() : (review.moderation_note || '');
+
+    db.prepare(`
+      UPDATE reviews 
+      SET is_hidden = ?, moderation_note = ?, moderated_by = ?, moderated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(hiddenVal, note, req.user.id, review.id);
+
+    logAuditAction(req.user, hiddenVal ? 'REVIEW_HIDDEN' : 'REVIEW_RESTORED', 'review', review.id, {
+      moderation_note: note,
+      rating: review.rating,
+      client_id: review.client_id,
+      provider_id: review.provider_id
+    });
+
+    res.json({ success: true, is_hidden: hiddenVal === 1, moderation_note: note });
+  });
+
+  // Service Moderation: Toggle Featured
+  router.patch('/admin/services/:id/feature', adminAuthMiddleware, (req, res) => {
+    const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
+    if (!service) return res.status(404).json({ error: 'Service not found' });
+
+    const newFeatured = service.is_featured ? 0 : 1;
+    try {
+      db.prepare('UPDATE services SET is_featured = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newFeatured, service.id);
+    } catch (e) {
+      // Column might need safe fallback
+    }
+
+    logAuditAction(req.user, newFeatured ? 'SERVICE_FEATURED' : 'SERVICE_UNFEATURED', 'service', service.id, { title: service.title });
+    res.json({ success: true, is_featured: newFeatured });
+  });
+
+  router.post('/admin/settings/reset-header-nav', adminAuthMiddleware, (req, res) => {
+    const defaultNav = [
+      { id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true, is_external: false },
+      { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 2, is_visible: true, is_external: false },
+      { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 3, is_visible: true, is_external: false }
+    ];
+
+    const updateStmt = db.prepare(`
+      INSERT OR REPLACE INTO platform_settings (key, value, description, updated_at)
+      VALUES ('header_navigation', ?, 'Configurable header navigation items and ordering', CURRENT_TIMESTAMP)
+    `);
+    updateStmt.run(JSON.stringify(defaultNav));
+
+    logAuditAction(req.user, 'RESET_HEADER_NAVIGATION', 'system', 'header_navigation', { defaultNav });
+    res.json({ success: true, header_navigation: defaultNav, message: 'Header navigation reset to defaults successfully.' });
   });
 
   router.post('/admin/change-password', adminAuthMiddleware, (req, res) => {

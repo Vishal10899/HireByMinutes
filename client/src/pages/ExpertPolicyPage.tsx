@@ -11,10 +11,16 @@ import {
   Mail,
   Scale
 } from 'lucide-react';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const ExpertPolicyPage: React.FC = () => {
+  usePageSEO({
+    title: 'Expert Quality Standards & Policy — HireByMinute',
+    description: 'Quality standards, conduct requirements, and verification guidelines for verified experts on HireByMinute.',
+    canonicalPath: '/expert-policy'
+  });
+
   useEffect(() => {
-    document.title = 'Expert Policy — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 

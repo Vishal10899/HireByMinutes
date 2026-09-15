@@ -11,10 +11,16 @@ import {
   FileText,
   Server
 } from 'lucide-react';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const PrivacyPage: React.FC = () => {
+  usePageSEO({
+    title: 'Privacy Policy — HireByMinute',
+    description: 'Learn how HireByMinute protects your personal data, consultations, credentials, and payment details.',
+    canonicalPath: '/privacy'
+  });
+
   useEffect(() => {
-    document.title = 'Privacy Policy — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 

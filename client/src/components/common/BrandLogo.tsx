@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { useSiteSettings } from '../../context/SiteSettingsContext';
 
 interface BrandLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -8,6 +9,8 @@ interface BrandLogoProps {
   showTagline?: boolean;
   className?: string;
   asLink?: boolean;
+  customSiteName?: string;
+  customLogoUrl?: string;
 }
 
 export const BrandLogo: React.FC<BrandLogoProps> = ({
@@ -16,8 +19,23 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
   lightText = false,
   showTagline = false,
   className = '',
-  asLink = true
+  asLink = true,
+  customSiteName,
+  customLogoUrl
 }) => {
+  let contextSiteName = 'HireByMinute';
+  let contextLogoUrl = '';
+  try {
+    const settings = useSiteSettings();
+    contextSiteName = settings.siteName;
+    contextLogoUrl = settings.logoUrl;
+  } catch {
+    // Fallback if rendered outside provider
+  }
+
+  const activeSiteName = customSiteName !== undefined ? customSiteName : contextSiteName;
+  const activeLogoUrl = customLogoUrl !== undefined ? customLogoUrl : contextLogoUrl;
+
   const iconDimensions = {
     sm: { box: 'w-7 h-7', svg: 18, text: 'text-base', sub: 'text-[9px]' },
     md: { box: 'w-9 h-9', svg: 22, text: 'text-lg', sub: 'text-[10px]' },
@@ -25,7 +43,21 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
     xl: { box: 'w-14 h-14', svg: 34, text: 'text-2xl sm:text-3xl', sub: 'text-xs' },
   }[size];
 
-  const logoMark = (
+  const logoMark = activeLogoUrl ? (
+    <div
+      className={`${iconDimensions.box} rounded-xl bg-white flex items-center justify-center shadow-subtle relative overflow-hidden group-hover:opacity-90 transition-all duration-300 border border-timberwolf/60 shrink-0 p-1`}
+    >
+      <img
+        src={activeLogoUrl}
+        alt={activeSiteName}
+        className="w-full h-full object-contain"
+        onError={(e) => {
+          // Hide broken image
+          (e.currentTarget as HTMLElement).style.display = 'none';
+        }}
+      />
+    </div>
+  ) : (
     <div
       className={`${iconDimensions.box} rounded-xl bg-midnight flex items-center justify-center shadow-subtle relative overflow-hidden group-hover:bg-midnight-light transition-all duration-300 border border-moonstone/20 shrink-0`}
     >
@@ -94,7 +126,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
               lightText ? 'text-aliceblue' : 'text-midnight'
             } transition-colors group-hover:text-moonstone`}
           >
-            HireByMinute
+            {activeSiteName}
           </span>
           {showTagline && (
             <span
@@ -112,7 +144,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
 
   if (asLink) {
     return (
-      <Link to="/" className="inline-flex focus:outline-none" aria-label="HireByMinute Home">
+      <Link to="/" className="inline-flex focus:outline-none" aria-label={`${activeSiteName} Home`}>
         {content}
       </Link>
     );

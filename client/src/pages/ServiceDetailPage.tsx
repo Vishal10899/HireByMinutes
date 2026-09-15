@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Button } from '../components/common/Button';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const ServiceDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -43,6 +44,15 @@ export const ServiceDetailPage: React.FC = () => {
   const [availability, setAvailability] = useState<ProviderAvailability[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  usePageSEO({
+    title: service ? `${service.title} — HireByMinute` : 'Expert Consultation — HireByMinute',
+    description: service?.description 
+      ? service.description.replace(/[#*`_~]/g, '').slice(0, 160)
+      : 'Connect with a verified domain specialist for a real-time 1-on-1 consultation billed by the minute.',
+    canonicalPath: `/services/${id}`,
+    ogType: 'product'
+  });
 
   // 6-Step Hire Flow state (1: Requirement, 2: Duration, 3: Review, 4: Acceptance, 5: Payment, 6: Session)
   const [hireStep, setHireStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);

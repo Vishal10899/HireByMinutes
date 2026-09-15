@@ -27,6 +27,7 @@ import {
   Lock
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
@@ -37,6 +38,13 @@ const ICE_SERVERS: RTCConfiguration = {
 
 export const SessionPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+
+  usePageSEO({
+    title: 'Live Consultation Session — HireByMinute',
+    noindex: true,
+    canonicalPath: `/session/${id || ''}`
+  });
+
   const navigate = useNavigate();
   const { user } = useAuth();
   const { socket } = useSocket();

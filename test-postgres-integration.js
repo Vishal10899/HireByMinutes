@@ -335,11 +335,63 @@ async function runPostgresIntegrationTests() {
   if (healthRes.rows[0].alive !== 1) throw new Error('Health check query failed');
   console.log('   ✓ PostgreSQL health check query returned 200 OK equivalent (alive = 1).');
 
+  // 21. Header & Navigation Control (Phase 4) Parity on PostgreSQL
+  console.log('\n21. Testing PostgreSQL Header & Navigation Control (Phase 4)...');
+  const pgSettingsRes = await client.query(`
+    SELECT key, value FROM platform_settings 
+    WHERE key IN ('platform_name', 'logo_url', 'header_navigation')
+  `);
+  const pgSettingsMap = {};
+  pgSettingsRes.rows.forEach(r => { pgSettingsMap[r.key] = r.value; });
+
+  if (!pgSettingsMap.platform_name) throw new Error('PostgreSQL missing platform_name in platform_settings');
+  if (pgSettingsMap.logo_url === undefined) throw new Error('PostgreSQL missing logo_url in platform_settings');
+  if (!pgSettingsMap.header_navigation) throw new Error('PostgreSQL missing header_navigation in platform_settings');
+  console.log('   ✓ Default header & navigation settings verified in PostgreSQL.');
+
+  // Test upsert with ON CONFLICT (key) DO UPDATE
+  const customNav = JSON.stringify([
+    { id: 'opportunities', label: 'Explore Opportunities', url: '/opportunities', order: 1, is_visible: true, is_external: false },
+    { id: 'services', label: 'Browse Verified Experts', url: '/services', order: 2, is_visible: true, is_external: false },
+    { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 3, is_visible: true, is_external: false }
+  ]);
+
+  await client.query(`
+    INSERT INTO platform_settings (key, value, description, updated_at)
+    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+  `, ['platform_name', 'HireByMinute Global', 'The official platform brand name']);
+
+  await client.query(`
+    INSERT INTO platform_settings (key, value, description, updated_at)
+    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+  `, ['logo_url', 'https://hirebyminute.com/assets/neon-test-logo.png', 'Custom brand logo image URL']);
+
+  await client.query(`
+    INSERT INTO platform_settings (key, value, description, updated_at)
+    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+  `, ['header_navigation', customNav, 'Configurable header navigation items and ordering']);
+
+  const updatedPgSettings = await client.query(`
+    SELECT key, value FROM platform_settings 
+    WHERE key IN ('platform_name', 'logo_url', 'header_navigation')
+  `);
+  const updatedMap = {};
+  updatedPgSettings.rows.forEach(r => { updatedMap[r.key] = r.value; });
+
+  if (updatedMap.platform_name !== 'HireByMinute Global') throw new Error('PostgreSQL site name update failed');
+  if (updatedMap.logo_url !== 'https://hirebyminute.com/assets/neon-test-logo.png') throw new Error('PostgreSQL logo URL update failed');
+  const parsedNav = JSON.parse(updatedMap.header_navigation);
+  if (parsedNav.length !== 3 || parsedNav[0].id !== 'opportunities') throw new Error('PostgreSQL navigation order update failed');
+  console.log('   ✓ PostgreSQL header identity and navigation ordering upsert verified.');
+
   client.release();
   await pool.end();
 
   console.log('\n======================================================================');
-  console.log('✅ ALL 20 POSTGRESQL PRODUCTION INTEGRATION TESTS PASSED 100%!');
+  console.log('✅ ALL 21 POSTGRESQL PRODUCTION INTEGRATION TESTS PASSED 100%!');
   console.log('======================================================================\n');
 }
 

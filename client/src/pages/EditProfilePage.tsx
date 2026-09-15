@@ -24,8 +24,15 @@ import {
   Lock
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const EditProfilePage: React.FC = () => {
+  usePageSEO({
+    title: 'Edit Profile — HireByMinute',
+    noindex: true,
+    canonicalPath: '/profile/edit'
+  });
+
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);

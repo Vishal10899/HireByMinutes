@@ -1,28 +1,58 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { BrandLogo } from '../common/BrandLogo';
+import { useSiteSettings, FooterLink } from '../../context/SiteSettingsContext';
 import {
   ShieldCheck,
   Lock,
   Mail,
-  ChevronDown
+  ChevronDown,
+  Globe
 } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   const [openSection, setOpenSection] = useState<string | null>(null);
+  const { footerSettings } = useSiteSettings();
 
   const toggleSection = (section: string) => {
     setOpenSection((prev) => (prev === section ? null : section));
   };
 
-  const platformLinks = [
+  // Safe link filter: STRICTLY EXCLUDE ANY ADMIN ROUTES OR ADMIN LABELS
+  const sanitizeLinks = (links: FooterLink[] | undefined, fallback: Array<{ label: string; to: string; isNew?: boolean; icon?: boolean }>) => {
+    if (Array.isArray(links) && links.length > 0) {
+      const sanitized = links
+        .filter((l) => {
+          if (l.is_visible === false) return false;
+          const url = (l.url || '').toLowerCase().trim();
+          const label = (l.label || '').toLowerCase().trim();
+          // STRICT SECURITY RULE: Public footer must never expose Admin Console
+          if (url.startsWith('/admin') || url.includes('/admin') || label.includes('admin console') || label.includes('admin panel')) {
+            return false;
+          }
+          return true;
+        })
+        .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
+        .map((l) => ({
+          label: l.label,
+          to: l.url,
+          isNew: l.is_new,
+          icon: l.icon === 'mail'
+        }));
+
+      if (sanitized.length > 0) return sanitized;
+    }
+    return fallback;
+  };
+
+  const platformFallback = [
     { label: 'About Us', to: '/about' },
     { label: 'How It Works', to: '/how-it-works' },
     { label: 'Browse Services', to: '/services' },
     { label: 'Opportunities', to: '/opportunities', isNew: true }
   ];
 
-  const policyLinks = [
+  const policyFallback = [
     { label: 'Terms of Service', to: '/terms' },
     { label: 'Privacy Policy', to: '/privacy' },
     { label: 'Refund & Cancellation', to: '/refund-policy' },
@@ -30,11 +60,28 @@ export const Footer: React.FC = () => {
     { label: 'Acceptable Use', to: '/acceptable-use' }
   ];
 
-  const supportLinks = [
+  const supportFallback = [
     { label: 'Contact / Support', to: '/contact', icon: true },
     { label: 'Become a Provider', to: '/provider/onboard' },
     { label: 'Provider Dashboard', to: '/provider' }
   ];
+
+  const platformLinks = useMemo(() => sanitizeLinks(footerSettings?.sections?.platform, platformFallback), [footerSettings]);
+  const policyLinks = useMemo(() => sanitizeLinks(footerSettings?.sections?.policies, policyFallback), [footerSettings]);
+  const supportLinks = useMemo(() => sanitizeLinks(footerSettings?.sections?.support, supportFallback), [footerSettings]);
+
+  const companyDesc = footerSettings?.company_description ||
+    'The precision marketplace for on-demand consultations. Hire verified experts for exactly the minutes you need, or monetize specialized knowledge with zero retainers.';
+
+  const currentYear = new Date().getFullYear();
+  const copyrightText = (footerSettings?.copyright_text || '© {year} HireByMinute. All rights reserved.')
+    .replace('{year}', String(currentYear));
+
+  const designerCredit = footerSettings?.designer_credit || 'Designed & Developed by Vishal Chaudhary';
+  const socialLinks = useMemo(() => {
+    if (!Array.isArray(footerSettings?.social_links)) return [];
+    return footerSettings.social_links.filter((s) => s.is_visible !== false && s.url);
+  }, [footerSettings]);
 
   return (
     <footer className="mt-auto border-t border-timberwolf/60 bg-white/80 backdrop-blur-sm pt-8 sm:pt-12 pb-8 px-4 sm:px-6 lg:px-8 text-midnight transition-colors">
@@ -44,8 +91,7 @@ export const Footer: React.FC = () => {
         <div className="space-y-3.5 max-w-lg">
           <BrandLogo size="md" showTagline />
           <p className="text-midnight/70 text-xs sm:text-sm leading-relaxed">
-            The precision marketplace for on-demand consultations.
-            Hire verified experts for exactly the minutes you need, or monetize specialized knowledge with zero retainers.
+            {companyDesc}
           </p>
           <div className="flex items-center gap-3 text-xs text-midnight/60 pt-1">
             <span className="inline-flex items-center gap-1 bg-aliceblue px-2.5 py-1 rounded-md border border-timberwolf/50">
@@ -57,6 +103,23 @@ export const Footer: React.FC = () => {
               <span>Verified Experts</span>
             </span>
           </div>
+
+          {/* Social Links if configured */}
+          {socialLinks.length > 0 && (
+            <div className="flex items-center gap-3 pt-2">
+              {socialLinks.map((s, idx) => (
+                <a
+                  key={idx}
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2 py-1 rounded-md bg-aliceblue border border-timberwolf/50 text-[11px] font-semibold text-midnight/70 hover:text-moonstone hover:border-moonstone/40 transition-colors uppercase tracking-wider"
+                >
+                  {s.platform}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ======================================================================= */}
@@ -195,12 +258,11 @@ export const Footer: React.FC = () => {
         {/* Bottom Strip */}
         <div className="pt-6 border-t border-timberwolf/40 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-midnight/70">
           <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 text-center sm:text-left">
-            <p>© {new Date().getFullYear()} HireByMinute. All rights reserved.</p>
+            <p>{copyrightText}</p>
             <span className="hidden sm:inline text-timberwolf">•</span>
             <p className="flex items-center gap-1.5 font-medium text-midnight/80">
-              <span>Designed & Developed by</span>
               <span className="font-bold text-midnight bg-moonstone/10 text-moonstone-dark px-2 py-0.5 rounded-md border border-moonstone/25">
-                Vishal Chaudhary
+                {designerCredit}
               </span>
             </p>
           </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useSiteSettings } from '../context/SiteSettingsContext';
 import {
   Mail,
   MessageSquare,
@@ -12,12 +13,23 @@ import {
   CheckCircle2,
   AlertCircle,
   FileQuestion,
-  Sparkles
+  Sparkles,
+  Phone,
+  MapPin,
+  MessageCircle
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const ContactPage: React.FC = () => {
+  usePageSEO({
+    title: 'Contact & Support — HireByMinute',
+    description: 'Get in touch with HireByMinute platform support, client assistance, or business inquiries.',
+    canonicalPath: '/contact'
+  });
+
   const { user } = useAuth();
+  const { contactSettings } = useSiteSettings();
 
   const [name, setName] = useState(user?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');
@@ -28,7 +40,6 @@ export const ContactPage: React.FC = () => {
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
-    document.title = 'Contact & Support — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 
@@ -228,18 +239,79 @@ export const ContactPage: React.FC = () => {
             <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card space-y-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-midnight flex items-center gap-2">
                 <Mail className="w-4 h-4 text-moonstone" />
-                <span>Direct Support Email</span>
+                <span>Support & Inquiries</span>
               </h3>
               <p className="text-xs text-midnight/70 leading-relaxed">
-                For direct escalations, payment dispute audits, or formal legal notices, you can write directly to our desk:
+                For escalations, payment audits, or formal legal notices:
               </p>
-              <div className="p-3 bg-aliceblue rounded-xl border border-timberwolf/50">
-                <div className="text-xs font-bold text-midnight font-mono select-all">
-                  support@hirebyminute.com
+              <div className="space-y-2">
+                <div className="p-3 bg-aliceblue rounded-xl border border-timberwolf/50">
+                  <div className="text-[10px] uppercase font-bold text-midnight/60 mb-0.5">Customer Support</div>
+                  <a
+                    href={`mailto:${contactSettings?.support_email || 'support@hirebyminute.com'}`}
+                    className="text-xs font-bold text-moonstone hover:underline font-mono select-all"
+                  >
+                    {contactSettings?.support_email || 'support@hirebyminute.com'}
+                  </a>
+                  <div className="text-[10px] text-midnight/60 mt-0.5">Average Response Time: &lt; 24h</div>
                 </div>
-                <div className="text-[10px] text-midnight/60 mt-0.5">Average Response Time: &lt; 24h</div>
+
+                {contactSettings?.business_email && (
+                  <div className="p-3 bg-aliceblue rounded-xl border border-timberwolf/50">
+                    <div className="text-[10px] uppercase font-bold text-midnight/60 mb-0.5">Partnerships & Enterprise</div>
+                    <a
+                      href={`mailto:${contactSettings.business_email}`}
+                      className="text-xs font-bold text-midnight hover:text-moonstone font-mono select-all"
+                    >
+                      {contactSettings.business_email}
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Phone & Operating Hours */}
+            {(contactSettings?.phone || contactSettings?.support_hours) && (
+              <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-midnight flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-moonstone" />
+                  <span>Phone & Operating Hours</span>
+                </h3>
+                {contactSettings?.phone && (
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-midnight/60">Direct Line</div>
+                    <a href={`tel:${contactSettings.phone}`} className="text-xs font-bold text-midnight hover:text-moonstone font-mono">
+                      {contactSettings.phone}
+                    </a>
+                  </div>
+                )}
+                {contactSettings?.support_hours && (
+                  <div className="text-xs text-midnight/70 pt-1 border-t border-timberwolf/30">
+                    <div className="text-[10px] uppercase font-bold text-midnight/60">Support Hours</div>
+                    <p className="mt-0.5">{contactSettings.support_hours}</p>
+                  </div>
+                )}
+                {contactSettings?.address && (
+                  <div className="text-xs text-midnight/70 pt-2 border-t border-timberwolf/30 flex items-start gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-midnight/50 shrink-0 mt-0.5" />
+                    <span>{contactSettings.address}</span>
+                  </div>
+                )}
+                {contactSettings?.whatsapp_url && (
+                  <div className="pt-2">
+                    <a
+                      href={contactSettings.whatsapp_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-500 text-white text-xs font-semibold hover:bg-emerald-600 transition-colors shadow-subtle w-full justify-center"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span>Chat on WhatsApp</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Quick Links Card */}
             <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card space-y-3">

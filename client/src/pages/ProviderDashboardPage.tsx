@@ -24,6 +24,7 @@ import {
   X
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 // Real-time Countdown Timer for Individual Consultation Request
 const RequestTimer: React.FC<{ initialSeconds: number; onExpire?: () => void }> = ({
@@ -83,6 +84,12 @@ const RequestTimer: React.FC<{ initialSeconds: number; onExpire?: () => void }> 
 };
 
 export const ProviderDashboardPage: React.FC = () => {
+  usePageSEO({
+    title: 'Provider Dashboard — HireByMinute',
+    noindex: true,
+    canonicalPath: '/provider'
+  });
+
   const { user } = useAuth();
   const { socket } = useSocket();
   const navigate = useNavigate();

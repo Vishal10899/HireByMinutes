@@ -6,6 +6,7 @@ import { BrandLogo } from '../components/common/BrandLogo';
 import { COUNTRIES } from '../data/geoData';
 import { AdminContentErrorBoundary } from '../components/admin/AdminContentErrorBoundary';
 import { AdminLoadingSkeleton } from '../components/admin/AdminLoadingSkeleton';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 // PostgreSQL NUMERIC and currency safe normalization helpers
 export const formatCurrency = (val: any): string => {
@@ -23,6 +24,14 @@ export const formatNumber = (val: any): number => {
 export const VALID_ADMIN_TABS = [
   'overview',
   'traffic',
+  'homepage',
+  'header_navigation',
+  'footer',
+  'cms_pages',
+  'contact',
+  'faq',
+  'banners',
+  'seo',
   'users',
   'services',
   'categories',
@@ -37,14 +46,27 @@ export const VALID_ADMIN_TABS = [
   'refunds',
   'emails',
   'notifications',
+  'reviews',
   'add_user',
   'verifications',
   'settings',
   'audit'
 ];
 
+import { AdminHomepageControl } from '../components/admin/AdminHomepageControl';
+import { AdminHeaderNavControl } from '../components/admin/AdminHeaderNavControl';
+import { AdminFooterControl } from '../components/admin/AdminFooterControl';
+import { AdminContactSettings } from '../components/admin/AdminContactSettings';
+import { AdminFaqControl } from '../components/admin/AdminFaqControl';
+import { AdminBannersControl } from '../components/admin/AdminBannersControl';
+import { AdminPagesControl } from '../components/admin/AdminPagesControl';
+import { AdminSeoControl } from '../components/admin/AdminSeoControl';
+import { AdminReviewsControl } from '../components/admin/AdminReviewsControl';
+
 import {
   LayoutDashboard,
+  Layout,
+  HelpCircle,
   Users,
   UserCheck,
   UserX,
@@ -87,7 +109,11 @@ import {
   Sliders,
   Tag,
   Zap,
-  Calendar
+  Calendar,
+  Compass,
+  Megaphone,
+  Star,
+  Copy
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -198,6 +224,12 @@ const AdminRequestTimer: React.FC<{ deadline: string; status: string }> = ({ dea
 };
 
 export const AdminPage: React.FC = () => {
+  usePageSEO({
+    title: 'Admin Control Center — HireByMinute',
+    noindex: true,
+    canonicalPath: '/admin'
+  });
+
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { tab: urlTab } = useParams<{ tab?: string }>();
@@ -277,18 +309,46 @@ export const AdminPage: React.FC = () => {
   const [newUserRate, setNewUserRate] = useState<number>(2.5);
 
   // Category Modal
-  const [categoryModal, setCategoryModal] = useState<{ isOpen: boolean; isEdit: boolean; id?: string; name: string; slug: string; icon: string; description: string; sort_order: number }>({
+  const [categoryModal, setCategoryModal] = useState<{
+    isOpen: boolean;
+    isEdit: boolean;
+    id?: string;
+    name: string;
+    slug: string;
+    icon: string;
+    description: string;
+    sort_order: number;
+    subcategories: string;
+    image_url: string;
+  }>({
     isOpen: false,
     isEdit: false,
     name: '',
     slug: '',
     icon: 'Sparkles',
     description: '',
-    sort_order: 1
+    sort_order: 1,
+    subcategories: '',
+    image_url: ''
   });
 
   // Opportunity Modal
-  const [opportunityModal, setOpportunityModal] = useState<{ isOpen: boolean; title: string; category_id: string; subcategory: string; description: string; duration_minutes: number; budget: number; location: string; deadline: string }>({
+  const [opportunityModal, setOpportunityModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    category_id: string;
+    subcategory: string;
+    description: string;
+    duration_minutes: number;
+    budget: number;
+    location: string;
+    deadline: string;
+    pricing_type: 'free' | 'paid';
+    entry_fee_usd: number;
+    skills: string;
+    requirements: string;
+    is_featured: boolean;
+  }>({
     isOpen: false,
     title: '',
     category_id: 'cat-tech',
@@ -297,7 +357,12 @@ export const AdminPage: React.FC = () => {
     duration_minutes: 45,
     budget: 90,
     location: 'Worldwide · Remote',
-    deadline: ''
+    deadline: '',
+    pricing_type: 'free',
+    entry_fee_usd: 0,
+    skills: '',
+    requirements: '',
+    is_featured: false
   });
 
   // Admin Change Password
@@ -637,27 +702,67 @@ export const AdminPage: React.FC = () => {
     e.preventDefault();
     try {
       setActionLoading('save-category');
+      const subcategoriesArr = categoryModal.subcategories
+        ? categoryModal.subcategories.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+
+      const payload = {
+        name: categoryModal.name.trim(),
+        slug: categoryModal.slug.trim(),
+        icon: categoryModal.icon || 'Sparkles',
+        description: categoryModal.description.trim(),
+        sort_order: Number(categoryModal.sort_order) || 1,
+        subcategories: subcategoriesArr,
+        image_url: categoryModal.image_url.trim() || undefined
+      };
+
       if (categoryModal.isEdit && categoryModal.id) {
-        await api.updateAdminCategory(categoryModal.id, {
-          name: categoryModal.name,
-          slug: categoryModal.slug,
-          icon: categoryModal.icon,
-          description: categoryModal.description,
-          sort_order: categoryModal.sort_order
-        });
+        await api.updateCategory(categoryModal.id, payload);
       } else {
-        await api.createAdminCategory({
-          name: categoryModal.name,
-          slug: categoryModal.slug,
-          icon: categoryModal.icon,
-          description: categoryModal.description,
-          sort_order: categoryModal.sort_order
-        });
+        await api.createCategory(payload);
       }
-      setCategoryModal({ isOpen: false, isEdit: false, name: '', slug: '', icon: 'Sparkles', description: '', sort_order: 1 });
+      setCategoryModal({
+        isOpen: false,
+        isEdit: false,
+        name: '',
+        slug: '',
+        icon: 'Sparkles',
+        description: '',
+        sort_order: 1,
+        subcategories: '',
+        image_url: ''
+      });
       await loadAdminData();
     } catch (err: any) {
       alert(err.message || 'Failed to save category.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Delete / Soft-deactivate Category
+  const handleDeleteCategory = async (catId: string, catName: string) => {
+    if (!window.confirm(`Delete or deactivate category "${catName}"?`)) return;
+    try {
+      setActionLoading(`del-cat-${catId}`);
+      const res = await api.deleteAdminCategory(catId);
+      alert(res.message || 'Category status updated.');
+      await loadAdminData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete category.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Toggle Featured Service
+  const handleToggleFeatureService = async (serviceId: string, currentFeatured: number) => {
+    try {
+      setActionLoading(`feat-srv-${serviceId}`);
+      await api.toggleAdminServiceFeature(serviceId, currentFeatured !== 1);
+      await loadAdminData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to toggle service feature flag.');
     } finally {
       setActionLoading(null);
     }
@@ -668,21 +773,73 @@ export const AdminPage: React.FC = () => {
     e.preventDefault();
     try {
       setActionLoading('post-opp');
+      const skillsArr = opportunityModal.skills
+        ? opportunityModal.skills.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+
       await api.createAdminOpportunity({
-        title: opportunityModal.title,
+        title: opportunityModal.title.trim(),
         category_id: opportunityModal.category_id,
-        subcategory: opportunityModal.subcategory,
-        description: opportunityModal.description,
-        duration_minutes: opportunityModal.duration_minutes,
-        budget: opportunityModal.budget,
-        location: opportunityModal.location,
-        deadline: opportunityModal.deadline || undefined
+        subcategory: opportunityModal.subcategory.trim(),
+        description: opportunityModal.description.trim(),
+        duration_minutes: Number(opportunityModal.duration_minutes) || 45,
+        budget: Number(opportunityModal.budget) || 90,
+        location: opportunityModal.location.trim() || 'Worldwide · Remote',
+        deadline: opportunityModal.deadline || undefined,
+        pricing_type: opportunityModal.pricing_type,
+        entry_fee_usd: opportunityModal.pricing_type === 'paid' ? Number(opportunityModal.entry_fee_usd) || 0 : 0,
+        skills: skillsArr,
+        requirements: opportunityModal.requirements.trim() || undefined,
+        is_featured: opportunityModal.is_featured ? 1 : 0
       });
-      setOpportunityModal({ isOpen: false, title: '', category_id: 'cat-tech', subcategory: '', description: '', duration_minutes: 45, budget: 90, location: 'Worldwide · Remote', deadline: '' });
+
+      setOpportunityModal({
+        isOpen: false,
+        title: '',
+        category_id: 'cat-tech',
+        subcategory: '',
+        description: '',
+        duration_minutes: 45,
+        budget: 90,
+        location: 'Worldwide · Remote',
+        deadline: '',
+        pricing_type: 'free',
+        entry_fee_usd: 0,
+        skills: '',
+        requirements: '',
+        is_featured: false
+      });
       confetti({ particleCount: 70, spread: 60 });
       await loadAdminData();
     } catch (err: any) {
       alert(err.message || 'Failed to post opportunity.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Duplicate Opportunity
+  const handleDuplicateOpportunity = async (oppId: string) => {
+    try {
+      setActionLoading(`dup-opp-${oppId}`);
+      await api.duplicateAdminOpportunity(oppId);
+      await loadAdminData();
+      confetti({ particleCount: 50, spread: 50 });
+    } catch (err: any) {
+      alert(err.message || 'Failed to duplicate opportunity.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Update Opportunity Status
+  const handleUpdateOpportunityStatus = async (oppId: string, newStatus: string) => {
+    try {
+      setActionLoading(`status-opp-${oppId}`);
+      await api.updateAdminOpportunity(oppId, { status: newStatus });
+      await loadAdminData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to update opportunity status.');
     } finally {
       setActionLoading(null);
     }
@@ -818,7 +975,7 @@ export const AdminPage: React.FC = () => {
   };
 
 
-  // Navigation Items Structure
+  // Navigation Items Structure - Canonical 8 Platform Modules
   const navSections = [
     {
       title: 'OVERVIEW',
@@ -828,13 +985,27 @@ export const AdminPage: React.FC = () => {
       ]
     },
     {
+      title: 'WEBSITE',
+      items: [
+        { id: 'homepage', label: 'Homepage Sections', icon: Layout, count: null },
+        { id: 'header_navigation', label: 'Header & Navigation', icon: Compass, count: null },
+        { id: 'footer', label: 'Footer CMS', icon: Globe, count: null },
+        { id: 'cms_pages', label: 'Pages & Legal CMS', icon: FileText, count: null },
+        { id: 'contact', label: 'Contact & Support', icon: Mail, count: null },
+        { id: 'faq', label: 'FAQ Management', icon: HelpCircle, count: null },
+        { id: 'banners', label: 'Banners & Broadcasts', icon: Megaphone, count: null },
+        { id: 'seo', label: 'SEO & Meta Tags', icon: Globe, count: null }
+      ]
+    },
+    {
       title: 'PEOPLE',
       items: [
         { id: 'users', label: 'All Users', icon: Users, count: usersList.length },
         { id: 'clients', label: 'Clients', icon: UserCheck, count: stats?.totalClients || 0 },
         { id: 'experts', label: 'Experts', icon: Award, count: stats?.totalProviders || 0 },
-        { id: 'verified_experts', label: 'Verified Experts', icon: ShieldCheck, count: stats?.verifiedExperts || 0 },
-        { id: 'suspended', label: 'Suspended Users', icon: UserX, count: usersList.filter((u) => u.is_suspended === 1).length }
+        { id: 'verifications', label: 'Verification Queue', icon: ShieldCheck, count: pendingVerifications.length },
+        { id: 'suspended', label: 'Suspended Users', icon: UserX, count: usersList.filter((u) => u.is_suspended === 1).length },
+        { id: 'reports', label: 'Moderation & Reports', icon: AlertCircle, count: reportsList.filter((r) => r.status === 'pending').length }
       ]
     },
     {
@@ -846,21 +1017,20 @@ export const AdminPage: React.FC = () => {
       ]
     },
     {
-      title: 'SESSIONS & CALLS',
+      title: 'SESSIONS',
       items: [
         { id: 'consultation_requests', label: 'Consultation Requests', icon: Clock, count: consultationRequestsList.length },
         { id: 'active_sessions', label: 'Active Sessions', icon: Video, count: stats?.activeSessions || 0 },
-        { id: 'completed_sessions', label: 'Completed Sessions', icon: CheckCircle2, count: stats?.completedSessions || 0 },
-        { id: 'reports', label: 'Moderation & Reports', icon: AlertCircle, count: reportsList.filter((r) => r.status === 'pending').length }
+        { id: 'completed_sessions', label: 'Completed Sessions', icon: CheckCircle2, count: stats?.completedSessions || 0 }
       ]
     },
     {
-      title: 'FINANCE & CAMPAIGNS',
+      title: 'FINANCE',
       items: [
-        { id: 'registration_offers', label: 'Registration Offers', icon: Tag, count: campaignsList.filter((c) => c.status === 'active').length || null },
         { id: 'finance', label: 'Financial Overview', icon: DollarSign, count: null },
         { id: 'transactions', label: 'Transactions Ledger', icon: FileText, count: paymentsList.length },
-        { id: 'refunds', label: 'Refunds Audit', icon: RefreshCw, count: paymentsList.filter((p) => p.type === 'refund').length }
+        { id: 'refunds', label: 'Refunds Audit', icon: RefreshCw, count: paymentsList.filter((p) => p.type === 'refund').length },
+        { id: 'registration_offers', label: 'Registration Offers', icon: Tag, count: campaignsList.filter((c) => c.status === 'active').length || null }
       ]
     },
     {
@@ -871,21 +1041,21 @@ export const AdminPage: React.FC = () => {
       ]
     },
     {
-      title: 'ADMIN TOOLS',
+      title: 'SETTINGS',
       items: [
-        { id: 'add_user', label: 'Add User (Admin Flow)', icon: PlusCircle, count: null },
-        { id: 'verifications', label: 'Verification Queue', icon: ShieldCheck, count: pendingVerifications.length },
         { id: 'settings', label: 'Platform Settings', icon: Sliders, count: null },
+        { id: 'reviews', label: 'Reviews Moderation', icon: Star, count: null },
+        { id: 'add_user', label: 'Add User (Admin Flow)', icon: PlusCircle, count: null },
         { id: 'audit', label: 'Audit Trail', icon: FileText, count: auditLogsList.length }
       ]
     }
   ];
 
   return (
-    <div className="flex-1 flex flex-col antialiased text-midnight bg-aliceblue">
+    <div className="h-[calc(100dvh-4rem)] sm:h-[calc(100dvh-4.5rem)] overflow-hidden flex flex-col antialiased text-midnight bg-aliceblue">
       
       {/* Mobile Sub-bar for Admin Navigation (below lg screens) */}
-      <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-white border-b border-timberwolf/60 shadow-subtle">
+      <div className="lg:hidden shrink-0 flex items-center justify-between px-4 py-2.5 bg-white border-b border-timberwolf/60 shadow-subtle">
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-aliceblue border border-timberwolf/60 text-midnight text-xs font-semibold hover:bg-lightblue/30 transition-all cursor-pointer"
@@ -913,7 +1083,7 @@ export const AdminPage: React.FC = () => {
       {/* ========================================================================= */}
       {/* MAIN ADMIN WORKSPACE (SIDEBAR + CONTENT CANVAS) */}
       {/* ========================================================================= */}
-      <div className="flex-1 flex overflow-hidden min-h-[calc(100vh-4.5rem)]">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         
         {/* Mobile Drawer Backdrop */}
         {mobileMenuOpen && (
@@ -924,12 +1094,12 @@ export const AdminPage: React.FC = () => {
         )}
 
         <aside
-          className={`fixed inset-y-16 sm:inset-y-18 left-0 z-30 w-64 bg-white/95 backdrop-blur-md border-r border-timberwolf/60 flex flex-col justify-between transition-transform duration-200 lg:static lg:translate-x-0 ${
+          className={`fixed inset-y-16 sm:inset-y-18 left-0 z-30 w-64 bg-white/95 backdrop-blur-md border-r border-timberwolf/60 flex flex-col justify-between transition-transform duration-200 lg:static lg:translate-x-0 h-full overflow-hidden shrink-0 ${
             mobileMenuOpen ? 'translate-x-0 shadow-modal' : '-translate-x-full lg:translate-x-0'
           }`}
         >
           {/* Scrollable Navigation Sections */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-timberwolf/30">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -955,6 +1125,7 @@ export const AdminPage: React.FC = () => {
                     const isActive =
                       (urlTab === item.id) ||
                       (!urlTab && item.id === 'overview') ||
+                      (activeTab === item.id) ||
                       (activeTab === 'users' && ['clients', 'experts', 'verified_experts', 'suspended'].includes(item.id) && (
                         (item.id === 'clients' && roleFilter === 'client') ||
                         (item.id === 'experts' && roleFilter === 'provider' && statusFilter === 'all') ||
@@ -967,7 +1138,7 @@ export const AdminPage: React.FC = () => {
                       <button
                         key={item.id}
                         onClick={() => handleTabNavigate(item.id)}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                        className={`w-full min-h-[40px] flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                           isActive
                             ? 'bg-midnight text-aliceblue shadow-subtle'
                             : 'text-midnight/75 hover:bg-aliceblue hover:text-midnight'
@@ -1014,7 +1185,7 @@ export const AdminPage: React.FC = () => {
         {/* ======================================================================= */}
         {/* MAIN SCROLLABLE CONTENT CANVAS */}
         {/* ======================================================================= */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
+        <main className="flex-1 min-w-0 h-full overflow-y-auto p-5 sm:p-6 lg:p-7 space-y-5">
           {loading ? (
             <AdminLoadingSkeleton />
           ) : (
@@ -1661,7 +1832,14 @@ export const AdminPage: React.FC = () => {
                       {servicesList.map((s) => (
                         <tr key={s.id} className="hover:bg-aliceblue/50 transition-colors">
                           <td className="py-3.5 px-4">
-                            <div className="font-bold text-midnight max-w-sm truncate">{s.title}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-midnight max-w-sm truncate">{s.title}</span>
+                              {s.is_featured === 1 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-extrabold uppercase shrink-0">
+                                  <Star className="w-2.5 h-2.5 fill-current text-amber-500" /> Featured
+                                </span>
+                              )}
+                            </div>
                             <div className="text-[11px] text-midnight/60 line-clamp-1">{s.description}</div>
                           </td>
                           <td className="py-3.5 px-4 font-semibold text-midnight">{s.provider_name}</td>
@@ -1697,6 +1875,18 @@ export const AdminPage: React.FC = () => {
                           </td>
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleToggleFeatureService(s.id, s.is_featured || 0)}
+                                disabled={actionLoading === `feat-srv-${s.id}`}
+                                title={s.is_featured === 1 ? 'Remove from featured listings' : 'Mark as featured marketplace listing'}
+                                className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                  s.is_featured === 1
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                    : 'bg-aliceblue text-midnight/50 border-timberwolf/60 hover:text-amber-600'
+                                }`}
+                              >
+                                <Star className={`w-3.5 h-3.5 ${s.is_featured === 1 ? 'fill-current' : ''}`} />
+                              </button>
                               {s.listing_status === 'active' ? (
                                 <button
                                   onClick={() => handleUpdateServiceStatus(s.id, 'inactive')}
@@ -1755,7 +1945,9 @@ export const AdminPage: React.FC = () => {
                       slug: '',
                       icon: 'Sparkles',
                       description: '',
-                      sort_order: categoriesList.length + 1
+                      sort_order: categoriesList.length + 1,
+                      subcategories: '',
+                      image_url: ''
                     })
                   }
                   className="btn-shine inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
@@ -1791,6 +1983,16 @@ export const AdminPage: React.FC = () => {
 
                     <p className="text-xs text-midnight/70 line-clamp-2">{cat.description || 'No description provided.'}</p>
 
+                    {Array.isArray(cat.subcategories) && cat.subcategories.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {cat.subcategories.map((sub: string, idx: number) => (
+                          <span key={idx} className="px-1.5 py-0.5 rounded bg-aliceblue text-midnight/70 text-[10px] border border-timberwolf/40">
+                            {sub}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="pt-3 border-t border-timberwolf/30 flex items-center justify-between text-xs">
                       <span className="text-midnight/60 font-medium">{cat.service_count || 0} listings</span>
                       <div className="flex items-center gap-2">
@@ -1810,12 +2012,22 @@ export const AdminPage: React.FC = () => {
                               slug: cat.slug,
                               icon: cat.icon,
                               description: cat.description || '',
-                              sort_order: cat.sort_order || 1
+                              sort_order: cat.sort_order || 1,
+                              subcategories: Array.isArray(cat.subcategories) ? cat.subcategories.join(', ') : '',
+                              image_url: cat.image_url || ''
                             })
                           }
                           className="p-1 rounded-lg bg-aliceblue hover:bg-lightblue/30 text-midnight/70 hover:text-midnight transition-colors cursor-pointer"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCategory(cat.id, cat.name)}
+                          disabled={actionLoading === `del-cat-${cat.id}`}
+                          title="Delete or soft-deactivate category"
+                          className="p-1 rounded-lg bg-aliceblue hover:bg-rose-50 text-midnight/40 hover:text-rose-600 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -1850,7 +2062,12 @@ export const AdminPage: React.FC = () => {
                       duration_minutes: 45,
                       budget: 90,
                       location: 'Worldwide · Remote',
-                      deadline: ''
+                      deadline: '',
+                      pricing_type: 'free',
+                      entry_fee_usd: 0,
+                      skills: '',
+                      requirements: '',
+                      is_featured: false
                     })
                   }
                   className="btn-shine inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
@@ -1869,6 +2086,7 @@ export const AdminPage: React.FC = () => {
                         <th className="py-3 px-4 font-semibold">Category</th>
                         <th className="py-3 px-4 font-semibold">Budget</th>
                         <th className="py-3 px-4 font-semibold">Duration</th>
+                        <th className="py-3 px-4 font-semibold">Pricing / Fee</th>
                         <th className="py-3 px-4 font-semibold">Status</th>
                         <th className="py-3 px-4 font-semibold">Applications</th>
                         <th className="py-3 px-4 font-semibold text-right">Actions</th>
@@ -1885,6 +2103,17 @@ export const AdminPage: React.FC = () => {
                           <td className="py-3.5 px-4 font-mono font-bold text-midnight">${formatCurrency(opp.budget)}</td>
                           <td className="py-3.5 px-4 text-midnight/70">{opp.duration_minutes} mins</td>
                           <td className="py-3.5 px-4">
+                            {opp.pricing_type === 'paid' && Number(opp.entry_fee_usd) > 0 ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 font-mono">
+                                PAID: ${formatCurrency(opp.entry_fee_usd)}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                FREE
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4">
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                               {opp.status.toUpperCase()}
                             </span>
@@ -1893,13 +2122,40 @@ export const AdminPage: React.FC = () => {
                             {opp.applicant_count || 0} bids
                           </td>
                           <td className="py-3.5 px-4 text-right">
-                            <button
-                              onClick={() => handleDeleteOpportunity(opp.id)}
-                              disabled={actionLoading === `del-opp-${opp.id}`}
-                              className="p-1.5 rounded-lg bg-aliceblue text-midnight/40 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              {opp.status === 'open' ? (
+                                <button
+                                  onClick={() => handleUpdateOpportunityStatus(opp.id, 'closed')}
+                                  disabled={actionLoading === `status-opp-${opp.id}`}
+                                  className="px-2 py-1 rounded-lg bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 font-semibold text-[11px] cursor-pointer"
+                                >
+                                  Close
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleUpdateOpportunityStatus(opp.id, 'open')}
+                                  disabled={actionLoading === `status-opp-${opp.id}`}
+                                  className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-semibold text-[11px] cursor-pointer"
+                                >
+                                  Reopen
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleDuplicateOpportunity(opp.id)}
+                                disabled={actionLoading === `dup-opp-${opp.id}`}
+                                title="Duplicate this opportunity brief"
+                                className="p-1.5 rounded-lg bg-aliceblue text-midnight/70 hover:text-midnight transition-colors cursor-pointer"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteOpportunity(opp.id)}
+                                disabled={actionLoading === `del-opp-${opp.id}`}
+                                className="p-1.5 rounded-lg bg-aliceblue text-midnight/40 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -2627,6 +2883,88 @@ export const AdminPage: React.FC = () => {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: HOMEPAGE SECTIONS CONTROL */}
+          {/* ===================================================================== */}
+          {activeTab === 'homepage' && (
+            <AdminContentErrorBoundary activeTab={activeTab} onReset={loadAdminData}>
+              <AdminHomepageControl />
+            </AdminContentErrorBoundary>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: HEADER & NAVIGATION CONTROL */}
+          {/* ===================================================================== */}
+          {activeTab === 'header_navigation' && (
+            <AdminContentErrorBoundary activeTab={activeTab} onReset={loadAdminData}>
+              <AdminHeaderNavControl onRefreshData={loadAdminData} />
+            </AdminContentErrorBoundary>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: FOOTER CMS */}
+          {/* ===================================================================== */}
+          {activeTab === 'footer' && (
+            <AdminContentErrorBoundary activeTab={activeTab} onReset={loadAdminData}>
+              <AdminFooterControl />
+            </AdminContentErrorBoundary>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: CONTACT SETTINGS */}
+          {/* ===================================================================== */}
+          {activeTab === 'contact' && (
+            <AdminContentErrorBoundary activeTab={activeTab} onReset={loadAdminData}>
+              <AdminContactSettings />
+            </AdminContentErrorBoundary>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: FAQ MANAGEMENT */}
+          {/* ===================================================================== */}
+          {activeTab === 'faq' && (
+            <AdminContentErrorBoundary activeTab={activeTab} onReset={loadAdminData}>
+              <AdminFaqControl />
+            </AdminContentErrorBoundary>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: BANNERS & BROADCASTS */}
+          {/* ===================================================================== */}
+          {activeTab === 'banners' && (
+            <AdminContentErrorBoundary activeTab={activeTab} onReset={loadAdminData}>
+              <AdminBannersControl />
+            </AdminContentErrorBoundary>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: PAGES & LEGAL CMS */}
+          {/* ===================================================================== */}
+          {activeTab === 'cms_pages' && (
+            <AdminContentErrorBoundary activeTab={activeTab} onReset={loadAdminData}>
+              <AdminPagesControl />
+            </AdminContentErrorBoundary>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: SEO & META TAGS CONTROL */}
+          {/* ===================================================================== */}
+          {activeTab === 'seo' && (
+            <AdminContentErrorBoundary activeTab={activeTab} onReset={loadAdminData}>
+              <AdminSeoControl />
+            </AdminContentErrorBoundary>
+          )}
+
+
+          {/* ===================================================================== */}
+          {/* TAB: REVIEWS MODERATION */}
+          {/* ===================================================================== */}
+          {activeTab === 'reviews' && (
+            <AdminContentErrorBoundary activeTab={activeTab} onReset={loadAdminData}>
+              <AdminReviewsControl />
+            </AdminContentErrorBoundary>
           )}
 
           {/* ===================================================================== */}
@@ -3646,7 +3984,7 @@ export const AdminPage: React.FC = () => {
       {/* 5. POST OPPORTUNITY MODAL */}
       {opportunityModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-midnight/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <form onSubmit={handlePostOpportunity} className="bg-white rounded-2xl border border-timberwolf/60 shadow-modal max-w-lg w-full p-6 text-midnight animate-fade-in space-y-4">
+          <form onSubmit={handlePostOpportunity} className="bg-white rounded-2xl border border-timberwolf/60 shadow-modal max-w-lg w-full p-6 text-midnight animate-fade-in space-y-4 max-h-[90vh] overflow-y-auto">
             <h3 className="font-extrabold text-base text-midnight">Post Platform Opportunity</h3>
             <div>
               <label className="block text-xs font-semibold text-midnight mb-1">Title *</label>
@@ -3659,6 +3997,33 @@ export const AdminPage: React.FC = () => {
                 className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
               />
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-midnight mb-1">Category *</label>
+                <select
+                  value={opportunityModal.category_id}
+                  onChange={(e) => setOpportunityModal({ ...opportunityModal, category_id: e.target.value })}
+                  className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
+                >
+                  {categoriesList.map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-midnight mb-1">Subcategory</label>
+                <input
+                  type="text"
+                  value={opportunityModal.subcategory}
+                  onChange={(e) => setOpportunityModal({ ...opportunityModal, subcategory: e.target.value })}
+                  placeholder="e.g. Smart Contracts"
+                  className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
+                />
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-midnight mb-1">Budget ($)</label>
@@ -3679,6 +4044,50 @@ export const AdminPage: React.FC = () => {
                 />
               </div>
             </div>
+
+            {/* Authoritative Application Pricing */}
+            <div className="p-3 bg-aliceblue rounded-xl border border-timberwolf/50 space-y-2.5">
+              <div className="text-xs font-bold text-midnight">Authoritative Application Fee</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-midnight mb-1">Pricing Model</label>
+                  <select
+                    value={opportunityModal.pricing_type}
+                    onChange={(e) => setOpportunityModal({ ...opportunityModal, pricing_type: e.target.value as any })}
+                    className="w-full bg-white border border-timberwolf/70 rounded-xl p-2 text-xs text-midnight"
+                  >
+                    <option value="free">Free Application ($0)</option>
+                    <option value="paid">Paid Application Fee</option>
+                  </select>
+                </div>
+
+                {opportunityModal.pricing_type === 'paid' && (
+                  <div>
+                    <label className="block text-[11px] font-semibold text-midnight mb-1">Application Fee ($ USD)</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="1"
+                      value={opportunityModal.entry_fee_usd}
+                      onChange={(e) => setOpportunityModal({ ...opportunityModal, entry_fee_usd: parseFloat(e.target.value) || 0 })}
+                      className="w-full bg-white border border-amber-300 rounded-xl p-2 text-xs font-mono font-bold text-midnight focus:border-amber-500"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-midnight mb-1">Required Skills (Comma separated)</label>
+              <input
+                type="text"
+                value={opportunityModal.skills}
+                onChange={(e) => setOpportunityModal({ ...opportunityModal, skills: e.target.value })}
+                placeholder="Solidity, Web3.js, Security Auditing"
+                className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
+              />
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-midnight mb-1">Description *</label>
               <textarea
@@ -3690,7 +4099,21 @@ export const AdminPage: React.FC = () => {
                 className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
               />
             </div>
-            <div className="flex items-center justify-end gap-2 pt-2">
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="oppFeatured"
+                checked={opportunityModal.is_featured}
+                onChange={(e) => setOpportunityModal({ ...opportunityModal, is_featured: e.target.checked })}
+                className="w-4 h-4 text-moonstone rounded cursor-pointer"
+              />
+              <label htmlFor="oppFeatured" className="text-xs font-semibold text-midnight cursor-pointer">
+                Highlight as Featured Opportunity
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-timberwolf/40">
               <button
                 type="button"
                 onClick={() => setOpportunityModal({ ...opportunityModal, isOpen: false })}
@@ -3712,7 +4135,7 @@ export const AdminPage: React.FC = () => {
       {/* 6. CATEGORY MODAL */}
       {categoryModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-midnight/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <form onSubmit={handleSaveCategory} className="bg-white rounded-2xl border border-timberwolf/60 shadow-modal max-w-md w-full p-6 text-midnight animate-fade-in space-y-4">
+          <form onSubmit={handleSaveCategory} className="bg-white rounded-2xl border border-timberwolf/60 shadow-modal max-w-md w-full p-6 text-midnight animate-fade-in space-y-4 max-h-[90vh] overflow-y-auto">
             <h3 className="font-extrabold text-base text-midnight">
               {categoryModal.isEdit ? 'Edit Category' : 'Create New Category'}
             </h3>
@@ -3727,17 +4150,44 @@ export const AdminPage: React.FC = () => {
                 className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
               />
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-midnight mb-1">Slug *</label>
+                <input
+                  type="text"
+                  required
+                  value={categoryModal.slug}
+                  onChange={(e) => setCategoryModal({ ...categoryModal, slug: e.target.value })}
+                  placeholder="e.g. ai-machine-learning"
+                  className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-midnight mb-1">Sort Order</label>
+                <input
+                  type="number"
+                  value={categoryModal.sort_order}
+                  onChange={(e) => setCategoryModal({ ...categoryModal, sort_order: parseInt(e.target.value) || 1 })}
+                  className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone font-mono"
+                />
+              </div>
+            </div>
+
             <div>
-              <label className="block text-xs font-semibold text-midnight mb-1">Slug *</label>
+              <label className="block text-xs font-semibold text-midnight mb-1">
+                Subcategories (Comma separated)
+              </label>
               <input
                 type="text"
-                required
-                value={categoryModal.slug}
-                onChange={(e) => setCategoryModal({ ...categoryModal, slug: e.target.value })}
-                placeholder="e.g. ai-machine-learning"
-                className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone font-mono"
+                value={categoryModal.subcategories}
+                onChange={(e) => setCategoryModal({ ...categoryModal, subcategories: e.target.value })}
+                placeholder="LLMs, Computer Vision, MLOps, NLP"
+                className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
               />
             </div>
+
             <div>
               <label className="block text-xs font-semibold text-midnight mb-1">Description</label>
               <textarea
@@ -3748,7 +4198,8 @@ export const AdminPage: React.FC = () => {
                 className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
               />
             </div>
-            <div className="flex items-center justify-end gap-2 pt-2">
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-timberwolf/40">
               <button
                 type="button"
                 onClick={() => setCategoryModal({ ...categoryModal, isOpen: false })}

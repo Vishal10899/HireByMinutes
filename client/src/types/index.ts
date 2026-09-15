@@ -214,9 +214,17 @@ export interface Opportunity {
   title: string;
   category_id: string;
   category_name?: string;
+  subcategory?: string;
   description: string;
   duration_minutes: number;
   budget: number;
+  pricing_type?: 'free' | 'paid';
+  entry_fee_usd?: number;
+  location?: string;
+  deadline?: string;
+  skills?: string[];
+  requirements?: string;
+  is_featured?: number | boolean;
   status: 'open' | 'in_review' | 'awarded' | 'closed';
   applications_count?: number;
   created_at: string;

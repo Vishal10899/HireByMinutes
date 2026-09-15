@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { BrandLogo } from '../components/common/BrandLogo';
 import confetti from 'canvas-confetti';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 interface AuthPageProps {
   initialMode?: 'login' | 'register';
@@ -38,6 +39,15 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
+
+  usePageSEO({
+    title: location.pathname.includes('signup') || location.pathname.includes('register')
+      ? 'Create an Account — HireByMinute'
+      : 'Sign In — HireByMinute',
+    noindex: true,
+    canonicalPath: location.pathname
+  });
+
   const { user, login, updateUser, setAuthSession } = useAuth();
 
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(() => searchParams.get('tab') === 'verify_otp');

@@ -10,10 +10,16 @@ import {
   Mail,
   Scale
 } from 'lucide-react';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const TermsPage: React.FC = () => {
+  usePageSEO({
+    title: 'Terms of Service — HireByMinute',
+    description: 'Read the Terms of Service governing your use of the HireByMinute consultation marketplace and per-minute billing platform.',
+    canonicalPath: '/terms'
+  });
+
   useEffect(() => {
-    document.title = 'Terms of Service — HireByMinute';
     window.scrollTo(0, 0);
   }, []);
 

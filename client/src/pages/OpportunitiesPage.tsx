@@ -15,8 +15,15 @@ import {
   UserCheck
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const OpportunitiesPage: React.FC = () => {
+  usePageSEO({
+    title: 'Consultation Opportunities — HireByMinute',
+    description: 'Browse active consultation requests and opportunities posted by clients seeking specialized expertise.',
+    canonicalPath: '/opportunities'
+  });
+
   const { user } = useAuth();
 
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
@@ -74,8 +81,46 @@ export const OpportunitiesPage: React.FC = () => {
 
     setApplyLoading(true);
     try {
-      // 1. Create server-authoritative $2.00 application fee order
+      const isFree = (selectedOpp.pricing_type === 'free' || Number(selectedOpp.entry_fee_usd || 0) <= 0);
+
+      // Direct free submission without payment gateway
+      if (isFree) {
+        await api.applyOpportunity(selectedOpp.id, {
+          message: applyMessage,
+          relevant_experience: applyExperience,
+          proposed_rate: applyRate ? parseFloat(applyRate) : undefined,
+          availability: applyAvailability
+        });
+
+        alert('Application submitted successfully!');
+        confetti({ particleCount: 80, spread: 70 });
+        setSelectedOpp(null);
+        setApplyMessage('');
+        setApplyExperience('');
+        await loadOpps();
+        setApplyLoading(false);
+        return;
+      }
+
+      // 1. Create server-authoritative application fee order
       const orderRes = await api.createOpportunityApplicationOrder(selectedOpp.id);
+
+      if (orderRes.is_free) {
+        await api.applyOpportunity(selectedOpp.id, {
+          message: applyMessage,
+          relevant_experience: applyExperience,
+          proposed_rate: applyRate ? parseFloat(applyRate) : undefined,
+          availability: applyAvailability
+        });
+        alert('Application submitted successfully!');
+        confetti({ particleCount: 80, spread: 70 });
+        setSelectedOpp(null);
+        setApplyMessage('');
+        setApplyExperience('');
+        await loadOpps();
+        setApplyLoading(false);
+        return;
+      }
 
       // Ensure Razorpay SDK is loaded
       const ensureRazorpayLoaded = (): Promise<boolean> => {
@@ -94,13 +139,15 @@ export const OpportunitiesPage: React.FC = () => {
         throw new Error('Failed to load Razorpay payment gateway.');
       }
 
+      const oppFee = Number(selectedOpp.entry_fee_usd || 2).toFixed(2);
+
       // 2. Launch Razorpay modal
       const options = {
         key: orderRes.key_id,
         amount: orderRes.amount_paise,
         currency: orderRes.currency || 'USD',
         name: 'HireByMinute',
-        description: `Opportunity Application Fee ($2.00) - ${selectedOpp.title.slice(0, 30)}`,
+        description: `Opportunity Application Fee ($${oppFee}) - ${selectedOpp.title.slice(0, 30)}`,
         order_id: orderRes.order_id,
         prefill: {
           name: user?.full_name || '',
@@ -125,7 +172,7 @@ export const OpportunitiesPage: React.FC = () => {
               availability: applyAvailability
             });
 
-            alert('Application and $2 fee verified successfully!');
+            alert(`Application and $${oppFee} entry fee verified successfully!`);
             confetti({ particleCount: 80, spread: 70 });
             setSelectedOpp(null);
             setApplyMessage('');
@@ -151,7 +198,7 @@ export const OpportunitiesPage: React.FC = () => {
       });
       rzp.open();
     } catch (err: any) {
-      alert(err.message || 'Failed to initialize application fee payment.');
+      alert(err.message || 'Failed to initialize application.');
       setApplyLoading(false);
     }
   };
@@ -229,9 +276,20 @@ export const OpportunitiesPage: React.FC = () => {
                   <span className="px-2.5 py-0.5 rounded-full bg-aliceblue text-midnight text-[11px] font-semibold border border-timberwolf/40">
                     {opp.category_name}
                   </span>
-                  <span className="text-[11px] text-midnight/50 font-mono font-bold">
-                    {opp.duration_minutes}m request
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {opp.pricing_type === 'paid' && Number(opp.entry_fee_usd || 0) > 0 ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                        ${Number(opp.entry_fee_usd).toFixed(2)} Entry Fee
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                        Free to Apply
+                      </span>
+                    )}
+                    <span className="text-[11px] text-midnight/50 font-mono font-bold">
+                      {opp.duration_minutes}m
+                    </span>
+                  </div>
                 </div>
 
                 <h3 className="font-bold text-base text-midnight line-clamp-2">
@@ -329,14 +387,24 @@ export const OpportunitiesPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* $2 Application Fee Guarantee */}
-              <div className="p-3 bg-aliceblue/70 border border-timberwolf/60 rounded-xl flex items-center justify-between text-xs text-midnight">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-moonstone" />
-                  <span className="font-medium">Application Fee (Non-refundable entry)</span>
+              {/* Dynamic Application Pricing Display */}
+              {selectedOpp.pricing_type === 'paid' && Number(selectedOpp.entry_fee_usd || 0) > 0 ? (
+                <div className="p-3 bg-amber-50/80 border border-amber-300 rounded-xl flex items-center justify-between text-xs text-midnight">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-amber-700" />
+                    <span className="font-medium text-amber-950">Application Entry Fee (Verified via Razorpay)</span>
+                  </div>
+                  <span className="font-mono font-bold text-sm text-amber-900">${Number(selectedOpp.entry_fee_usd).toFixed(2)} USD</span>
                 </div>
-                <span className="font-mono font-bold text-sm text-midnight">$2.00 USD</span>
-              </div>
+              ) : (
+                <div className="p-3 bg-emerald-50/80 border border-emerald-300 rounded-xl flex items-center justify-between text-xs text-midnight">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span className="font-medium text-emerald-950">Free Opportunity Application</span>
+                  </div>
+                  <span className="font-mono font-bold text-sm text-emerald-700">FREE ($0.00)</span>
+                </div>
+              )}
 
               <div className="pt-2 flex items-center justify-end gap-3">
                 <button
@@ -354,11 +422,16 @@ export const OpportunitiesPage: React.FC = () => {
                   {applyLoading ? (
                     <span className="flex items-center gap-2">
                       <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Processing $2 Fee...
+                      Submitting Application...
                     </span>
+                  ) : selectedOpp.pricing_type === 'paid' && Number(selectedOpp.entry_fee_usd || 0) > 0 ? (
+                    <>
+                      <span>Pay ${Number(selectedOpp.entry_fee_usd).toFixed(2)} & Submit</span>
+                      <ArrowRight className="w-4 h-4 text-moonstone" />
+                    </>
                   ) : (
                     <>
-                      <span>Pay $2 & Submit Application</span>
+                      <span>Submit Application (Free)</span>
                       <ArrowRight className="w-4 h-4 text-moonstone" />
                     </>
                   )}

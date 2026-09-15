@@ -20,6 +20,7 @@ import {
   Sparkles,
   ArrowRight
 } from 'lucide-react';
+import { usePageSEO } from '../hooks/usePageSEO';
 
 export const ServicesPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -31,6 +32,19 @@ export const ServicesPage: React.FC = () => {
 
   // Filter states
   const categoryParam = searchParams.get('category') || 'all';
+
+  const categoryName = useMemo(() => {
+    if (!categoryParam || categoryParam === 'all') return null;
+    return categories.find(c => c.slug === categoryParam)?.name || null;
+  }, [categoryParam, categories]);
+
+  usePageSEO({
+    title: categoryName ? `${categoryName} Experts — HireByMinute` : 'Browse Expert Services — HireByMinute',
+    description: categoryName 
+      ? `Hire verified ${categoryName} specialists by the minute. Get direct 1-on-1 consultations with real-time minute billing.`
+      : 'Discover vetted specialists across tech, design, marketing, and business. Pay only for the minutes you use.',
+    canonicalPath: '/services'
+  });
   const subcategoryParam = searchParams.get('subcategory') || 'all';
   const searchParam = searchParams.get('search') || '';
   const skillParam = searchParams.get('skill') || '';
