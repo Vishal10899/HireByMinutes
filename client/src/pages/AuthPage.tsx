@@ -202,11 +202,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
     setFieldErrors({});
 
     try {
-      const loggedInUser = await login(email.trim(), password);
+      const cleanEmail = email.trim().toLowerCase();
+      const loggedInUser = await login(cleanEmail, password);
       // If user requires email verification, transition smoothly to OTP tab
       if (loggedInUser.email_verified === 0 || loggedInUser.email_verified === false) {
         if (loggedInUser.role !== 'admin') {
-          setVerificationEmail(loggedInUser.email);
+          setVerificationEmail(loggedInUser.email || cleanEmail);
           setIsVerifyingOtp(true);
           setResendCooldown(60);
           setSuccessMessage('Please enter your 6-digit verification code to complete sign-in.');
@@ -225,11 +226,34 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
         navigate('/services', { replace: true });
       }
     } catch (err: any) {
+      const cleanEmail = email.trim().toLowerCase();
+      if (err.requires_verification || (err.message && err.message.toLowerCase().includes('verify your email'))) {
+        const target = (err.email || cleanEmail).trim().toLowerCase();
+        setVerificationEmail(target);
+        setIsVerifyingOtp(true);
+        setResendCooldown(60);
+        setSuccessMessage('Please enter your 6-digit verification code to complete sign-in.');
+        return;
+      }
+
       const msg = err.message || 'Login failed. Please check your credentials.';
       const lower = msg.toLowerCase();
-      if (lower.includes('password') || lower.includes('invalid credential') || lower.includes('incorrect') || lower.includes('unauthorized')) {
+      if (lower.includes('suspended')) {
+        setError('This account has been suspended by administration.');
+      } else if (
+        lower.includes('password') ||
+        lower.includes('invalid email or password') ||
+        lower.includes('invalid credential') ||
+        lower.includes('incorrect') ||
+        lower.includes('unauthorized')
+      ) {
         setFieldErrors({ password: 'Incorrect email or password. Please try again.' });
-      } else if (lower.includes('email') || lower.includes('not found') || lower.includes('user does not exist')) {
+      } else if (
+        lower.includes('user account not found') ||
+        lower.includes('no account found') ||
+        lower.includes('user not found') ||
+        lower.includes('user does not exist')
+      ) {
         setFieldErrors({ email: 'No account found with this email address.' });
       } else {
         setError(msg);
@@ -319,8 +343,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
     setFieldErrors({});
 
     try {
+      const cleanEmail = email.trim().toLowerCase();
       await api.register({
-        email: email.trim(),
+        email: cleanEmail,
         password,
         full_name: fullName.trim(),
         role,
@@ -329,15 +354,23 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
       });
 
       // Never store token or set user session before email OTP verification
-      setVerificationEmail(email.trim());
+      setVerificationEmail(cleanEmail);
       setResendCooldown(60);
       setIsVerifyingOtp(true);
       setSuccessMessage('We sent a 6-digit verification code to your email.');
     } catch (err: any) {
+      const cleanEmail = email.trim().toLowerCase();
+      if (err.requires_verification) {
+        setVerificationEmail(cleanEmail);
+        setIsVerifyingOtp(true);
+        setResendCooldown(60);
+        setSuccessMessage('An account with this email is pending verification. Please enter your 6-digit verification code or request a new code.');
+        return;
+      }
       const msg = err.message || 'Registration failed.';
       const lower = msg.toLowerCase();
       if (lower.includes('already exists') || lower.includes('duplicate') || lower.includes('in use')) {
-        setFieldErrors({ email: 'An account with this email already exists.' });
+        setFieldErrors({ email: 'An account with this email already exists. Please sign in or verify your email.' });
       } else {
         setError(msg);
       }

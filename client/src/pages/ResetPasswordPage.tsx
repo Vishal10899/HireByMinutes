@@ -79,8 +79,8 @@ export const ResetPasswordPage: React.FC = () => {
 
     try {
       await api.resetPassword({
-        email,
-        token,
+        email: email ? email.trim().toLowerCase() : '',
+        token: token.trim(),
         new_password: password
       });
       setSuccess(true);

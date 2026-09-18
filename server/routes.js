@@ -604,7 +604,7 @@ module.exports = function(timerEngine, io) {
   router.post('/auth/login', (req, res) => {
     const { email, password } = req.body;
 
-    if (!email || !email.trim()) {
+    if (!email || !String(email).trim()) {
       return res.status(400).json({ error: 'Email address is required.' });
     }
 
@@ -612,8 +612,12 @@ module.exports = function(timerEngine, io) {
       return res.status(400).json({ error: 'Password is required.' });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = String(email).trim().toLowerCase();
     const user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(cleanEmail);
+
+    if (process.env.DEBUG_AUTH === 'true') {
+      console.log(`[Auth Diagnostic] Login lookup - email: ${cleanEmail}, adapter: ${db.isPostgres ? 'PostgreSQL' : 'SQLite'}, found: ${Boolean(user)}`);
+    }
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password.' });
@@ -651,7 +655,7 @@ module.exports = function(timerEngine, io) {
       return res.status(403).json({
         error: 'Please verify your email address to complete sign-in.',
         requires_verification: true,
-        email: user.email
+        email: user.email || cleanEmail
       });
     }
 
@@ -670,11 +674,11 @@ module.exports = function(timerEngine, io) {
       return res.status(400).json({ error: 'Full name is required.' });
     }
 
-    if (!email || !email.trim()) {
+    if (!email || !String(email).trim()) {
       return res.status(400).json({ error: 'Email address is required.' });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = String(email).trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(cleanEmail)) {
       return res.status(400).json({ error: 'Please enter a valid email address.' });
@@ -695,9 +699,13 @@ module.exports = function(timerEngine, io) {
     // Disallow registering directly as admin from public registration
     const assignedRole = role === 'admin' ? 'client' : (role === 'provider' ? 'provider' : 'client');
 
-    const existing = db.prepare('SELECT id FROM users WHERE LOWER(email) = ?').get(cleanEmail);
+    const existing = db.prepare('SELECT id, email_verified FROM users WHERE LOWER(email) = ?').get(cleanEmail);
     if (existing) {
-      return res.status(409).json({ error: 'An account with this email address already exists.' });
+      return res.status(409).json({
+        error: 'An account with this email address already exists.',
+        requires_verification: existing.email_verified === 0 || existing.email_verified === false,
+        email: cleanEmail
+      });
     }
 
     // Auto-generate or validate case-insensitive permanent username
@@ -817,9 +825,12 @@ module.exports = function(timerEngine, io) {
       });
     }
 
+    const createdUser = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+
     res.status(201).json({
       requires_verification: true,
       email: cleanEmail,
+      user: sanitizeUser(createdUser),
       message: 'Account created. We have sent a 6-digit verification code to your email.'
     });
   });
@@ -1275,6 +1286,55 @@ module.exports = function(timerEngine, io) {
   }, (err, req, res, next) => {
     if (err) {
       return res.status(400).json({ error: err.message || 'Logo upload failed.' });
+    }
+    next();
+  });
+
+  const resumeUpload = multer({
+    storage: memoryStorage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit for resumes
+    fileFilter: (req, file, cb) => {
+      const allowedMimes = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ];
+      const ext = path.extname(file.originalname).toLowerCase();
+      const allowedExts = ['.pdf', '.doc', '.docx'];
+
+      if (!allowedMimes.includes(file.mimetype) && !allowedExts.includes(ext)) {
+        return cb(new Error('Invalid resume document format. Supported formats: PDF, DOC, DOCX.'));
+      }
+      cb(null, true);
+    }
+  });
+
+  router.post('/upload/resume', authMiddleware, resumeUpload.single('resume'), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No resume document provided for upload.' });
+    }
+    try {
+      const uploadResult = await storageService.upload({
+        buffer: req.file.buffer,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype || 'application/pdf',
+        folder: 'resumes'
+      });
+      res.json({
+        url: uploadResult.url,
+        filename: uploadResult.filename,
+        size: uploadResult.size,
+        mimetype: uploadResult.mimeType,
+        provider: uploadResult.provider,
+        message: 'Resume uploaded successfully.'
+      });
+    } catch (err) {
+      console.error('[Resume Upload Error]', err.message);
+      res.status(500).json({ error: 'Failed to process resume upload: ' + err.message });
+    }
+  }, (err, req, res, next) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'Resume upload failed.' });
     }
     next();
   });
@@ -4242,6 +4302,10 @@ module.exports = function(timerEngine, io) {
     const openOpportunities = db.prepare("SELECT COUNT(*) as count FROM opportunities WHERE status = 'open'").get().count;
     const pendingReports = db.prepare("SELECT COUNT(*) as count FROM reports WHERE status IN ('pending', 'OPEN', 'UNDER_REVIEW')").get().count;
     const totalProfileVisits = db.prepare("SELECT COALESCE(SUM(profile_visits), 0) as count FROM users").get().count || 0;
+    const totalJobs = db.prepare('SELECT COUNT(*) as count FROM jobs').get().count;
+    const openJobs = db.prepare("SELECT COUNT(*) as count FROM jobs WHERE status = 'published' AND (application_deadline IS NULL OR application_deadline >= CURRENT_TIMESTAMP)").get().count;
+    const totalCompanies = db.prepare("SELECT COUNT(*) as count FROM companies WHERE status = 'active'").get().count;
+    const totalJobApplications = db.prepare('SELECT COUNT(*) as count FROM job_applications').get().count;
 
     const platformTakePercent = 15;
     const platformRevenue = Number((listingRevenue + (sessionRevenue * (platformTakePercent / 100)) - totalRefunds).toFixed(2));
@@ -4325,6 +4389,10 @@ module.exports = function(timerEngine, io) {
         pendingListings,
         openOpportunities,
         pendingReports,
+        totalJobs,
+        openJobs,
+        totalCompanies,
+        totalJobApplications,
         today: {
           newUsers: todayUsers,
           newExperts: todayExperts,
@@ -6347,6 +6415,1009 @@ module.exports = function(timerEngine, io) {
       base_fee: feeNum,
       effective: getEffectiveListingFee()
     });
+  });
+
+  // ==========================================
+  // FULL-TIME JOBS MARKETPLACE & CAREERS
+  // ==========================================
+
+  const safeParseJson = (str, fallback) => {
+    if (!str) return fallback;
+    try {
+      const parsed = JSON.parse(str);
+      return parsed !== null ? parsed : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const formatJobResponse = (job) => {
+    if (!job) return null;
+    return {
+      ...job,
+      responsibilities: typeof job.responsibilities === 'string' ? safeParseJson(job.responsibilities, []) : (job.responsibilities || []),
+      requirements: typeof job.requirements === 'string' ? safeParseJson(job.requirements, []) : (job.requirements || []),
+      skills: typeof job.skills === 'string' ? safeParseJson(job.skills, []) : (job.skills || []),
+      benefits: typeof job.benefits === 'string' ? safeParseJson(job.benefits, []) : (job.benefits || []),
+      company: job.company_name ? {
+        id: job.company_id,
+        name: job.company_name,
+        logo_url: job.company_logo,
+        website: job.company_website,
+        industry: job.company_industry,
+        company_size: job.company_size,
+        location: job.company_location,
+        description: job.company_description
+      } : undefined
+    };
+  };
+
+  const optionalAuthMiddleware = (req, res, next) => {
+    const authHeader = req.headers.authorization || req.cookies?.token;
+    if (authHeader) {
+      try {
+        const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const user = db.prepare('SELECT id, role, email, full_name, is_suspended FROM users WHERE id = ?').get(decoded.id);
+        if (user && !user.is_suspended) {
+          req.user = user;
+        }
+      } catch {
+        // Ignored for optional auth
+      }
+    }
+    next();
+  };
+
+  // 1. Public Jobs Listing (Search, Filter, Pagination)
+  router.get('/jobs', (req, res) => {
+    const {
+      search,
+      work_mode,
+      experience_level,
+      country,
+      city,
+      category_id,
+      salary_min,
+      salary_max,
+      sort = 'newest',
+      page = 1,
+      limit = 12
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(50, Math.max(1, parseInt(limit) || 12));
+    const offset = (pageNum - 1) * limitNum;
+
+    let whereClauses = [
+      "j.status = 'published'",
+      "(j.application_deadline IS NULL OR j.application_deadline >= CURRENT_TIMESTAMP)",
+      "c.status = 'active'"
+    ];
+    let params = [];
+
+    if (search && search.trim()) {
+      const q = `%${search.trim().toLowerCase()}%`;
+      whereClauses.push("(LOWER(j.title) LIKE ? OR LOWER(j.description) LIKE ? OR LOWER(c.name) LIKE ? OR LOWER(j.skills) LIKE ? OR LOWER(j.department) LIKE ?)");
+      params.push(q, q, q, q, q);
+    }
+
+    if (work_mode && ['Remote', 'Hybrid', 'On-site'].includes(work_mode)) {
+      whereClauses.push("j.work_mode = ?");
+      params.push(work_mode);
+    }
+
+    if (experience_level && experience_level.trim()) {
+      whereClauses.push("j.experience_level = ?");
+      params.push(experience_level.trim());
+    }
+
+    if (country && country.trim()) {
+      whereClauses.push("LOWER(j.country) = LOWER(?)");
+      params.push(country.trim());
+    }
+
+    if (city && city.trim()) {
+      whereClauses.push("LOWER(j.city) = LOWER(?)");
+      params.push(city.trim());
+    }
+
+    if (category_id && category_id.trim()) {
+      whereClauses.push("j.category_id = ?");
+      params.push(category_id.trim());
+    }
+
+    if (salary_min && !isNaN(Number(salary_min))) {
+      whereClauses.push("(j.salary_max IS NULL OR j.salary_max >= ?)");
+      params.push(Number(salary_min));
+    }
+
+    if (salary_max && !isNaN(Number(salary_max))) {
+      whereClauses.push("(j.salary_min IS NULL OR j.salary_min <= ?)");
+      params.push(Number(salary_max));
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    let orderSql = 'ORDER BY j.featured DESC, j.published_at DESC';
+    if (sort === 'salary_high') {
+      orderSql = 'ORDER BY COALESCE(j.salary_max, j.salary_min, 0) DESC, j.published_at DESC';
+    } else if (sort === 'salary_low') {
+      orderSql = 'ORDER BY COALESCE(j.salary_min, j.salary_max, 999999999) ASC, j.published_at DESC';
+    } else if (sort === 'featured') {
+      orderSql = 'ORDER BY j.featured DESC, j.published_at DESC';
+    } else if (sort === 'oldest') {
+      orderSql = 'ORDER BY j.published_at ASC';
+    }
+
+    const countQuery = `
+      SELECT COUNT(*) as count 
+      FROM jobs j 
+      JOIN companies c ON j.company_id = c.id
+      ${whereSql}
+    `;
+    const total = db.prepare(countQuery).get(...params).count;
+
+    const dataQuery = `
+      SELECT j.*, 
+             c.name as company_name, c.logo_url as company_logo, c.website as company_website,
+             c.industry as company_industry, c.company_size, c.location as company_location,
+             c.description as company_description,
+             cat.name as category_name
+      FROM jobs j
+      JOIN companies c ON j.company_id = c.id
+      LEFT JOIN categories cat ON j.category_id = cat.id
+      ${whereSql}
+      ${orderSql}
+      LIMIT ? OFFSET ?
+    `;
+    const rows = db.prepare(dataQuery).all(...params, limitNum, offset);
+    const jobs = rows.map(formatJobResponse);
+
+    res.json({
+      jobs,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum) || 1
+      }
+    });
+  });
+
+  // 2. Featured Public Jobs (for Homepage and Showcases)
+  router.get('/jobs/featured', (req, res) => {
+    const rows = db.prepare(`
+      SELECT j.*, 
+             c.name as company_name, c.logo_url as company_logo, c.website as company_website,
+             c.industry as company_industry, c.company_size, c.location as company_location,
+             cat.name as category_name
+      FROM jobs j
+      JOIN companies c ON j.company_id = c.id
+      LEFT JOIN categories cat ON j.category_id = cat.id
+      WHERE j.status = 'published' 
+        AND j.featured = 1
+        AND (j.application_deadline IS NULL OR j.application_deadline >= CURRENT_TIMESTAMP)
+        AND c.status = 'active'
+      ORDER BY j.published_at DESC
+      LIMIT 6
+    `).all();
+    res.json({ jobs: rows.map(formatJobResponse) });
+  });
+
+  // 3. Single Job Position Detail (with Optional User Application State)
+  router.get('/jobs/:idOrSlug', optionalAuthMiddleware, (req, res) => {
+    const { idOrSlug } = req.params;
+    const row = db.prepare(`
+      SELECT j.*, 
+             c.name as company_name, c.logo_url as company_logo, c.website as company_website,
+             c.industry as company_industry, c.company_size, c.location as company_location,
+             c.description as company_description,
+             cat.name as category_name
+      FROM jobs j
+      JOIN companies c ON j.company_id = c.id
+      LEFT JOIN categories cat ON j.category_id = cat.id
+      WHERE (j.id = ? OR j.slug = ?)
+    `).get(idOrSlug, idOrSlug);
+
+    if (!row) {
+      return res.status(404).json({ error: 'Job position not found.' });
+    }
+
+    const isAdmin = req.user && req.user.role === 'admin';
+    if (!isAdmin && row.status !== 'published') {
+      return res.status(404).json({ error: 'Job position is not currently available.' });
+    }
+
+    const job = formatJobResponse(row);
+
+    let myApplication = null;
+    if (req.user) {
+      const app = db.prepare(`
+        SELECT id, status, resume_url, cover_note, relevant_experience, skills, created_at, updated_at 
+        FROM job_applications 
+        WHERE job_id = ? AND applicant_id = ?
+      `).get(job.id, req.user.id);
+      if (app) {
+        myApplication = {
+          ...app,
+          skills: safeParseJson(app.skills, [])
+        };
+      }
+    }
+
+    res.json({
+      job,
+      has_applied: Boolean(myApplication),
+      my_application: myApplication
+    });
+  });
+
+  // 4. Submit Job Application (Authenticated Candidate)
+  router.post('/jobs/:id/apply', authMiddleware, (req, res) => {
+    const job = db.prepare(`
+      SELECT j.*, c.name as company_name 
+      FROM jobs j 
+      JOIN companies c ON j.company_id = c.id 
+      WHERE j.id = ? OR j.slug = ?
+    `).get(req.params.id, req.params.id);
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job position not found.' });
+    }
+
+    if (job.status !== 'published') {
+      return res.status(400).json({ error: 'This job posting is no longer active or accepting applications.' });
+    }
+
+    if (job.application_deadline && new Date(job.application_deadline) < new Date()) {
+      return res.status(400).json({ error: 'The deadline to apply for this job has expired.' });
+    }
+
+    const existing = db.prepare('SELECT id FROM job_applications WHERE job_id = ? AND applicant_id = ?').get(job.id, req.user.id);
+    if (existing) {
+      return res.status(400).json({ error: 'You have already submitted an application for this position.' });
+    }
+
+    const { resume_url, cover_note, relevant_experience, skills } = req.body;
+
+    if (!resume_url) {
+      return res.status(400).json({ error: 'A resume document is required to submit your application.' });
+    }
+
+    const appId = `jobapp-${uuidv4().slice(0, 8)}`;
+    const skillsJson = JSON.stringify(Array.isArray(skills) ? skills : (typeof skills === 'string' ? skills.split(',').map(s => s.trim()).filter(Boolean) : []));
+
+    db.prepare(`
+      INSERT INTO job_applications (id, job_id, applicant_id, resume_url, cover_note, relevant_experience, skills, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'Submitted')
+    `).run(appId, job.id, req.user.id, resume_url, cover_note || '', relevant_experience || '', skillsJson);
+
+    db.prepare(`
+      INSERT INTO job_application_status_history (id, application_id, previous_status, new_status, changed_by, notes)
+      VALUES (?, ?, NULL, 'Submitted', ?, 'Application submitted by candidate')
+    `).run(uuidv4(), appId, req.user.id);
+
+    try {
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, 'job_application', ?)
+      `).run(
+        uuidv4(),
+        req.user.id,
+        'Job Application Submitted',
+        `Your application for "${job.title}" at ${job.company_name} was successfully submitted.`,
+        `/dashboard/client`
+      );
+    } catch (notifErr) {
+      console.warn('[Notification Warning]', notifErr.message);
+    }
+
+    res.status(201).json({
+      success: true,
+      application_id: appId,
+      message: 'Your application has been submitted successfully.'
+    });
+  });
+
+  // 5. Candidate Dashboard: My Job Applications
+  router.get('/my/job-applications', authMiddleware, (req, res) => {
+    const rows = db.prepare(`
+      SELECT ja.id, ja.job_id, ja.status, ja.resume_url, ja.cover_note, ja.relevant_experience, ja.skills,
+             ja.created_at, ja.updated_at,
+             j.title as job_title, j.slug as job_slug, j.department, j.employment_type, j.work_mode,
+             j.location_text, j.status as job_status,
+             c.name as company_name, c.logo_url as company_logo, c.location as company_location
+      FROM job_applications ja
+      JOIN jobs j ON ja.job_id = j.id
+      JOIN companies c ON j.company_id = c.id
+      WHERE ja.applicant_id = ?
+      ORDER BY ja.created_at DESC
+    `).all(req.user.id);
+
+    const applications = rows.map(r => ({
+      ...r,
+      skills: safeParseJson(r.skills, [])
+    }));
+
+    res.json({ applications });
+  });
+
+  // 6. Candidate Withdraws Application
+  router.post('/my/job-applications/:id/withdraw', authMiddleware, (req, res) => {
+    const app = db.prepare(`
+      SELECT ja.*, j.title as job_title 
+      FROM job_applications ja 
+      JOIN jobs j ON ja.job_id = j.id 
+      WHERE ja.id = ? AND ja.applicant_id = ?
+    `).get(req.params.id, req.user.id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+
+    if (app.status === 'Withdrawn') {
+      return res.status(400).json({ error: 'This application has already been withdrawn.' });
+    }
+
+    if (['Hired', 'Rejected'].includes(app.status)) {
+      return res.status(400).json({ error: `Cannot withdraw an application that is already marked as ${app.status}.` });
+    }
+
+    db.prepare(`
+      UPDATE job_applications 
+      SET status = 'Withdrawn', updated_at = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).run(app.id);
+
+    db.prepare(`
+      INSERT INTO job_application_status_history (id, application_id, previous_status, new_status, changed_by, notes)
+      VALUES (?, ?, ?, 'Withdrawn', ?, 'Application withdrawn by candidate')
+    `).run(uuidv4(), app.id, app.status, req.user.id);
+
+    res.json({ success: true, message: 'Application withdrawn successfully.' });
+  });
+
+  // 7. Secure Resume Download / Stream (Admin or Application Owner Only)
+  router.get('/job-applications/:id/resume', authMiddleware, (req, res) => {
+    const app = db.prepare('SELECT id, applicant_id, resume_url FROM job_applications WHERE id = ?').get(req.params.id);
+    if (!app) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+    if (req.user.role !== 'admin' && req.user.id !== app.applicant_id) {
+      return res.status(403).json({ error: 'Forbidden. You do not have permission to access this resume.' });
+    }
+    if (!app.resume_url) {
+      return res.status(404).json({ error: 'No resume attached to this application.' });
+    }
+
+    if (app.resume_url.startsWith('http://') || app.resume_url.startsWith('https://')) {
+      return res.redirect(app.resume_url);
+    }
+
+    const localUploadsDir = path.join(__dirname, 'uploads');
+    const filename = path.basename(app.resume_url);
+    const filePath = path.join(localUploadsDir, filename);
+
+    if (fs.existsSync(filePath)) {
+      return res.sendFile(filePath);
+    }
+
+    const altPath = path.join(__dirname, app.resume_url.replace(/^\//, ''));
+    if (fs.existsSync(altPath)) {
+      return res.sendFile(altPath);
+    }
+
+    res.status(404).json({ error: 'Resume file not found on server.' });
+  });
+
+  // ==========================================
+  // ADMIN COMPANIES MANAGEMENT
+  // ==========================================
+
+  router.get('/admin/companies', adminAuthMiddleware, (req, res) => {
+    const companies = db.prepare(`
+      SELECT c.*, 
+             COUNT(j.id) as total_jobs,
+             SUM(CASE WHEN j.status = 'published' THEN 1 ELSE 0 END) as active_jobs
+      FROM companies c
+      LEFT JOIN jobs j ON c.id = j.company_id
+      GROUP BY c.id
+      ORDER BY c.created_at DESC
+    `).all();
+    res.json({ companies });
+  });
+
+  router.post('/admin/companies', adminAuthMiddleware, (req, res) => {
+    const { name, logo_url, website, industry, company_size, location, description, status = 'active' } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Company name is required.' });
+    }
+    const id = `comp-${uuidv4().slice(0, 8)}`;
+    const cleanStatus = ['active', 'archived'].includes(status) ? status : 'active';
+
+    db.prepare(`
+      INSERT INTO companies (id, name, logo_url, website, industry, company_size, location, description, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      name.trim(),
+      logo_url || null,
+      website ? website.trim() : null,
+      industry ? industry.trim() : null,
+      company_size || null,
+      location ? location.trim() : null,
+      description ? description.trim() : null,
+      cleanStatus
+    );
+
+    logAuditAction(req.user, 'ADMIN_COMPANY_CREATED', 'company', id, { name: name.trim() });
+    const created = db.prepare('SELECT * FROM companies WHERE id = ?').get(id);
+    res.status(201).json({ success: true, company: created });
+  });
+
+  router.get('/admin/companies/:id', adminAuthMiddleware, (req, res) => {
+    const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found.' });
+    }
+    const jobs = db.prepare(`
+      SELECT j.*, (SELECT COUNT(*) FROM job_applications WHERE job_id = j.id) as applications_count
+      FROM jobs j 
+      WHERE j.company_id = ? 
+      ORDER BY j.created_at DESC
+    `).all(company.id).map(formatJobResponse);
+
+    res.json({ company, jobs });
+  });
+
+  router.put('/admin/companies/:id', adminAuthMiddleware, (req, res) => {
+    const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found.' });
+    }
+    const { name, logo_url, website, industry, company_size, location, description, status } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Company name is required.' });
+    }
+    const cleanStatus = status && ['active', 'archived'].includes(status) ? status : company.status;
+
+    db.prepare(`
+      UPDATE companies 
+      SET name = ?, logo_url = ?, website = ?, industry = ?, company_size = ?, location = ?, description = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      name.trim(),
+      logo_url !== undefined ? logo_url : company.logo_url,
+      website !== undefined ? (website ? website.trim() : null) : company.website,
+      industry !== undefined ? (industry ? industry.trim() : null) : company.industry,
+      company_size !== undefined ? company_size : company.company_size,
+      location !== undefined ? (location ? location.trim() : null) : company.location,
+      description !== undefined ? (description ? description.trim() : null) : company.description,
+      cleanStatus,
+      company.id
+    );
+
+    logAuditAction(req.user, 'ADMIN_COMPANY_UPDATED', 'company', company.id, { name: name.trim(), status: cleanStatus });
+    const updated = db.prepare('SELECT * FROM companies WHERE id = ?').get(company.id);
+    res.json({ success: true, company: updated });
+  });
+
+  router.delete('/admin/companies/:id', adminAuthMiddleware, (req, res) => {
+    const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found.' });
+    }
+
+    db.prepare('DELETE FROM companies WHERE id = ?').run(company.id);
+    logAuditAction(req.user, 'ADMIN_COMPANY_DELETED', 'company', company.id, { name: company.name });
+    res.json({ success: true, message: 'Company and associated jobs deleted.' });
+  });
+
+  // ==========================================
+  // ADMIN JOBS MANAGEMENT
+  // ==========================================
+
+  router.get('/admin/jobs', adminAuthMiddleware, (req, res) => {
+    const { status, company_id, search, page = 1, limit = 20 } = req.query;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const offset = (pageNum - 1) * limitNum;
+
+    let whereClauses = [];
+    let params = [];
+
+    if (status && ['draft', 'published', 'closed', 'archived'].includes(status)) {
+      whereClauses.push("j.status = ?");
+      params.push(status);
+    }
+    if (company_id && company_id.trim()) {
+      whereClauses.push("j.company_id = ?");
+      params.push(company_id.trim());
+    }
+    if (search && search.trim()) {
+      const q = `%${search.trim().toLowerCase()}%`;
+      whereClauses.push("(LOWER(j.title) LIKE ? OR LOWER(c.name) LIKE ? OR LOWER(j.department) LIKE ?)");
+      params.push(q, q, q);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const countQuery = `
+      SELECT COUNT(*) as count 
+      FROM jobs j 
+      JOIN companies c ON j.company_id = c.id
+      ${whereSql}
+    `;
+    const total = db.prepare(countQuery).get(...params).count;
+
+    const dataQuery = `
+      SELECT j.*, 
+             c.name as company_name, c.logo_url as company_logo,
+             cat.name as category_name,
+             (SELECT COUNT(*) FROM job_applications WHERE job_id = j.id) as applications_count
+      FROM jobs j
+      JOIN companies c ON j.company_id = c.id
+      LEFT JOIN categories cat ON j.category_id = cat.id
+      ${whereSql}
+      ORDER BY j.created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    const rows = db.prepare(dataQuery).all(...params, limitNum, offset);
+
+    res.json({
+      jobs: rows.map(formatJobResponse),
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum) || 1
+      }
+    });
+  });
+
+  router.post('/admin/jobs', adminAuthMiddleware, (req, res) => {
+    const {
+      company_id,
+      title,
+      slug,
+      department,
+      category_id,
+      description,
+      responsibilities = [],
+      requirements = [],
+      skills = [],
+      benefits = [],
+      employment_type = 'Full-time',
+      work_mode = 'Remote',
+      country,
+      city,
+      location_text,
+      experience_level = 'Mid Level',
+      min_experience = 0,
+      salary_type = 'undisclosed',
+      salary_min,
+      salary_max,
+      currency = 'USD',
+      application_deadline,
+      status = 'draft',
+      featured = 0
+    } = req.body;
+
+    if (!company_id || !title || !description) {
+      return res.status(400).json({ error: 'Company, job title, and description are required.' });
+    }
+
+    const company = db.prepare('SELECT id FROM companies WHERE id = ?').get(company_id);
+    if (!company) {
+      return res.status(400).json({ error: 'Selected company does not exist.' });
+    }
+
+    const id = `job-${uuidv4().slice(0, 8)}`;
+    const cleanSlug = slug && slug.trim() 
+      ? slug.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+      : `${title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}-${id.slice(4)}`;
+
+    const cleanStatus = ['draft', 'published', 'closed', 'archived'].includes(status) ? status : 'draft';
+    const cleanWorkMode = ['Remote', 'Hybrid', 'On-site'].includes(work_mode) ? work_mode : 'Remote';
+    const cleanSalaryType = ['range', 'starting_from', 'up_to', 'undisclosed'].includes(salary_type) ? salary_type : 'undisclosed';
+    const publishedAt = cleanStatus === 'published' ? new Date().toISOString() : null;
+
+    db.prepare(`
+      INSERT INTO jobs (
+        id, company_id, title, slug, department, category_id, description,
+        responsibilities, requirements, skills, benefits,
+        employment_type, work_mode, country, city, location_text,
+        experience_level, min_experience, salary_type, salary_min, salary_max, currency,
+        application_deadline, status, featured, published_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?
+      )
+    `).run(
+      id,
+      company_id,
+      title.trim(),
+      cleanSlug,
+      department ? department.trim() : null,
+      category_id || null,
+      description.trim(),
+      JSON.stringify(Array.isArray(responsibilities) ? responsibilities : []),
+      JSON.stringify(Array.isArray(requirements) ? requirements : []),
+      JSON.stringify(Array.isArray(skills) ? skills : []),
+      JSON.stringify(Array.isArray(benefits) ? benefits : []),
+      employment_type || 'Full-time',
+      cleanWorkMode,
+      country ? country.trim() : null,
+      city ? city.trim() : null,
+      location_text ? location_text.trim() : null,
+      experience_level || 'Mid Level',
+      Number(min_experience) || 0,
+      cleanSalaryType,
+      salary_min ? Number(salary_min) : null,
+      salary_max ? Number(salary_max) : null,
+      currency || 'USD',
+      application_deadline ? new Date(application_deadline).toISOString() : null,
+      cleanStatus,
+      featured ? 1 : 0,
+      publishedAt
+    );
+
+    logAuditAction(req.user, 'ADMIN_JOB_CREATED', 'job', id, { title: title.trim(), status: cleanStatus, company_id });
+    const created = db.prepare(`
+      SELECT j.*, c.name as company_name, c.logo_url as company_logo 
+      FROM jobs j 
+      JOIN companies c ON j.company_id = c.id 
+      WHERE j.id = ?
+    `).get(id);
+
+    res.status(201).json({ success: true, job: formatJobResponse(created) });
+  });
+
+  router.get('/admin/jobs/:id', adminAuthMiddleware, (req, res) => {
+    const row = db.prepare(`
+      SELECT j.*, 
+             c.name as company_name, c.logo_url as company_logo, c.website as company_website,
+             c.industry as company_industry, c.company_size, c.location as company_location,
+             cat.name as category_name
+      FROM jobs j
+      JOIN companies c ON j.company_id = c.id
+      LEFT JOIN categories cat ON j.category_id = cat.id
+      WHERE j.id = ?
+    `).get(req.params.id);
+
+    if (!row) {
+      return res.status(404).json({ error: 'Job not found.' });
+    }
+
+    const applications = db.prepare(`
+      SELECT ja.*, u.full_name as applicant_name, u.email as applicant_email, u.avatar_url as applicant_avatar
+      FROM job_applications ja
+      JOIN users u ON ja.applicant_id = u.id
+      WHERE ja.job_id = ?
+      ORDER BY ja.created_at DESC
+    `).all(row.id).map(a => ({
+      ...a,
+      skills: safeParseJson(a.skills, [])
+    }));
+
+    res.json({
+      job: formatJobResponse(row),
+      applications
+    });
+  });
+
+  router.put('/admin/jobs/:id', adminAuthMiddleware, (req, res) => {
+    const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found.' });
+    }
+
+    const {
+      company_id = job.company_id,
+      title = job.title,
+      slug = job.slug,
+      department = job.department,
+      category_id = job.category_id,
+      description = job.description,
+      responsibilities,
+      requirements,
+      skills,
+      benefits,
+      employment_type = job.employment_type,
+      work_mode = job.work_mode,
+      country = job.country,
+      city = job.city,
+      location_text = job.location_text,
+      experience_level = job.experience_level,
+      min_experience = job.min_experience,
+      salary_type = job.salary_type,
+      salary_min = job.salary_min,
+      salary_max = job.salary_max,
+      currency = job.currency,
+      application_deadline = job.application_deadline,
+      status = job.status,
+      featured = job.featured
+    } = req.body;
+
+    const cleanStatus = ['draft', 'published', 'closed', 'archived'].includes(status) ? status : job.status;
+    let publishedAt = job.published_at;
+    if (cleanStatus === 'published' && job.status !== 'published') {
+      publishedAt = new Date().toISOString();
+    }
+
+    db.prepare(`
+      UPDATE jobs SET
+        company_id = ?, title = ?, slug = ?, department = ?, category_id = ?, description = ?,
+        responsibilities = ?, requirements = ?, skills = ?, benefits = ?,
+        employment_type = ?, work_mode = ?, country = ?, city = ?, location_text = ?,
+        experience_level = ?, min_experience = ?, salary_type = ?, salary_min = ?, salary_max = ?, currency = ?,
+        application_deadline = ?, status = ?, featured = ?, published_at = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      company_id,
+      title.trim(),
+      slug ? slug.trim() : job.slug,
+      department !== undefined ? (department ? department.trim() : null) : job.department,
+      category_id || null,
+      description.trim(),
+      responsibilities !== undefined ? JSON.stringify(Array.isArray(responsibilities) ? responsibilities : []) : job.responsibilities,
+      requirements !== undefined ? JSON.stringify(Array.isArray(requirements) ? requirements : []) : job.requirements,
+      skills !== undefined ? JSON.stringify(Array.isArray(skills) ? skills : []) : job.skills,
+      benefits !== undefined ? JSON.stringify(Array.isArray(benefits) ? benefits : []) : job.benefits,
+      employment_type || 'Full-time',
+      work_mode || 'Remote',
+      country !== undefined ? (country ? country.trim() : null) : job.country,
+      city !== undefined ? (city ? city.trim() : null) : job.city,
+      location_text !== undefined ? (location_text ? location_text.trim() : null) : job.location_text,
+      experience_level || 'Mid Level',
+      Number(min_experience) || 0,
+      salary_type || 'undisclosed',
+      salary_min !== undefined ? (salary_min !== null && !isNaN(Number(salary_min)) ? Number(salary_min) : null) : job.salary_min,
+      salary_max !== undefined ? (salary_max !== null && !isNaN(Number(salary_max)) ? Number(salary_max) : null) : job.salary_max,
+      currency || 'USD',
+      application_deadline ? new Date(application_deadline).toISOString() : null,
+      cleanStatus,
+      featured ? 1 : 0,
+      publishedAt,
+      job.id
+    );
+
+    logAuditAction(req.user, 'ADMIN_JOB_UPDATED', 'job', job.id, { title: title.trim(), status: cleanStatus });
+    const updated = db.prepare(`
+      SELECT j.*, c.name as company_name, c.logo_url as company_logo 
+      FROM jobs j 
+      JOIN companies c ON j.company_id = c.id 
+      WHERE j.id = ?
+    `).get(job.id);
+
+    res.json({ success: true, job: formatJobResponse(updated) });
+  });
+
+  router.post('/admin/jobs/:id/publish', adminAuthMiddleware, (req, res) => {
+    const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found.' });
+
+    db.prepare(`UPDATE jobs SET status = 'published', published_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(job.id);
+    logAuditAction(req.user, 'ADMIN_JOB_PUBLISHED', 'job', job.id, { title: job.title });
+    res.json({ success: true, message: 'Job position published successfully.' });
+  });
+
+  router.post('/admin/jobs/:id/unpublish', adminAuthMiddleware, (req, res) => {
+    const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found.' });
+
+    db.prepare(`UPDATE jobs SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(job.id);
+    logAuditAction(req.user, 'ADMIN_JOB_UNPUBLISHED', 'job', job.id, { title: job.title });
+    res.json({ success: true, message: 'Job position reverted to draft.' });
+  });
+
+  router.post('/admin/jobs/:id/close', adminAuthMiddleware, (req, res) => {
+    const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found.' });
+
+    db.prepare(`UPDATE jobs SET status = 'closed', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(job.id);
+    logAuditAction(req.user, 'ADMIN_JOB_CLOSED', 'job', job.id, { title: job.title });
+    res.json({ success: true, message: 'Job position marked as closed.' });
+  });
+
+  router.post('/admin/jobs/:id/archive', adminAuthMiddleware, (req, res) => {
+    const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found.' });
+
+    db.prepare(`UPDATE jobs SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(job.id);
+    logAuditAction(req.user, 'ADMIN_JOB_ARCHIVED', 'job', job.id, { title: job.title });
+    res.json({ success: true, message: 'Job position archived.' });
+  });
+
+  router.post('/admin/jobs/:id/toggle-featured', adminAuthMiddleware, (req, res) => {
+    const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found.' });
+
+    const newFeatured = job.featured ? 0 : 1;
+    db.prepare(`UPDATE jobs SET featured = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(newFeatured, job.id);
+    logAuditAction(req.user, newFeatured ? 'ADMIN_JOB_FEATURED' : 'ADMIN_JOB_UNFEATURED', 'job', job.id, { title: job.title });
+    res.json({ success: true, featured: newFeatured });
+  });
+
+  router.delete('/admin/jobs/:id', adminAuthMiddleware, (req, res) => {
+    const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found.' });
+
+    db.prepare('DELETE FROM jobs WHERE id = ?').run(job.id);
+    logAuditAction(req.user, 'ADMIN_JOB_DELETED', 'job', job.id, { title: job.title });
+    res.json({ success: true, message: 'Job position deleted.' });
+  });
+
+  // ==========================================
+  // ADMIN JOB APPLICATIONS MANAGEMENT
+  // ==========================================
+
+  router.get('/admin/job-applications', adminAuthMiddleware, (req, res) => {
+    const { job_id, status, search, page = 1, limit = 25 } = req.query;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 25));
+    const offset = (pageNum - 1) * limitNum;
+
+    let whereClauses = [];
+    let params = [];
+
+    if (job_id && job_id.trim()) {
+      whereClauses.push("ja.job_id = ?");
+      params.push(job_id.trim());
+    }
+    if (status && ['Submitted', 'Under Review', 'Shortlisted', 'Interview', 'Rejected', 'Hired', 'Withdrawn'].includes(status)) {
+      whereClauses.push("ja.status = ?");
+      params.push(status);
+    }
+    if (search && search.trim()) {
+      const q = `%${search.trim().toLowerCase()}%`;
+      whereClauses.push("(LOWER(u.full_name) LIKE ? OR LOWER(u.email) LIKE ? OR LOWER(j.title) LIKE ? OR LOWER(c.name) LIKE ?)");
+      params.push(q, q, q, q);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const countQuery = `
+      SELECT COUNT(*) as count 
+      FROM job_applications ja
+      JOIN jobs j ON ja.job_id = j.id
+      JOIN companies c ON j.company_id = c.id
+      JOIN users u ON ja.applicant_id = u.id
+      ${whereSql}
+    `;
+    const total = db.prepare(countQuery).get(...params).count;
+
+    const dataQuery = `
+      SELECT ja.*, 
+             j.title as job_title, j.employment_type, j.work_mode,
+             c.name as company_name, c.logo_url as company_logo,
+             u.full_name as applicant_name, u.email as applicant_email, u.avatar_url as applicant_avatar
+      FROM job_applications ja
+      JOIN jobs j ON ja.job_id = j.id
+      JOIN companies c ON j.company_id = c.id
+      JOIN users u ON ja.applicant_id = u.id
+      ${whereSql}
+      ORDER BY ja.created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    const rows = db.prepare(dataQuery).all(...params, limitNum, offset);
+
+    res.json({
+      applications: rows.map(r => ({
+        ...r,
+        skills: safeParseJson(r.skills, [])
+      })),
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum) || 1
+      }
+    });
+  });
+
+  router.get('/admin/job-applications/:id', adminAuthMiddleware, (req, res) => {
+    const app = db.prepare(`
+      SELECT ja.*, 
+             j.title as job_title, j.slug as job_slug, j.department, j.employment_type, j.work_mode, j.location_text,
+             c.name as company_name, c.logo_url as company_logo,
+             u.full_name as applicant_name, u.email as applicant_email, u.avatar_url as applicant_avatar, u.country as applicant_country
+      FROM job_applications ja
+      JOIN jobs j ON ja.job_id = j.id
+      JOIN companies c ON j.company_id = c.id
+      JOIN users u ON ja.applicant_id = u.id
+      WHERE ja.id = ?
+    `).get(req.params.id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'Job application not found.' });
+    }
+
+    const history = db.prepare(`
+      SELECT h.*, u.full_name as changed_by_name
+      FROM job_application_status_history h
+      LEFT JOIN users u ON h.changed_by = u.id
+      WHERE h.application_id = ?
+      ORDER BY h.created_at ASC
+    `).all(app.id);
+
+    res.json({
+      application: {
+        ...app,
+        skills: safeParseJson(app.skills, [])
+      },
+      history
+    });
+  });
+
+  router.get('/admin/job-applications/:id/history', adminAuthMiddleware, (req, res) => {
+    const history = db.prepare(`
+      SELECT h.*, u.full_name as changed_by_name
+      FROM job_application_status_history h
+      LEFT JOIN users u ON h.changed_by = u.id
+      WHERE h.application_id = ?
+      ORDER BY h.created_at ASC
+    `).all(req.params.id);
+    res.json({ history });
+  });
+
+  router.patch('/admin/job-applications/:id/status', adminAuthMiddleware, (req, res) => {
+    const app = db.prepare(`
+      SELECT ja.*, j.title as job_title, c.name as company_name 
+      FROM job_applications ja 
+      JOIN jobs j ON ja.job_id = j.id 
+      JOIN companies c ON j.company_id = c.id 
+      WHERE ja.id = ?
+    `).get(req.params.id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'Job application not found.' });
+    }
+
+    const { status, admin_notes } = req.body;
+    const validStatuses = ['Submitted', 'Under Review', 'Shortlisted', 'Interview', 'Rejected', 'Hired', 'Withdrawn'];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+
+    const previousStatus = app.status;
+    db.prepare(`
+      UPDATE job_applications 
+      SET status = ?, admin_notes = COALESCE(?, admin_notes), updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(status, admin_notes !== undefined ? admin_notes : null, app.id);
+
+    db.prepare(`
+      INSERT INTO job_application_status_history (id, application_id, previous_status, new_status, changed_by, notes)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(uuidv4(), app.id, previousStatus, status, req.user.id, admin_notes || `Status updated from ${previousStatus} to ${status}`);
+
+    try {
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, 'job_status_update', ?)
+      `).run(
+        uuidv4(),
+        app.applicant_id,
+        `Application Update: ${app.job_title}`,
+        `Your application for "${app.job_title}" at ${app.company_name} is now: ${status}.`,
+        `/dashboard/client`
+      );
+    } catch (notifErr) {
+      console.warn('[Notification Warning]', notifErr.message);
+    }
+
+    logAuditAction(req.user, 'ADMIN_JOB_APPLICATION_STATUS_UPDATED', 'job_application', app.id, {
+      previous_status: previousStatus,
+      new_status: status
+    });
+
+    const updated = db.prepare('SELECT * FROM job_applications WHERE id = ?').get(app.id);
+    res.json({ success: true, application: updated });
   });
 
   // User Notifications

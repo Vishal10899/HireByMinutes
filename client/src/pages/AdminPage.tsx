@@ -36,6 +36,9 @@ export const VALID_ADMIN_TABS = [
   'services',
   'categories',
   'opportunities',
+  'admin_jobs',
+  'admin_companies',
+  'admin_job_applications',
   'consultation_requests',
   'active_sessions',
   'completed_sessions',
@@ -62,6 +65,9 @@ import { AdminBannersControl } from '../components/admin/AdminBannersControl';
 import { AdminPagesControl } from '../components/admin/AdminPagesControl';
 import { AdminSeoControl } from '../components/admin/AdminSeoControl';
 import { AdminReviewsControl } from '../components/admin/AdminReviewsControl';
+import { AdminCompaniesControl } from '../components/admin/AdminCompaniesControl';
+import { AdminJobsControl } from '../components/admin/AdminJobsControl';
+import { AdminJobApplicationsControl } from '../components/admin/AdminJobApplicationsControl';
 
 import {
   LayoutDashboard,
@@ -71,6 +77,7 @@ import {
   UserCheck,
   UserX,
   Briefcase,
+  Building2,
   Layers,
   Sparkles,
   Clock,
@@ -1017,6 +1024,14 @@ export const AdminPage: React.FC = () => {
       ]
     },
     {
+      title: 'FULL-TIME JOBS',
+      items: [
+        { id: 'admin_jobs', label: 'Job Positions', icon: Briefcase, count: stats?.totalJobs ?? null },
+        { id: 'admin_companies', label: 'Company Entities', icon: Building2, count: stats?.totalCompanies ?? null },
+        { id: 'admin_job_applications', label: 'Applications & Resumes', icon: FileText, count: stats?.totalJobApplications ?? null }
+      ]
+    },
+    {
       title: 'SESSIONS',
       items: [
         { id: 'consultation_requests', label: 'Consultation Requests', icon: Clock, count: consultationRequestsList.length },
@@ -1325,6 +1340,68 @@ export const AdminPage: React.FC = () => {
                         </div>
                         <div className="text-[11px] text-midnight/60 mt-1">
                           Expert Payouts: ${formatCurrency(stats?.expertPayouts)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* FULL-TIME CAREERS & JOBS METRICS */}
+                  <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-aliceblue flex items-center justify-center border border-lightblue/60 text-midnight">
+                          <Briefcase className="w-4 h-4 text-moonstone" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-midnight">Full-Time Careers & Jobs</h3>
+                          <p className="text-[11px] text-midnight/60">Dedicated employment marketplace alongside per-minute freelance consultations</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleTabNavigate('admin_jobs')}
+                        className="text-xs font-semibold text-moonstone hover:text-moonstone-dark transition-colors cursor-pointer"
+                      >
+                        Manage Jobs →
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-timberwolf/40">
+                      <div
+                        onClick={() => handleTabNavigate('admin_jobs')}
+                        className="p-3 rounded-xl bg-aliceblue/60 hover:bg-lightblue/30 border border-timberwolf/50 transition-colors cursor-pointer"
+                      >
+                        <div className="text-[11px] font-bold text-midnight/60 uppercase tracking-wider">Open Positions</div>
+                        <div className="text-xl font-extrabold text-midnight font-mono mt-0.5">
+                          {stats?.openJobs ?? 0}
+                        </div>
+                        <div className="text-[10px] text-midnight/50 mt-0.5">
+                          {stats?.totalJobs ?? 0} total listings created
+                        </div>
+                      </div>
+
+                      <div
+                        onClick={() => handleTabNavigate('admin_companies')}
+                        className="p-3 rounded-xl bg-aliceblue/60 hover:bg-lightblue/30 border border-timberwolf/50 transition-colors cursor-pointer"
+                      >
+                        <div className="text-[11px] font-bold text-midnight/60 uppercase tracking-wider">Verified Companies</div>
+                        <div className="text-xl font-extrabold text-midnight font-mono mt-0.5">
+                          {stats?.totalCompanies ?? 0}
+                        </div>
+                        <div className="text-[10px] text-midnight/50 mt-0.5">
+                          Hiring employers & partner orgs
+                        </div>
+                      </div>
+
+                      <div
+                        onClick={() => handleTabNavigate('admin_job_applications')}
+                        className="p-3 rounded-xl bg-aliceblue/60 hover:bg-lightblue/30 border border-timberwolf/50 transition-colors cursor-pointer"
+                      >
+                        <div className="text-[11px] font-bold text-midnight/60 uppercase tracking-wider">Candidate Applications</div>
+                        <div className="text-xl font-extrabold text-midnight font-mono mt-0.5">
+                          {stats?.totalJobApplications ?? 0}
+                        </div>
+                        <div className="text-[10px] text-midnight/50 mt-0.5">
+                          Direct resume applications received
                         </div>
                       </div>
                     </div>
@@ -2165,6 +2242,13 @@ export const AdminPage: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* ===================================================================== */}
+          {/* TAB: FULL-TIME CAREERS & JOBS MARKETPLACE */}
+          {/* ===================================================================== */}
+          {activeTab === 'admin_jobs' && <AdminJobsControl />}
+          {activeTab === 'admin_companies' && <AdminCompaniesControl />}
+          {activeTab === 'admin_job_applications' && <AdminJobApplicationsControl />}
 
           {/* ===================================================================== */}
           {/* TAB 6: SESSIONS & CONSULTATION REQUESTS */}

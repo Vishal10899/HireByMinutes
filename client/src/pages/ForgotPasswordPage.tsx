@@ -33,7 +33,7 @@ export const ForgotPasswordPage: React.FC = () => {
     setError(null);
 
     try {
-      await api.forgotPassword(email.trim());
+      await api.forgotPassword(email.trim().toLowerCase());
       setSubmitted(true);
     } catch (err: any) {
       setError(err.message || 'Failed to submit password reset request.');

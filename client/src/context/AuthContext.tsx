@@ -87,18 +87,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = async (email: string, password?: string): Promise<User> => {
-    const data = await api.login(email, password);
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const data = await api.login(cleanEmail, password);
     if (data.requires_verification) {
       const err: any = new Error('Please verify your email address to complete sign-in.');
       err.requires_verification = true;
-      err.email = data.email || email;
+      err.email = data.email || cleanEmail;
       throw err;
     }
     if (data.user && data.token) {
       if (data.user.role !== 'admin' && !data.user.email_verified) {
         const err: any = new Error('Please verify your email address to complete sign-in.');
         err.requires_verification = true;
-        err.email = data.user.email || email;
+        err.email = data.user.email || cleanEmail;
         throw err;
       }
       setAuthSession(data.user, data.token);
@@ -122,7 +123,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     experience_years?: number;
   }) => {
     // Registration creates unverified account; does NOT authenticate or issue session
-    await api.register(regData);
+    const cleanEmail = (regData.email || '').trim().toLowerCase();
+    await api.register({ ...regData, email: cleanEmail });
   };
 
   const updateUser = (updated: User) => {

@@ -18,6 +18,8 @@ import { ClientDashboardPage } from './pages/ClientDashboardPage';
 import { ProviderDashboardPage } from './pages/ProviderDashboardPage';
 import { ProviderOnboardingPage } from './pages/ProviderOnboardingPage';
 import { OpportunitiesPage } from './pages/OpportunitiesPage';
+import { JobsPage } from './pages/JobsPage';
+import { JobDetailPage } from './pages/JobDetailPage';
 import { AdminPage } from './pages/AdminPage';
 import { AuthPage } from './pages/AuthPage';
 import { EditProfilePage } from './pages/EditProfilePage';
@@ -72,6 +74,8 @@ const AppRoutes: React.FC = () => {
           <Route path="/" element={<HomePage />} />
           <Route path="/services" element={<ServicesPage />} />
           <Route path="/services/:id" element={<ServiceDetailPage />} />
+          <Route path="/jobs" element={<JobsPage />} />
+          <Route path="/jobs/:id" element={<JobDetailPage />} />
           <Route path="/opportunities" element={<OpportunitiesPage />} />
 
           {/* Legal & Informational Routes */}

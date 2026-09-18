@@ -55,17 +55,18 @@ export const api = {
   },
 
   login: async (email: string, password?: string) => {
+    const cleanEmail = (email || '').trim().toLowerCase();
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email: cleanEmail, password })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const err: any = new Error(data.error || 'Login failed');
       err.status = res.status;
       err.requires_verification = Boolean(data.requires_verification);
-      err.email = data.email || email;
+      err.email = (data.email || cleanEmail).trim().toLowerCase();
       throw err;
     }
     return data;
@@ -81,15 +82,19 @@ export const api = {
     avatar_url?: string;
     username?: string;
   }) => {
+    const cleanEmail = (data.email || '').trim().toLowerCase();
+    const payload = { ...data, email: cleanEmail };
     const res = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(payload)
     });
     const dataRes = await res.json().catch(() => ({}));
     if (!res.ok) {
       const err: any = new Error(dataRes.error || 'Registration failed');
       err.status = res.status;
+      err.requires_verification = Boolean(dataRes.requires_verification);
+      err.email = (dataRes.email || cleanEmail).trim().toLowerCase();
       err.email_failed = Boolean(dataRes.email_failed);
       throw err;
     }
@@ -97,65 +102,71 @@ export const api = {
   },
 
   verifyEmailOtp: async (email: string, code: string) => {
+    const cleanEmail = (email || '').trim().toLowerCase();
     const res = await fetch(`${API_BASE}/auth/verify-email-otp`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ email, code })
+      body: JSON.stringify({ email: cleanEmail, code })
     });
     if (!res.ok) {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Verification failed');
     }
     return res.json();
   },
 
   resendVerificationOtp: async (email?: string) => {
+    const cleanEmail = email ? email.trim().toLowerCase() : undefined;
     const res = await fetch(`${API_BASE}/auth/resend-verification-otp`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ email: cleanEmail })
     });
     if (!res.ok) {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Failed to resend code');
     }
     return res.json();
   },
 
   changeUnverifiedEmail: async (old_email: string, new_email: string) => {
+    const cleanOld = (old_email || '').trim().toLowerCase();
+    const cleanNew = (new_email || '').trim().toLowerCase();
     const res = await fetch(`${API_BASE}/auth/change-unverified-email`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ old_email, new_email })
+      body: JSON.stringify({ old_email: cleanOld, new_email: cleanNew })
     });
     if (!res.ok) {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Failed to update email');
     }
     return res.json();
   },
 
   forgotPassword: async (email: string) => {
+    const cleanEmail = (email || '').trim().toLowerCase();
     const res = await fetch(`${API_BASE}/auth/forgot-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ email: cleanEmail })
     });
     if (!res.ok) {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Failed to submit request');
     }
     return res.json();
   },
 
   resetPassword: async (data: { email: string; token: string; new_password: string }) => {
+    const cleanEmail = (data.email || '').trim().toLowerCase();
     const res = await fetch(`${API_BASE}/auth/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify({ ...data, email: cleanEmail })
     });
     if (!res.ok) {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Password reset failed');
     }
     return res.json();
@@ -1568,5 +1579,305 @@ export const api = {
       throw new Error(err.error || 'Failed to delete FAQ');
     }
     return res.json();
+  },
+
+  // ==========================================
+  // JOBS MARKETPLACE & APPLICATION API
+  // ==========================================
+
+  uploadResume: async (file: File) => {
+    const formData = new FormData();
+    formData.append('resume', file);
+
+    const token = localStorage.getItem('hbm_token');
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(`${API_BASE}/upload/resume`, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to upload resume document');
+    }
+    return res.json();
+  },
+
+  getJobs: async (params?: Record<string, any>) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          query.append(k, String(v));
+        }
+      });
+    }
+    const qStr = query.toString();
+    const res = await fetch(`${API_BASE}/jobs${qStr ? `?${qStr}` : ''}`);
+    if (!res.ok) throw new Error('Failed to fetch jobs');
+    return res.json();
+  },
+
+  getFeaturedJobs: async () => {
+    const res = await fetch(`${API_BASE}/jobs/featured`);
+    if (!res.ok) throw new Error('Failed to fetch featured jobs');
+    return res.json();
+  },
+
+  getJob: async (idOrSlug: string) => {
+    const res = await fetch(`${API_BASE}/jobs/${encodeURIComponent(idOrSlug)}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Job not found');
+    }
+    return res.json();
+  },
+
+  applyJob: async (jobId: string, data: { resume_url: string; cover_note?: string; relevant_experience?: string; skills?: string[] }) => {
+    const res = await fetch(`${API_BASE}/jobs/${encodeURIComponent(jobId)}/apply`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to submit application');
+    }
+    return res.json();
+  },
+
+  getMyJobApplications: async () => {
+    const res = await fetch(`${API_BASE}/my/job-applications`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch your applications');
+    return res.json();
+  },
+
+  withdrawJobApplication: async (id: string) => {
+    const res = await fetch(`${API_BASE}/my/job-applications/${encodeURIComponent(id)}/withdraw`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to withdraw application');
+    }
+    return res.json();
+  },
+
+  getJobApplicationResumeUrl: (id: string) => {
+    return `${API_BASE}/job-applications/${encodeURIComponent(id)}/resume`;
+  },
+
+  // Admin Companies
+  getAdminCompanies: async () => {
+    const res = await fetch(`${API_BASE}/admin/companies`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch admin companies');
+    return res.json();
+  },
+
+  createAdminCompany: async (data: any) => {
+    const res = await fetch(`${API_BASE}/admin/companies`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to create company');
+    }
+    return res.json();
+  },
+
+  getAdminCompany: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/companies/${encodeURIComponent(id)}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch company details');
+    return res.json();
+  },
+
+  updateAdminCompany: async (id: string, data: any) => {
+    const res = await fetch(`${API_BASE}/admin/companies/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update company');
+    }
+    return res.json();
+  },
+
+  deleteAdminCompany: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/companies/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to delete company');
+    }
+    return res.json();
+  },
+
+  // Admin Jobs
+  getAdminJobs: async (params?: Record<string, any>) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          query.append(k, String(v));
+        }
+      });
+    }
+    const qStr = query.toString();
+    const res = await fetch(`${API_BASE}/admin/jobs${qStr ? `?${qStr}` : ''}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch admin jobs');
+    return res.json();
+  },
+
+  createAdminJob: async (data: any) => {
+    const res = await fetch(`${API_BASE}/admin/jobs`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to create job');
+    }
+    return res.json();
+  },
+
+  getAdminJob: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/jobs/${encodeURIComponent(id)}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch job details');
+    return res.json();
+  },
+
+  updateAdminJob: async (id: string, data: any) => {
+    const res = await fetch(`${API_BASE}/admin/jobs/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update job');
+    }
+    return res.json();
+  },
+
+  publishAdminJob: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/jobs/${encodeURIComponent(id)}/publish`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to publish job');
+    return res.json();
+  },
+
+  unpublishAdminJob: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/jobs/${encodeURIComponent(id)}/unpublish`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to unpublish job');
+    return res.json();
+  },
+
+  closeAdminJob: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/jobs/${encodeURIComponent(id)}/close`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to close job');
+    return res.json();
+  },
+
+  archiveAdminJob: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/jobs/${encodeURIComponent(id)}/archive`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to archive job');
+    return res.json();
+  },
+
+  toggleFeaturedAdminJob: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/jobs/${encodeURIComponent(id)}/toggle-featured`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to toggle featured status');
+    return res.json();
+  },
+
+  deleteAdminJob: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/jobs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to delete job');
+    }
+    return res.json();
+  },
+
+  // Admin Job Applications
+  getAdminJobApplications: async (params?: Record<string, any>) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          query.append(k, String(v));
+        }
+      });
+    }
+    const qStr = query.toString();
+    const res = await fetch(`${API_BASE}/admin/job-applications${qStr ? `?${qStr}` : ''}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch job applications');
+    return res.json();
+  },
+
+  getAdminJobApplication: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/job-applications/${encodeURIComponent(id)}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch application details');
+    return res.json();
+  },
+
+  updateAdminJobApplicationStatus: async (id: string, status: string, admin_notes?: string) => {
+    const res = await fetch(`${API_BASE}/admin/job-applications/${encodeURIComponent(id)}/status`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ status, admin_notes })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update application status');
+    }
+    return res.json();
   }
 };
+

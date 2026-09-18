@@ -291,3 +291,105 @@ export interface RegistrationFeeResponse {
   serverTime: string;
 }
 
+export interface Company {
+  id: string;
+  name: string;
+  logo_url?: string | null;
+  website?: string | null;
+  industry?: string | null;
+  company_size?: string | null;
+  location?: string | null;
+  description?: string | null;
+  status: 'active' | 'archived';
+  total_jobs?: number;
+  active_jobs?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type WorkMode = 'Remote' | 'Hybrid' | 'On-site';
+export type JobStatus = 'draft' | 'published' | 'closed' | 'archived';
+export type SalaryType = 'range' | 'starting_from' | 'up_to' | 'undisclosed';
+
+export interface Job {
+  id: string;
+  company_id: string;
+  company_name?: string;
+  company_logo?: string | null;
+  company_website?: string | null;
+  company_industry?: string | null;
+  company_size?: string | null;
+  company_location?: string | null;
+  company_description?: string | null;
+  company?: Company;
+  title: string;
+  slug?: string;
+  department?: string | null;
+  category_id?: string | null;
+  category_name?: string | null;
+  description: string;
+  responsibilities: string[];
+  requirements: string[];
+  skills: string[];
+  benefits: string[];
+  employment_type: string;
+  work_mode: WorkMode;
+  country?: string | null;
+  city?: string | null;
+  location_text?: string | null;
+  experience_level: string;
+  min_experience: number;
+  salary_type: SalaryType;
+  salary_min?: number | null;
+  salary_max?: number | null;
+  currency: string;
+  application_deadline?: string | null;
+  status: JobStatus;
+  featured: number | boolean;
+  published_at?: string | null;
+  applications_count?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type JobApplicationStatus = 'Submitted' | 'Under Review' | 'Shortlisted' | 'Interview' | 'Rejected' | 'Hired' | 'Withdrawn';
+
+export interface JobApplication {
+  id: string;
+  job_id: string;
+  applicant_id: string;
+  applicant_name?: string;
+  applicant_email?: string;
+  applicant_avatar?: string | null;
+  applicant_country?: string | null;
+  job_title?: string;
+  job_slug?: string;
+  department?: string | null;
+  employment_type?: string;
+  work_mode?: string;
+  location_text?: string | null;
+  job_status?: string;
+  company_name?: string;
+  company_logo?: string | null;
+  company_location?: string | null;
+  resume_url: string;
+  cover_note?: string;
+  relevant_experience?: string;
+  skills: string[];
+  status: JobApplicationStatus;
+  admin_notes?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface JobApplicationStatusHistory {
+  id: string;
+  application_id: string;
+  previous_status?: string | null;
+  new_status: string;
+  changed_by: string;
+  changed_by_name?: string;
+  notes?: string;
+  created_at: string;
+}
+

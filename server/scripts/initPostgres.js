@@ -360,11 +360,90 @@ CREATE TABLE IF NOT EXISTS faqs (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS companies (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  logo_url TEXT,
+  website TEXT,
+  industry VARCHAR(128),
+  company_size VARCHAR(64),
+  location VARCHAR(255),
+  description TEXT,
+  status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS jobs (
+  id VARCHAR(64) PRIMARY KEY,
+  company_id VARCHAR(64) NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  title VARCHAR(255) NOT NULL,
+  slug VARCHAR(255),
+  department VARCHAR(128),
+  category_id VARCHAR(64) REFERENCES categories(id) ON DELETE SET NULL,
+  description TEXT NOT NULL,
+  responsibilities TEXT DEFAULT '[]',
+  requirements TEXT DEFAULT '[]',
+  skills TEXT DEFAULT '[]',
+  benefits TEXT DEFAULT '[]',
+  employment_type VARCHAR(64) DEFAULT 'Full-time',
+  work_mode VARCHAR(32) NOT NULL DEFAULT 'Remote' CHECK(work_mode IN ('Remote', 'Hybrid', 'On-site')),
+  country VARCHAR(128),
+  city VARCHAR(128),
+  location_text VARCHAR(255),
+  experience_level VARCHAR(64) DEFAULT 'Mid Level',
+  min_experience INTEGER DEFAULT 0,
+  salary_type VARCHAR(32) DEFAULT 'undisclosed' CHECK(salary_type IN ('range', 'starting_from', 'up_to', 'undisclosed')),
+  salary_min NUMERIC(12,2),
+  salary_max NUMERIC(12,2),
+  currency VARCHAR(16) DEFAULT 'USD',
+  application_deadline TIMESTAMP WITH TIME ZONE,
+  status VARCHAR(32) NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'published', 'closed', 'archived')),
+  featured INTEGER DEFAULT 0,
+  published_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS job_applications (
+  id VARCHAR(64) PRIMARY KEY,
+  job_id VARCHAR(64) NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  applicant_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  resume_url TEXT,
+  cover_note TEXT,
+  relevant_experience TEXT,
+  skills TEXT DEFAULT '[]',
+  status VARCHAR(32) NOT NULL DEFAULT 'Submitted' CHECK(status IN ('Submitted', 'Under Review', 'Shortlisted', 'Interview', 'Rejected', 'Hired', 'Withdrawn')),
+  admin_notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uq_job_applicant UNIQUE (job_id, applicant_id)
+);
+
+CREATE TABLE IF NOT EXISTS job_application_status_history (
+  id VARCHAR(64) PRIMARY KEY,
+  application_id VARCHAR(64) NOT NULL REFERENCES job_applications(id) ON DELETE CASCADE,
+  previous_status VARCHAR(32),
+  new_status VARCHAR(32) NOT NULL,
+  changed_by VARCHAR(64) NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Production Indexes for Performance and Integrity
 CREATE INDEX IF NOT EXISTS idx_banners_active_placement ON banners_announcements(is_active, placement);
 CREATE INDEX IF NOT EXISTS idx_cms_slug ON cms_pages(slug);
 CREATE INDEX IF NOT EXISTS idx_cms_status ON cms_pages(status);
 CREATE INDEX IF NOT EXISTS idx_faqs_pub_order ON faqs(is_published, sort_order);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+CREATE INDEX IF NOT EXISTS idx_jobs_company_id ON jobs(company_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_category_id ON jobs(category_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_published_at ON jobs(published_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_deadline ON jobs(application_deadline);
+CREATE INDEX IF NOT EXISTS idx_jobs_featured ON jobs(featured);
+CREATE INDEX IF NOT EXISTS idx_job_app_job ON job_applications(job_id);
+CREATE INDEX IF NOT EXISTS idx_job_app_applicant ON job_applications(applicant_id);
+CREATE INDEX IF NOT EXISTS idx_job_app_status ON job_applications(status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username));
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
@@ -444,13 +523,14 @@ async function initPostgres(customPool = null) {
       ['logo_url', '', 'Custom brand logo image URL'],
       ['header_navigation', JSON.stringify([
         { id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true, is_external: false },
-        { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 2, is_visible: true, is_external: false },
-        { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 3, is_visible: true, is_external: false }
+        { id: 'jobs', label: 'Jobs', url: '/jobs', order: 2, is_visible: true, is_external: false },
+        { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 3, is_visible: true, is_external: false },
+        { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 4, is_visible: true, is_external: false }
       ]), 'Configurable header navigation items and ordering'],
       ['header_cta_label', 'Sign In / Join', 'Header call-to-action button label'],
       ['header_cta_url', '/auth', 'Header call-to-action destination URL'],
       ['footer_settings', JSON.stringify({
-        company_description: 'The precision marketplace for on-demand consultations. Hire verified experts for exactly the minutes you need, or monetize specialized knowledge with zero retainers.',
+        company_description: 'The precision marketplace for on-demand consultations and full-time careers. Hire verified experts for exactly the minutes you need, or discover career-defining employment opportunities.',
         contact_email: 'support@hirebyminute.com',
         contact_phone: '+1 (800) 555-0199',
         address: 'San Francisco, CA, United States',
@@ -466,7 +546,8 @@ async function initPostgres(customPool = null) {
             { id: 'about', label: 'About Us', url: '/about', order: 1, is_visible: true },
             { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 2, is_visible: true },
             { id: 'services', label: 'Browse Services', url: '/services', order: 3, is_visible: true },
-            { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 4, is_visible: true, is_new: true }
+            { id: 'jobs', label: 'Full-Time Jobs', url: '/jobs', order: 4, is_visible: true },
+            { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 5, is_visible: true, is_new: true }
           ],
           policies: [
             { id: 'terms', label: 'Terms of Service', url: '/terms', order: 1, is_visible: true },
@@ -493,30 +574,36 @@ async function initPostgres(customPool = null) {
       }), 'Configurable customer support and platform contact channels'],
       ['homepage_settings', JSON.stringify({
         hero_headline: 'What brings you here?',
-        hero_subheadline: 'Hire expertise by the minute, or turn your expertise into a service people can book.',
-        hero_badge_text: '⚡ Instant 1-on-1 Consultations • Pay Per Exact Minute',
+        hero_subheadline: 'Hire expertise by the minute, offer freelance services, or discover your next full-time career role.',
+        hero_badge_text: '⚡ Instant 1-on-1 Consultations • Freelance Services • Full-Time Roles',
         primary_cta_label: 'Find an Expert',
         primary_cta_url: '/services',
-        secondary_cta_label: 'Become a Service Provider',
-        secondary_cta_url: '/provider/onboard',
-        search_placeholder: 'Search experts, skills, or services...',
-        popular_tags: ['Python developer', 'Figma teardown', 'RAG architect', 'B2B growth audit', 'Tax advisor', 'AI Prompt Engineer', 'Fractional CTO'],
-        intent_client_title: 'Find an expert',
-        intent_client_desc: 'Pay only for the exact minutes you spend with a vetted professional. No retainers or minimum commitments.',
-        intent_client_button: 'Browse Experts',
-        intent_provider_title: 'List your service',
-        intent_provider_desc: 'Set your own per-minute rate, choose your hours, and get booked by clients who value your time.',
-        intent_provider_button: 'Become a Service Provider',
+        secondary_cta_label: 'Browse Jobs',
+        secondary_cta_url: '/jobs',
+        search_placeholder: 'Search experts, skills, or full-time jobs...',
+        popular_tags: ['Python developer', 'Full-Stack Engineer', 'Figma teardown', 'RAG architect', 'B2B growth audit', 'Tax advisor', 'AI Prompt Engineer', 'Fractional CTO'],
+        intent_expert_title: 'HIRE AN EXPERT',
+        intent_expert_desc: 'Get help from a skilled professional and pay only for the time you need.',
+        intent_expert_button: 'Browse Experts',
+        intent_expert_url: '/services',
+        intent_freelance_title: 'FIND FREELANCE WORK',
+        intent_freelance_desc: 'Discover freelance services and professional opportunities.',
+        intent_freelance_button: 'Explore Freelance',
+        intent_freelance_url: '/services',
+        intent_job_title: 'FIND A FULL-TIME JOB',
+        intent_job_desc: 'Discover full-time roles from companies hiring professionals.',
+        intent_job_button: 'Browse Jobs',
+        intent_job_url: '/jobs',
         how_it_works_title: 'How HireByMinute works',
-        how_it_works_subtitle: 'From finding the right person to finishing your timed consultation in four easy steps.',
+        how_it_works_subtitle: 'From connecting with verified specialists to applying for full-time opportunities.',
         how_it_works_steps: [
-          { step: '01', title: 'Find an Expert', description: 'Find someone who knows exactly what you need without wading through bloated project agencies.' },
-          { step: '02', title: 'Choose Your Time', description: 'Choose exactly how many minutes or hours you need: 15m, 30m, 45m, or custom duration.' },
-          { step: '03', title: 'Live Timed Session', description: 'Chat, call, video, or share files while the server-authoritative countdown clock is active.' },
-          { step: '04', title: 'Session Completes', description: 'When time ends, communication closes naturally. No scope creep, surprise invoices, or billing disputes.' }
+          { step: '01', title: 'Find an Expert or Role', description: 'Search verified professionals by exact skills or discover permanent full-time employment.' },
+          { step: '02', title: 'Choose Your Engagement', description: 'Schedule timed consultations by the minute or submit direct full-time applications.' },
+          { step: '03', title: 'Live Collaboration', description: 'Collaborate via WebRTC video or interview directly with hiring companies.' },
+          { step: '04', title: 'Transparent Delivery', description: 'Pay strictly for the minutes you use with zero retainers, or advance to hire.' }
         ],
-        cta_title: 'Ready to experience precision consulting?',
-        cta_subtitle: 'Connect with verified specialists right now and pay strictly for the minutes you use.',
+        cta_title: 'Ready to experience precision consulting and career growth?',
+        cta_subtitle: 'Connect with verified specialists right now or find companies hiring across top technical domains.',
         cta_button_label: 'Get Started Today',
         cta_button_url: '/services',
         visibility: {
@@ -526,6 +613,7 @@ async function initPostgres(customPool = null) {
           popular_categories: true,
           featured_experts: true,
           how_it_works: true,
+          fulltime_jobs: true,
           cta: true
         }
       }), 'Configurable homepage content, hero copy, intent cards, and section visibility'],

@@ -366,6 +366,7 @@ const handleSitemapXml = (req, res) => {
   const coreUrls = [
     { loc: 'https://hirebyminute.com/', priority: '1.0', changefreq: 'daily' },
     { loc: 'https://hirebyminute.com/services', priority: '0.9', changefreq: 'daily' },
+    { loc: 'https://hirebyminute.com/jobs', priority: '0.9', changefreq: 'daily' },
     { loc: 'https://hirebyminute.com/opportunities', priority: '0.8', changefreq: 'daily' },
     { loc: 'https://hirebyminute.com/how-it-works', priority: '0.8', changefreq: 'weekly' },
     { loc: 'https://hirebyminute.com/about', priority: '0.7', changefreq: 'monthly' },
@@ -389,6 +390,19 @@ const handleSitemapXml = (req, res) => {
             priority: '0.7',
             changefreq: 'weekly',
             lastmod: s.updated_at ? new Date(s.updated_at).toISOString().split('T')[0] : undefined
+          });
+        }
+      }
+
+      // Include active published jobs
+      const publishedJobs = db.prepare("SELECT id, slug, updated_at FROM jobs WHERE status = 'published' AND (application_deadline IS NULL OR application_deadline >= CURRENT_TIMESTAMP) LIMIT 500").all();
+      if (Array.isArray(publishedJobs)) {
+        for (const j of publishedJobs) {
+          dynamicUrls.push({
+            loc: `https://hirebyminute.com/jobs/${j.slug || j.id}`,
+            priority: '0.8',
+            changefreq: 'daily',
+            lastmod: j.updated_at ? new Date(j.updated_at).toISOString().split('T')[0] : undefined
           });
         }
       }

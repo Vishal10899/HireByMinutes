@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
-import { ConsultationRequest } from '../types';
+import { ConsultationRequest, JobApplication } from '../types';
 import {
   Clock,
   Calendar,
@@ -19,7 +19,8 @@ import {
   Check,
   XCircle,
   ShieldCheck,
-  Zap
+  Zap,
+  Briefcase
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
@@ -91,13 +92,15 @@ export const ClientDashboardPage: React.FC = () => {
   const { socket } = useSocket();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'payments' | 'experts'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'payments' | 'experts' | 'job_applications'>('overview');
   const [activeSession, setActiveSession] = useState<any | null>(null);
   const [consultationRequests, setConsultationRequests] = useState<ConsultationRequest[]>([]);
   const [upcomingBookings, setUpcomingBookings] = useState<any[]>([]);
   const [pastSessions, setPastSessions] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [previouslyHiredExperts, setPreviouslyHiredExperts] = useState<any[]>([]);
+  const [jobApplications, setJobApplications] = useState<JobApplication[]>([]);
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const [stats, setStats] = useState<{
     totalExpertsHired?: number;
     totalSessionMinutes?: number;
@@ -111,18 +114,37 @@ export const ClientDashboardPage: React.FC = () => {
   const loadDashboard = async () => {
     try {
       setLoading(true);
-      const data = await api.getClientDashboard();
+      const [data, jobAppsRes] = await Promise.all([
+        api.getClientDashboard(),
+        api.getMyJobApplications().catch(() => ({ applications: [] }))
+      ]);
       setActiveSession(data.activeSession || null);
       setConsultationRequests(data.consultationRequests || []);
       setUpcomingBookings(data.upcomingBookings || []);
       setPastSessions(data.pastSessions || []);
       setPayments(data.payments || []);
       setPreviouslyHiredExperts(data.previouslyHiredExperts || []);
+      setJobApplications(jobAppsRes?.applications || []);
       setStats(data.stats || null);
     } catch (err) {
       console.error('Failed to load client dashboard', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleWithdrawApplication = async (appId: string) => {
+    if (!window.confirm('Are you sure you want to withdraw this application? This action cannot be undone.')) {
+      return;
+    }
+    try {
+      setWithdrawingId(appId);
+      await api.withdrawJobApplication(appId);
+      await loadDashboard();
+    } catch (err: any) {
+      alert(err.message || 'Failed to withdraw application');
+    } finally {
+      setWithdrawingId(null);
     }
   };
 
@@ -391,6 +413,17 @@ export const ClientDashboardPage: React.FC = () => {
           }`}
         >
           Payment History ({payments.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('job_applications')}
+          className={`min-h-[44px] px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer flex items-center active:scale-95 ${
+            activeTab === 'job_applications'
+              ? 'border-moonstone text-moonstone'
+              : 'border-transparent text-midnight/70 hover:text-midnight'
+          }`}
+        >
+          Job Applications ({jobApplications.length})
         </button>
       </div>
 
@@ -779,6 +812,129 @@ export const ClientDashboardPage: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 5. JOB APPLICATIONS TAB */}
+      {/* ========================================================================= */}
+      {activeTab === 'job_applications' && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-bold text-midnight flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-moonstone" />
+                <span>My Job Applications</span>
+              </h3>
+              <p className="text-xs text-midnight/60 mt-0.5">
+                Track candidate review milestones, statuses, and your submitted resume documents.
+              </p>
+            </div>
+            <Link
+              to="/jobs"
+              className="text-xs font-semibold text-moonstone hover:text-moonstone-dark flex items-center gap-1 transition-colors"
+            >
+              <span>Browse More Openings</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {jobApplications.length === 0 ? (
+            <div className="p-10 bg-white rounded-2xl border border-timberwolf/70 text-center shadow-card space-y-3 max-w-md mx-auto my-6">
+              <div className="w-12 h-12 rounded-xl bg-aliceblue text-moonstone mx-auto flex items-center justify-center border border-timberwolf/60">
+                <Briefcase className="w-6 h-6" />
+              </div>
+              <h4 className="text-sm font-bold text-midnight">No Applications Submitted</h4>
+              <p className="text-xs text-midnight/70 leading-relaxed">
+                You haven't applied to any full-time positions yet. Explore career openings from leading verified employers.
+              </p>
+              <div className="pt-2">
+                <Link
+                  to="/jobs"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-midnight text-white text-xs font-semibold hover:bg-midnight/90 transition-all shadow-subtle"
+                >
+                  Explore Full-Time Jobs
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {jobApplications.map((app) => {
+                const getStatusBadge = (st: string) => {
+                  switch (st) {
+                    case 'Submitted':
+                      return 'bg-blue-50 text-blue-800 border-blue-200';
+                    case 'Under Review':
+                      return 'bg-amber-50 text-amber-800 border-amber-200';
+                    case 'Shortlisted':
+                      return 'bg-purple-50 text-purple-800 border-purple-200';
+                    case 'Interview':
+                      return 'bg-teal-50 text-teal-800 border-teal-200';
+                    case 'Hired':
+                      return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+                    case 'Rejected':
+                      return 'bg-rose-50 text-rose-800 border-rose-200';
+                    case 'Withdrawn':
+                      return 'bg-zinc-100 text-zinc-600 border-zinc-200';
+                    default:
+                      return 'bg-aliceblue text-midnight border-timberwolf/60';
+                  }
+                };
+
+                const canWithdraw = !['Hired', 'Rejected', 'Withdrawn'].includes(app.status);
+
+                return (
+                  <div
+                    key={app.id}
+                    className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                      <div className="w-11 h-11 rounded-xl bg-aliceblue border border-timberwolf/60 flex items-center justify-center font-bold text-midnight text-sm shrink-0 overflow-hidden">
+                        {app.company_logo ? (
+                          <img src={app.company_logo} alt={app.company_name || ''} className="w-full h-full object-cover" />
+                        ) : (
+                          (app.company_name || 'CO').slice(0, 2).toUpperCase()
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <span className="text-xs text-midnight/60 font-semibold block truncate">
+                          {app.company_name || 'HireByMinute Partner'}
+                        </span>
+                        <Link
+                          to={`/jobs/${app.job_slug || app.job_id}`}
+                          className="text-base font-bold text-midnight hover:text-moonstone transition-colors block truncate"
+                        >
+                          {app.job_title || 'Position'}
+                        </Link>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-midnight/70">
+                          {app.work_mode && <span>{app.work_mode}</span>}
+                          {app.location_text && <span>• {app.location_text}</span>}
+                          <span>• Applied {new Date(app.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-timberwolf/30 justify-between sm:justify-end">
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(app.status)}`}>
+                        {app.status}
+                      </span>
+
+                      {canWithdraw && (
+                        <button
+                          onClick={() => handleWithdrawApplication(app.id)}
+                          disabled={withdrawingId === app.id}
+                          className="px-3 py-1 rounded-xl border border-timberwolf/70 hover:border-rose-300 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                        >
+                          {withdrawingId === app.id ? 'Withdrawing...' : 'Withdraw'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

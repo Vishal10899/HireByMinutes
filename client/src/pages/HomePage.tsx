@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import { Service, Category } from '../types';
+import { Service, Category, Job } from '../types';
 import { ExpertCard } from '../components/common/ExpertCard';
 import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
@@ -22,7 +22,8 @@ import {
   Shield,
   Zap,
   ArrowUpRight,
-  X
+  X,
+  MapPin
 } from 'lucide-react';
 
 import { usePageSEO } from '../hooks/usePageSEO';
@@ -31,14 +32,16 @@ export const HomePage: React.FC = () => {
   const [seoData, setSeoData] = useState<{ site_title?: string; meta_description?: string } | null>(null);
 
   usePageSEO({
-    title: seoData?.site_title || 'HireByMinute — Hire Experts by the Minute',
-    description: seoData?.meta_description || 'Find the right expert and hire them by the minute. Get real-time help from skilled professionals and pay only for the time you need.',
+    title: seoData?.site_title || 'HireByMinute — Hire Experts by the Minute & Discover Careers',
+    description: seoData?.meta_description || 'Find the right expert by the minute, offer freelance services, or discover full-time employment opportunities with top verified companies.',
     canonicalPath: '/'
   });
 
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchTab, setSearchTab] = useState<'services' | 'experts' | 'jobs'>('services');
   const [featuredServices, setFeaturedServices] = useState<Service[]>([]);
+  const [featuredJobs, setFeaturedJobs] = useState<Job[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [cmsSettings, setCmsSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -46,14 +49,16 @@ export const HomePage: React.FC = () => {
   useEffect(() => {
     async function loadHomeData() {
       try {
-        const [servicesRes, categoriesRes, homepageRes, seoRes] = await Promise.all([
+        const [servicesRes, categoriesRes, homepageRes, seoRes, jobsRes] = await Promise.all([
           api.getFeaturedServices(),
           api.getCategories(),
           api.getHomepageSettings().catch(() => null),
-          api.getSeoSettings().catch(() => null)
+          api.getSeoSettings().catch(() => null),
+          api.getFeaturedJobs().catch(() => ({ jobs: [] }))
         ]);
         setFeaturedServices(servicesRes?.services || []);
         setCategories(categoriesRes?.categories || []);
+        setFeaturedJobs(jobsRes?.jobs || []);
         if (homepageRes && homepageRes.homepage) {
           setCmsSettings(homepageRes.homepage);
         }
@@ -71,10 +76,13 @@ export const HomePage: React.FC = () => {
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchQuery.trim()) {
-      navigate(`/services?search=${encodeURIComponent(searchQuery.trim())}`);
+    const q = searchQuery.trim();
+    if (searchTab === 'jobs') {
+      navigate(q ? `/jobs?search=${encodeURIComponent(q)}` : '/jobs');
+    } else if (searchTab === 'experts') {
+      navigate(q ? `/services?search=${encodeURIComponent(q)}` : '/services');
     } else {
-      navigate('/services');
+      navigate(q ? `/services?search=${encodeURIComponent(q)}` : '/services');
     }
   };
 
@@ -116,58 +124,94 @@ export const HomePage: React.FC = () => {
           </p>
 
           {/* ========================================================================= */}
-          {/* THE TWO INTENT CARDS — IMMEDIATE INTENT CHOICE */}
+          {/* THE THREE INTENT CARDS — IMMEDIATE INTENT CHOICE */}
           {/* ========================================================================= */}
           {cmsSettings?.visibility?.intent_cards !== false && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 mt-7 sm:mt-9 text-left">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5 mt-7 sm:mt-9 text-left">
               
-              {/* Card 1: Need a service (Client) */}
-              <div className="bg-lightblue/35 border-2 border-lightblue/90 hover:border-moonstone/70 rounded-[22px] p-6 shadow-subtle flex flex-col justify-between transition-all duration-150">
+              {/* Card 1: Hire an Expert */}
+              <div className="bg-lightblue/35 border-2 border-lightblue/90 hover:border-moonstone/70 rounded-[22px] p-5 sm:p-6 shadow-subtle flex flex-col justify-between transition-all duration-150">
                 <div>
-                  <div className="w-11 h-11 rounded-xl bg-white/90 border border-lightblue/80 text-midnight flex items-center justify-center mb-5 shrink-0 shadow-xs">
-                    <Search className="w-5 h-5 text-midnight" />
+                  <div className="w-10 h-10 rounded-xl bg-white/90 border border-lightblue/80 text-midnight flex items-center justify-center mb-4 shrink-0 shadow-xs">
+                    <Clock className="w-5 h-5 text-midnight" />
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-bold text-midnight tracking-tight mb-2">
-                    {cmsSettings?.intent_client_title || 'I need a service'}
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-moonstone-dark block mb-1">
+                    Pay by the Minute
+                  </span>
+                  <h2 className="text-lg sm:text-xl font-bold text-midnight tracking-tight mb-2">
+                    {cmsSettings?.intent_expert_title || cmsSettings?.intent_client_title || 'Hire an Expert'}
                   </h2>
-                  <p className="text-sm text-midnight/75 leading-relaxed">
-                    {cmsSettings?.intent_client_desc || 'Find someone who knows exactly what you need and hire them for the precise minutes you require.'}
+                  <p className="text-xs sm:text-sm text-midnight/75 leading-relaxed">
+                    {cmsSettings?.intent_expert_desc || cmsSettings?.intent_client_desc || 'Find verified professionals and pay strictly by the minute for precision advice and consultations.'}
                   </p>
                 </div>
-                <div className="mt-6 pt-1">
+                <div className="mt-5 pt-1">
                   <Button
                     to={cmsSettings?.primary_cta_url || '/services'}
                     variant="primary"
-                    size="md"
-                    className="w-auto min-w-[170px] max-w-[220px]"
-                    iconRight={<ArrowRight className="w-4 h-4 text-moonstone" />}
+                    size="sm"
+                    className="w-full text-xs"
+                    iconRight={<ArrowRight className="w-3.5 h-3.5 text-moonstone" />}
                   >
-                    {cmsSettings?.intent_client_button || cmsSettings?.primary_cta_label || 'Find an Expert'}
+                    {cmsSettings?.intent_expert_button || cmsSettings?.intent_client_button || 'Find an Expert'}
                   </Button>
                 </div>
               </div>
 
-              {/* Card 2: Provide a service (Provider) */}
-              <div className="bg-midnight border border-midnight text-aliceblue rounded-[22px] p-6 shadow-card flex flex-col justify-between transition-all duration-150">
+              {/* Card 2: Find Freelance Work */}
+              <div className="bg-white border-2 border-timberwolf/80 hover:border-moonstone/70 rounded-[22px] p-5 sm:p-6 shadow-subtle flex flex-col justify-between transition-all duration-150">
                 <div>
-                  <div className="w-11 h-11 rounded-xl bg-midnight-light border border-white/10 text-moonstone flex items-center justify-center mb-5 shrink-0">
-                    <Clock className="w-5 h-5 text-moonstone" />
+                  <div className="w-10 h-10 rounded-xl bg-aliceblue border border-timberwolf/60 text-moonstone flex items-center justify-center mb-4 shrink-0 shadow-xs">
+                    <DollarSign className="w-5 h-5 text-moonstone" />
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-bold text-aliceblue tracking-tight mb-2">
-                    {cmsSettings?.intent_provider_title || 'I provide a service'}
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-midnight/50 block mb-1">
+                    Freelance Marketplace
+                  </span>
+                  <h2 className="text-lg sm:text-xl font-bold text-midnight tracking-tight mb-2">
+                    {cmsSettings?.intent_freelance_title || cmsSettings?.intent_provider_title || 'Find Freelance Work'}
                   </h2>
-                  <p className="text-sm text-aliceblue/80 leading-relaxed">
-                    {cmsSettings?.intent_provider_desc || 'Share what you know and get hired by the minute.'}
+                  <p className="text-xs sm:text-sm text-midnight/75 leading-relaxed">
+                    {cmsSettings?.intent_freelance_desc || cmsSettings?.intent_provider_desc || 'Share what you know, accept client bookings, and monetize your professional minutes.'}
                   </p>
                 </div>
-                <div className="mt-6 pt-1">
+                <div className="mt-5 pt-1">
                   <Button
                     to={cmsSettings?.secondary_cta_url || '/provider/onboard'}
-                    variant="accent"
-                    size="md"
-                    className="w-auto min-w-[190px] max-w-[240px]"
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs"
+                    iconRight={<ArrowRight className="w-3.5 h-3.5" />}
                   >
-                    {cmsSettings?.intent_provider_button || cmsSettings?.secondary_cta_label || 'Become a Service Provider'}
+                    {cmsSettings?.intent_freelance_button || cmsSettings?.intent_provider_button || 'Offer Services'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Card 3: Find a Full-Time Job */}
+              <div className="bg-midnight border border-midnight text-aliceblue rounded-[22px] p-5 sm:p-6 shadow-card flex flex-col justify-between transition-all duration-150">
+                <div>
+                  <div className="w-10 h-10 rounded-xl bg-midnight-light border border-white/10 text-moonstone flex items-center justify-center mb-4 shrink-0">
+                    <Briefcase className="w-5 h-5 text-moonstone" />
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-moonstone block mb-1">
+                    Full-Time Careers
+                  </span>
+                  <h2 className="text-lg sm:text-xl font-bold text-aliceblue tracking-tight mb-2">
+                    {cmsSettings?.intent_job_title || 'Find a Full-Time Job'}
+                  </h2>
+                  <p className="text-xs sm:text-sm text-aliceblue/80 leading-relaxed">
+                    {cmsSettings?.intent_job_desc || 'Discover verified career positions and apply directly with your resume. Real milestone tracking.'}
+                  </p>
+                </div>
+                <div className="mt-5 pt-1">
+                  <Button
+                    to="/jobs"
+                    variant="accent"
+                    size="sm"
+                    className="w-full text-xs font-bold"
+                    iconRight={<ArrowRight className="w-3.5 h-3.5 text-midnight" />}
+                  >
+                    {cmsSettings?.intent_job_button || 'Browse Full-Time Jobs'}
                   </Button>
                 </div>
               </div>
@@ -176,10 +220,32 @@ export const HomePage: React.FC = () => {
           )}
 
           {/* ========================================================================= */}
-          {/* SEARCH BAR SECTION — MOVED AFTER INTENT CARDS */}
+          {/* SEARCH BAR SECTION WITH TABS (SERVICES / EXPERTS / JOBS) */}
           {/* ========================================================================= */}
           {cmsSettings?.visibility?.search !== false && (
             <div className="mt-8 sm:mt-10 max-w-3xl mx-auto">
+              {/* Search Category Tabs */}
+              <div className="flex items-center justify-center gap-2 mb-3">
+                {[
+                  { id: 'services', label: 'Services' },
+                  { id: 'experts', label: 'Experts' },
+                  { id: 'jobs', label: 'Full-Time Jobs' }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setSearchTab(tab.id as any)}
+                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                      searchTab === tab.id
+                        ? 'bg-midnight text-aliceblue shadow-xs'
+                        : 'bg-white/80 text-midnight/70 hover:bg-white hover:text-midnight border border-timberwolf/60'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
               <form onSubmit={handleSearchSubmit} className="relative w-full">
                 <div className="flex items-center bg-white border-2 border-timberwolf/90 rounded-2xl shadow-subtle p-1.5 sm:p-2 focus-within:border-moonstone focus-within:shadow-card transition-all">
                   <Search className="w-5 h-5 text-midnight/50 ml-3 shrink-0" />
@@ -187,7 +253,13 @@ export const HomePage: React.FC = () => {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder={cmsSettings?.search_placeholder || "Search experts, skills, or services..."}
+                    placeholder={
+                      searchTab === 'jobs'
+                        ? 'Search full-time roles, companies, or tech stack...'
+                        : searchTab === 'experts'
+                        ? 'Search expert advisors by name, title, or skills...'
+                        : (cmsSettings?.search_placeholder || 'Search experts, skills, or services...')
+                    }
                     className="min-w-0 flex-1 px-3 py-2 text-sm sm:text-base text-midnight placeholder:text-midnight/40 placeholder:truncate bg-transparent focus:outline-none"
                   />
                   {searchQuery && (
@@ -341,6 +413,134 @@ export const HomePage: React.FC = () => {
               {featuredServices.map((service) => (
                 <ExpertCard key={service.id} service={service} />
               ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ========================================================================= */}
+      {/* FULL-TIME CAREER OPPORTUNITIES */}
+      {/* ========================================================================= */}
+      {cmsSettings?.visibility?.fulltime_jobs !== false && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-end justify-between mb-8">
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-moonstone/10 text-moonstone-dark text-xs font-bold mb-2 border border-moonstone/20">
+                <Briefcase className="w-3.5 h-3.5 text-moonstone" />
+                <span>Permanent & Contract Careers</span>
+              </div>
+              <h2 className="text-2xl font-bold text-midnight tracking-tight">
+                Full-Time Opportunities
+              </h2>
+              <p className="text-sm text-midnight/65 mt-1">
+                Explore open positions from verified companies hiring talent directly on HireByMinute.
+              </p>
+            </div>
+            <Link
+              to="/jobs"
+              className="text-xs sm:text-sm font-semibold text-moonstone hover:text-moonstone-dark flex items-center gap-1 transition-colors"
+            >
+              Explore All Jobs <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="bg-white/60 border border-timberwolf/40 rounded-2xl p-6 h-48 animate-pulse" />
+              ))}
+            </div>
+          ) : featuredJobs.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-timberwolf/70 p-10 text-center shadow-card space-y-4 max-w-xl mx-auto">
+              <div className="w-12 h-12 rounded-xl bg-aliceblue text-midnight mx-auto flex items-center justify-center border border-timberwolf/60">
+                <Briefcase className="w-6 h-6 text-moonstone" />
+              </div>
+              <h3 className="text-base font-bold text-midnight">No full-time jobs available yet</h3>
+              <p className="text-xs text-midnight/70 leading-relaxed">
+                We are currently onboarding top companies and employers. Check back soon for verified positions or hire experts for immediate per-minute consulting.
+              </p>
+              <div className="pt-1">
+                <Link
+                  to="/jobs"
+                  className="btn-shine inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-all"
+                >
+                  <span>Browse Jobs Marketplace</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {featuredJobs.map((job) => {
+                const cName = job.company?.name || job.company_name || 'HireByMinute Employer';
+                const cLogo = job.company?.logo_url || job.company_logo;
+                const loc = job.location_text || [job.city, job.country].filter(Boolean).join(', ') || 'Global';
+
+                return (
+                  <div
+                    key={job.id}
+                    onClick={() => navigate(`/jobs/${job.slug || job.id}`)}
+                    className="bg-white border border-timberwolf/70 hover:border-moonstone/80 rounded-2xl p-5 shadow-card hover:shadow-subtle transition-all duration-150 cursor-pointer group flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-xl bg-aliceblue border border-timberwolf/60 flex items-center justify-center font-bold text-xs text-midnight overflow-hidden shrink-0">
+                          {cLogo ? (
+                            <img src={cLogo} alt={cName} className="w-full h-full object-cover" />
+                          ) : (
+                            cName.slice(0, 2).toUpperCase()
+                          )}
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                          job.work_mode === 'Remote'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : job.work_mode === 'Hybrid'
+                            ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                            : 'bg-zinc-100 text-zinc-800 border-zinc-200'
+                        }`}>
+                          {job.work_mode}
+                        </span>
+                      </div>
+
+                      <span className="text-xs text-midnight/60 font-medium block truncate mb-1">
+                        {cName}
+                      </span>
+                      <h3 className="text-base font-bold text-midnight group-hover:text-moonstone transition-colors leading-snug tracking-tight line-clamp-2">
+                        {job.title}
+                      </h3>
+                      
+                      <div className="flex items-center gap-3 mt-3 text-xs text-midnight/70">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5 text-moonstone shrink-0" />
+                          <span className="truncate max-w-[120px]">{loc}</span>
+                        </span>
+                        <span className="flex items-center gap-1 font-semibold text-midnight truncate">
+                          <DollarSign className="w-3.5 h-3.5 text-moonstone shrink-0" />
+                          <span>
+                            {job.salary_type === 'undisclosed' || (!job.salary_min && !job.salary_max)
+                              ? 'Undisclosed'
+                              : job.salary_min && job.salary_max
+                              ? `$${(job.salary_min / 1000).toFixed(0)}k - $${(job.salary_max / 1000).toFixed(0)}k`
+                              : job.salary_min
+                              ? `From $${(job.salary_min / 1000).toFixed(0)}k`
+                              : 'Competitive'}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 mt-4 border-t border-timberwolf/40 flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-midnight/50">
+                        {job.experience_level}
+                      </span>
+                      <span className="text-xs font-bold text-moonstone group-hover:text-moonstone-dark inline-flex items-center gap-0.5">
+                        <span>View Role</span>
+                        <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

@@ -1,0 +1,604 @@
+{
+  "timestamp": "2026-09-18T13:17:33.220Z",
+  "engine": "PostgreSQL",
+  "host": "ep-fancy-frog-ay4krhqt-pooler.c-5.us-east-2.aws.neon.tech",
+  "database": "neondb",
+  "adminId": "usr-admin-vishal",
+  "tables": {
+    "users": [
+      {
+        "id": "usr-a73b3165",
+        "email": "vishalchaudhary74096@gmail.com",
+        "username": "vishal_kumar",
+        "password_hash": "$2b$10$UwJuubIdL3696LtkMa3ro.KjWFvJTCbSJjWnv3Wbb1eEjdjkXQnY.",
+        "full_name": "Vishal Kumar",
+        "role": "provider",
+        "avatar_url": "/uploads/1788102617758-4ed7ea28-XzPaB_hn_400x400.jpg",
+        "bio": "",
+        "headline": "",
+        "location": "",
+        "country": "United States",
+        "state_region": "",
+        "city": "",
+        "area": "",
+        "languages_json": "[\"English\"]",
+        "skills_json": "[]",
+        "experience_years": 5,
+        "rating": "5.00",
+        "review_count": 0,
+        "sessions_completed": 0,
+        "verified": 0,
+        "is_suspended": 0,
+        "email_verified": 0,
+        "profile_visits": 0,
+        "created_by_admin": 0,
+        "created_by_admin_id": null,
+        "verification_rejection_reason": null,
+        "last_active": null,
+        "response_time": "Within 15 mins",
+        "member_since": "August 2026",
+        "created_at": "2026-08-30T15:10:39.614Z"
+      },
+      {
+        "id": "usr-admin-vishal",
+        "email": "vishalkumar75912@gmail.com",
+        "username": "admin_vishal",
+        "password_hash": "$2b$10$R3//Vaw3F6KbBB06eZOwAu./zmrd80kHI1w5dBGv1C4hcSeq4Vpo6",
+        "full_name": "Vishal Kumar (Admin)",
+        "role": "admin",
+        "avatar_url": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80",
+        "bio": "Platform Administrator and Operations Lead for HireByMinutes.",
+        "headline": "Platform Administrator",
+        "location": null,
+        "country": "United States",
+        "state_region": null,
+        "city": null,
+        "area": null,
+        "languages_json": "[\"English\"]",
+        "skills_json": "[]",
+        "experience_years": 5,
+        "rating": "5.00",
+        "review_count": 0,
+        "sessions_completed": 0,
+        "verified": 1,
+        "is_suspended": 0,
+        "email_verified": 1,
+        "profile_visits": 0,
+        "created_by_admin": 0,
+        "created_by_admin_id": null,
+        "verification_rejection_reason": null,
+        "last_active": null,
+        "response_time": "Within 15 mins",
+        "member_since": "August 2026",
+        "created_at": "2026-08-30T14:31:37.043Z"
+      },
+      {
+        "id": "usr-dc4c611a",
+        "email": "vishalchaudhary6585@gmail.com",
+        "username": "sumit_kumar",
+        "password_hash": "$2b$10$iLI4xznWI.zXKp/Wm9PM7uQ6kcvoyrC3yCSbMEFNyMRb7cHmOUVDK",
+        "full_name": "Sumit kumar",
+        "role": "client",
+        "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=Sumit%20kumar",
+        "bio": "",
+        "headline": "",
+        "location": "",
+        "country": "United States",
+        "state_region": "",
+        "city": "",
+        "area": "",
+        "languages_json": "[\"English\"]",
+        "skills_json": "[]",
+        "experience_years": 5,
+        "rating": "5.00",
+        "review_count": 0,
+        "sessions_completed": 0,
+        "verified": 0,
+        "is_suspended": 0,
+        "email_verified": 0,
+        "profile_visits": 0,
+        "created_by_admin": 0,
+        "created_by_admin_id": null,
+        "verification_rejection_reason": null,
+        "last_active": null,
+        "response_time": "Within 15 mins",
+        "member_since": "August 2026",
+        "created_at": "2026-09-12T12:42:06.015Z"
+      }
+    ],
+    "services": [],
+    "categories": [
+      {
+        "id": "cat-tech",
+        "slug": "technology",
+        "name": "Technology",
+        "icon": "Code2",
+        "description": "Software engineering, architecture, and system design",
+        "sort_order": 1,
+        "active": 1,
+        "service_count": 0
+      },
+      {
+        "id": "cat-ai",
+        "slug": "ai-data",
+        "name": "AI & Data",
+        "icon": "Cpu",
+        "description": "LLM fine-tuning, prompt engineering, data pipelines & ML models",
+        "sort_order": 2,
+        "active": 1,
+        "service_count": 0
+      },
+      {
+        "id": "cat-design",
+        "slug": "design",
+        "name": "Design",
+        "icon": "Palette",
+        "description": "UI/UX design, visual identity, Figma review & product design",
+        "sort_order": 3,
+        "active": 1,
+        "service_count": 0
+      },
+      {
+        "id": "cat-marketing",
+        "slug": "marketing",
+        "name": "Marketing",
+        "icon": "Megaphone",
+        "description": "B2B growth, paid acquisition, SEO strategy & brand positioning",
+        "sort_order": 4,
+        "active": 1,
+        "service_count": 0
+      },
+      {
+        "id": "cat-business",
+        "slug": "business",
+        "name": "Business",
+        "icon": "Briefcase",
+        "description": "Startup fundraising, business strategy & pitch deck reviews",
+        "sort_order": 5,
+        "active": 1,
+        "service_count": 0
+      },
+      {
+        "id": "cat-finance",
+        "slug": "finance",
+        "name": "Finance & Tax",
+        "icon": "DollarSign",
+        "description": "Tax advisory, financial modeling & fractional CFO consults",
+        "sort_order": 6,
+        "active": 1,
+        "service_count": 0
+      },
+      {
+        "id": "cat-legal",
+        "slug": "legal",
+        "name": "Legal",
+        "icon": "Scale",
+        "description": "Contract review, trademarking, IP protection & compliance",
+        "sort_order": 7,
+        "active": 1,
+        "service_count": 0
+      },
+      {
+        "id": "cat-career",
+        "slug": "career",
+        "name": "Career & Resume",
+        "icon": "GraduationCap",
+        "description": "Resume teardowns, mock interviews & engineering leadership coaching",
+        "sort_order": 8,
+        "active": 1,
+        "service_count": 0
+      },
+      {
+        "id": "cat-writing",
+        "slug": "writing",
+        "name": "Writing & Copy",
+        "icon": "Feather",
+        "description": "Technical documentation, copy editing & editorial strategy",
+        "sort_order": 9,
+        "active": 1,
+        "service_count": 0
+      },
+      {
+        "id": "cat-video",
+        "slug": "video-audio",
+        "name": "Video & Audio",
+        "icon": "Video",
+        "description": "Post-production, sound engineering & video editing consults",
+        "sort_order": 10,
+        "active": 1,
+        "service_count": 0
+      },
+      {
+        "id": "cat-productivity",
+        "slug": "productivity",
+        "name": "Productivity",
+        "icon": "Zap",
+        "description": "Notion workspace architecture, workflow automation & ops",
+        "sort_order": 11,
+        "active": 1,
+        "service_count": 0
+      },
+      {
+        "id": "cat-other",
+        "slug": "other",
+        "name": "Other Consultations",
+        "icon": "HelpCircle",
+        "description": "Specialized 1-on-1 consultations for niche fields",
+        "sort_order": 12,
+        "active": 1,
+        "service_count": 0
+      }
+    ],
+    "provider_availability": [],
+    "consultation_requests": [],
+    "bookings": [],
+    "sessions": [],
+    "messages": [],
+    "reviews": [],
+    "payments": [],
+    "opportunities": [],
+    "applications": [],
+    "notifications": [],
+    "audit_logs": [],
+    "reports": [],
+    "platform_settings": [
+      {
+        "key": "platform_name",
+        "value": "HireByMinutes",
+        "description": "The official platform brand name",
+        "updated_at": "2026-08-30T14:31:36.441Z"
+      },
+      {
+        "key": "listing_fee_usd",
+        "value": "2.00",
+        "description": "One-time fee in USD to publish a service listing",
+        "updated_at": "2026-08-30T14:31:36.447Z"
+      },
+      {
+        "key": "platform_fee_percent",
+        "value": "15",
+        "description": "Standard percentage fee taken from completed session payments",
+        "updated_at": "2026-08-30T14:31:36.450Z"
+      },
+      {
+        "key": "default_response_time",
+        "value": "Within 15 mins",
+        "description": "Target response time for verified providers",
+        "updated_at": "2026-08-30T14:31:36.453Z"
+      },
+      {
+        "key": "payout_schedule",
+        "value": "Instant on completion",
+        "description": "Frequency of expert earnings settlement",
+        "updated_at": "2026-08-30T14:31:36.457Z"
+      },
+      {
+        "key": "last_server_boot",
+        "value": "2026-09-18T12:58:33.724Z",
+        "description": "Timestamp of the last server startup",
+        "updated_at": "2026-09-18T12:58:37.436Z"
+      },
+      {
+        "key": "logo_url",
+        "value": "",
+        "description": "Custom brand logo image URL",
+        "updated_at": "2026-09-15T07:55:33.979Z"
+      },
+      {
+        "key": "header_navigation",
+        "value": "[{\"id\":\"services\",\"label\":\"Services\",\"url\":\"/services\",\"order\":1,\"is_visible\":true,\"is_external\":false},{\"id\":\"opportunities\",\"label\":\"Opportunities\",\"url\":\"/opportunities\",\"order\":2,\"is_visible\":true,\"is_external\":false},{\"id\":\"how-it-works\",\"label\":\"How It Works\",\"url\":\"/#how-it-works\",\"order\":3,\"is_visible\":true,\"is_external\":false}]",
+        "description": "Configurable header navigation items and ordering",
+        "updated_at": "2026-09-15T07:55:33.985Z"
+      },
+      {
+        "key": "header_cta_label",
+        "value": "Sign In / Join",
+        "description": "Header call-to-action button label",
+        "updated_at": "2026-09-15T07:55:33.988Z"
+      },
+      {
+        "key": "header_cta_url",
+        "value": "/auth",
+        "description": "Header call-to-action destination URL",
+        "updated_at": "2026-09-15T07:55:33.991Z"
+      },
+      {
+        "key": "footer_settings",
+        "value": "{\"company_description\":\"The precision marketplace for on-demand consultations. Hire verified experts for exactly the minutes you need, or monetize specialized knowledge with zero retainers.\",\"contact_email\":\"support@hirebyminute.com\",\"contact_phone\":\"+1 (800) 555-0199\",\"address\":\"San Francisco, CA, United States\",\"copyright_text\":\"© {year} HireByMinute. All rights reserved.\",\"designer_credit\":\"Designed & Developed by Vishal Chaudhary\",\"social_links\":[{\"platform\":\"twitter\",\"url\":\"https://twitter.com/hirebyminute\",\"is_visible\":true},{\"platform\":\"linkedin\",\"url\":\"https://linkedin.com/company/hirebyminute\",\"is_visible\":true},{\"platform\":\"github\",\"url\":\"https://github.com/hirebyminute\",\"is_visible\":true}],\"sections\":{\"platform\":[{\"id\":\"about\",\"label\":\"About Us\",\"url\":\"/about\",\"order\":1,\"is_visible\":true},{\"id\":\"how-it-works\",\"label\":\"How It Works\",\"url\":\"/how-it-works\",\"order\":2,\"is_visible\":true},{\"id\":\"services\",\"label\":\"Browse Services\",\"url\":\"/services\",\"order\":3,\"is_visible\":true},{\"id\":\"opportunities\",\"label\":\"Opportunities\",\"url\":\"/opportunities\",\"order\":4,\"is_visible\":true,\"is_new\":true}],\"policies\":[{\"id\":\"terms\",\"label\":\"Terms of Service\",\"url\":\"/terms\",\"order\":1,\"is_visible\":true},{\"id\":\"privacy\",\"label\":\"Privacy Policy\",\"url\":\"/privacy\",\"order\":2,\"is_visible\":true},{\"id\":\"refund\",\"label\":\"Refund & Cancellation\",\"url\":\"/refund-policy\",\"order\":3,\"is_visible\":true},{\"id\":\"expert-policy\",\"label\":\"Expert Policy\",\"url\":\"/expert-policy\",\"order\":4,\"is_visible\":true},{\"id\":\"acceptable-use\",\"label\":\"Acceptable Use\",\"url\":\"/acceptable-use\",\"order\":5,\"is_visible\":true}],\"support\":[{\"id\":\"contact\",\"label\":\"Contact / Support\",\"url\":\"/contact\",\"order\":1,\"is_visible\":true,\"icon\":\"mail\"},{\"id\":\"become-provider\",\"label\":\"Become a Provider\",\"url\":\"/provider/onboard\",\"order\":2,\"is_visible\":true},{\"id\":\"provider-dashboard\",\"label\":\"Provider Dashboard\",\"url\":\"/provider\",\"order\":3,\"is_visible\":true}]}}",
+        "description": "Configurable footer links, sections, and legal notices",
+        "updated_at": "2026-09-15T07:55:33.995Z"
+      },
+      {
+        "key": "contact_settings",
+        "value": "{\"support_email\":\"support@hirebyminute.com\",\"business_email\":\"business@hirebyminute.com\",\"phone\":\"+1 (800) 555-0199\",\"support_hours\":\"Monday – Friday: 9:00 AM – 6:00 PM EST (24/7 Escalation Desk)\",\"address\":\"San Francisco, CA, United States\",\"whatsapp_url\":\"\",\"contact_form_enabled\":true}",
+        "description": "Configurable customer support and platform contact channels",
+        "updated_at": "2026-09-15T07:55:33.998Z"
+      },
+      {
+        "key": "homepage_settings",
+        "value": "{\"hero_headline\":\"What brings you here?\",\"hero_subheadline\":\"Hire expertise by the minute, or turn your expertise into a service people can book.\",\"hero_badge_text\":\"⚡ Instant 1-on-1 Consultations • Pay Per Exact Minute\",\"primary_cta_label\":\"Find an Expert\",\"primary_cta_url\":\"/services\",\"secondary_cta_label\":\"Become a Service Provider\",\"secondary_cta_url\":\"/provider/onboard\",\"search_placeholder\":\"Search experts, skills, or services...\",\"popular_tags\":[\"Python developer\",\"Figma teardown\",\"RAG architect\",\"B2B growth audit\",\"Tax advisor\",\"AI Prompt Engineer\",\"Fractional CTO\"],\"intent_client_title\":\"Find an expert\",\"intent_client_desc\":\"Pay only for the exact minutes you spend with a vetted professional. No retainers or minimum commitments.\",\"intent_client_button\":\"Browse Experts\",\"intent_provider_title\":\"List your service\",\"intent_provider_desc\":\"Set your own per-minute rate, choose your hours, and get booked by clients who value your time.\",\"intent_provider_button\":\"Become a Service Provider\",\"how_it_works_title\":\"How HireByMinute works\",\"how_it_works_subtitle\":\"From finding the right person to finishing your timed consultation in four easy steps.\",\"how_it_works_steps\":[{\"step\":\"01\",\"title\":\"Find an Expert\",\"description\":\"Find someone who knows exactly what you need without wading through bloated project agencies.\"},{\"step\":\"02\",\"title\":\"Choose Your Time\",\"description\":\"Choose exactly how many minutes or hours you need: 15m, 30m, 45m, or custom duration.\"},{\"step\":\"03\",\"title\":\"Live Timed Session\",\"description\":\"Chat, call, video, or share files while the server-authoritative countdown clock is active.\"},{\"step\":\"04\",\"title\":\"Session Completes\",\"description\":\"When time ends, communication closes naturally. No scope creep, surprise invoices, or billing disputes.\"}],\"cta_title\":\"Ready to experience precision consulting?\",\"cta_subtitle\":\"Connect with verified specialists right now and pay strictly for the minutes you use.\",\"cta_button_label\":\"Get Started Today\",\"cta_button_url\":\"/services\",\"visibility\":{\"hero\":true,\"intent_cards\":true,\"search\":true,\"popular_categories\":true,\"featured_experts\":true,\"how_it_works\":true,\"cta\":true}}",
+        "description": "Configurable homepage content, hero copy, intent cards, and section visibility",
+        "updated_at": "2026-09-15T07:55:34.001Z"
+      },
+      {
+        "key": "seo_settings",
+        "value": "{\"site_title\":\"HireByMinute — Instant 1-on-1 Consultations by the Minute\",\"meta_description\":\"Connect with verified experts instantly for 1-on-1 audio/video consultations. Pay only for the exact minutes you use with zero upfront retainers.\",\"canonical_url\":\"https://hirebyminute.com\",\"og_title\":\"HireByMinute — Instant 1-on-1 Consultations by the Minute\",\"og_description\":\"Pay strictly for the minutes you consult. Real-time audio/video consultations with verified experts.\",\"og_image\":\"https://hirebyminute.com/og-image.png\",\"twitter_card\":\"summary_large_image\",\"twitter_site\":\"@hirebyminute\"}",
+        "description": "Platform global SEO meta tags, social sharing cards, and crawl policies",
+        "updated_at": "2026-09-15T07:55:34.004Z"
+      }
+    ],
+    "email_verification_tokens": [
+      {
+        "id": "evt-b24751a5",
+        "user_id": "usr-a73b3165",
+        "email": "vishalchaudhary74096@gmail.com",
+        "code_hash": "1c8ab64e24d873d1dc1aac0f627a4e292ce1fcc36cc4fc9328b2ce3b6acf2cf7",
+        "attempts": 0,
+        "resend_count": 0,
+        "expires_at": "2026-08-30T15:20:39.667Z",
+        "used_at": null,
+        "created_at": "2026-08-30T15:10:39.667Z"
+      },
+      {
+        "id": "evt-99909114",
+        "user_id": "usr-dc4c611a",
+        "email": "vishalchaudhary6585@gmail.com",
+        "code_hash": "57126420955807f09d85f704b6f9e6909be06d14f4a4fd9d4d9558a0e863a7a2",
+        "attempts": 0,
+        "resend_count": 0,
+        "expires_at": "2026-09-12T12:52:06.026Z",
+        "used_at": "2026-09-12T12:43:47.927Z",
+        "created_at": "2026-09-12T12:42:06.026Z"
+      },
+      {
+        "id": "evt-f164755a",
+        "user_id": "usr-dc4c611a",
+        "email": "vishalchaudhary6585@gmail.com",
+        "code_hash": "16274566ec8adcf4db3c9f994434f467d26df942e5b49ab6efe1bc1b08e67989",
+        "attempts": 0,
+        "resend_count": 0,
+        "expires_at": "2026-09-12T12:53:47.930Z",
+        "used_at": null,
+        "created_at": "2026-09-12T12:43:47.930Z"
+      }
+    ],
+    "password_reset_tokens": [],
+    "email_logs": [
+      {
+        "id": "msg-1788102639677-d00d91d8",
+        "user_id": "usr-a73b3165",
+        "recipient": "vishalchaudhary74096@gmail.com",
+        "template": "verify_email_otp",
+        "subject": "Verify your HireByMinutes account",
+        "status": "SENT",
+        "provider_message_id": "msg-1788102639677-d00d91d8",
+        "error_message": null,
+        "created_at": "2026-08-30T15:10:39.679Z"
+      },
+      {
+        "id": "msg-1789216926090-680d2e47",
+        "user_id": "usr-dc4c611a",
+        "recipient": "vishalchaudhary6585@gmail.com",
+        "template": "verify_email_otp",
+        "subject": "Verify your HireByMinutes account",
+        "status": "SENT",
+        "provider_message_id": "msg-1789216926090-680d2e47",
+        "error_message": null,
+        "created_at": "2026-09-12T12:42:06.090Z"
+      },
+      {
+        "id": "msg-1789217027933-9f1c7441",
+        "user_id": "usr-dc4c611a",
+        "recipient": "vishalchaudhary6585@gmail.com",
+        "template": "verify_email_otp",
+        "subject": "Verify your HireByMinutes account",
+        "status": "SENT",
+        "provider_message_id": "msg-1789217027933-9f1c7441",
+        "error_message": null,
+        "created_at": "2026-09-12T12:43:47.933Z"
+      },
+      {
+        "id": "msg-1789733112891-e2c9f33b",
+        "user_id": "usr-9021703d",
+        "recipient": "vishalchaudhary4455@gmail.com",
+        "template": "verify_email_otp",
+        "subject": "Verify your HireByMinute account",
+        "status": "FAILED",
+        "provider_message_id": "msg-1789733112891-e2c9f33b",
+        "error_message": "Resend provider error (403): You can only send testing emails to your own email address (vishalkumar75912@gmail.com). To send emails to other recipients, please verify a domain at resend.com/domains, and change the `from` address to an email using this domain.",
+        "created_at": "2026-09-18T12:05:13.650Z"
+      }
+    ],
+    "profile_visits": [],
+    "registration_campaigns": [
+      {
+        "id": "camp-launch-free-24h",
+        "name": "Launch Promotion — Free Expert Registration",
+        "description": "Launch Offer: 100% free expert registration and service listing for 24 hours ($0.00 fee).",
+        "fee_usd": "0.00",
+        "start_time": "2026-08-30T14:31:37.052Z",
+        "end_time": "2026-08-31T14:31:37.052Z",
+        "is_active": 1,
+        "status": "expired",
+        "created_by": "system",
+        "created_by_name": "Platform Launch",
+        "created_at": "2026-08-30T14:31:37.053Z",
+        "updated_at": "2026-09-02T13:35:57.352Z"
+      }
+    ],
+    "processed_webhook_events": [],
+    "banners_announcements": [],
+    "cms_pages": [
+      {
+        "id": "page-about",
+        "slug": "about",
+        "title": "About HireByMinute",
+        "meta_title": "About Us — HireByMinute On-Demand Consultation Platform",
+        "meta_description": "HireByMinute connects professionals, founders, developers, and creators with verified domain experts for exactly the minutes required to solve high-stakes challenges.",
+        "content": "# About HireByMinute\n\n## The Precision Marketplace for Expertise\n\nHireByMinute connects professionals, founders, developers, and creators with verified domain experts for exactly the minutes required to solve high-stakes challenges.\n\n### The Problem with Traditional Consulting\nWhen engineering teams encounter complex architecture roadblocks, designers review critical launch designs, or founders assess legal trade-offs, they rarely need an expensive multi-week statement of work or a mandatory minimum retainer. What they need is 15 to 30 minutes of focused, direct clarity from someone who has navigated that exact challenge before.\n\nTraditional marketplaces force practitioners into lengthy proposal bidding cycles, arbitrary hourly minimums, and protracted onboarding. HireByMinute eliminates that friction by introducing **minute-accurate consultation rooms** backed by automated escrow protection and transparent per-minute pricing.\n\n### Core Pillars\n- **Minute-Based Precision**: Book consultations in increments tailored to your actual query. Pay strictly for the time spent.\n- **Verified Practitioners**: Rigorous multi-stage vetting ensures authentic domain mastery across engineering, AI, design, legal, and business.\n- **Protected Payments**: Funds are securely held and disbursed upon session completion.\n- **Real-Time Video Collaboration**: Low-latency WebRTC video, crystal-clear audio, code snippets, and in-room time tracking.",
+        "status": "published",
+        "updated_by": "system",
+        "created_at": "2026-09-15T07:55:34.066Z",
+        "updated_at": "2026-09-15T07:55:34.066Z"
+      },
+      {
+        "id": "page-how-it-works",
+        "slug": "how-it-works",
+        "title": "How HireByMinute Works",
+        "meta_title": "How It Works — Step-by-Step Consultation Flow",
+        "meta_description": "Learn how to discover verified experts, book instant or scheduled consultations, and get precise answers by the minute.",
+        "content": "# How HireByMinute Works\n\n## Fast, Transparent, Precision Consultations\n\n### For Clients\n1. **Browse & Filter Experts**: Explore verified practitioners across engineering, design, AI, finance, marketing, and legal domains.\n2. **Select Time & Book**: Choose an instant consultation or schedule for a specific time window.\n3. **Collaborate in Precision Rooms**: Connect via encrypted WebRTC video, screen share, and synchronized session timers.\n4. **Pay Only for Actual Minutes**: Session fees are calculated strictly based on duration. No surprise retainers.\n\n### For Experts\n1. **Create Profile & Set Rate**: Define your specialty skills, experience, and per-minute consulting fee.\n2. **Verify Credentials**: Complete the verification review to earn the verified expert badge.\n3. **Accept Consultations**: Receive instant requests or scheduled sessions matching your availability calendar.\n4. **Receive Fast Payouts**: Guaranteed settlement upon successful session completion.",
+        "status": "published",
+        "updated_by": "system",
+        "created_at": "2026-09-15T07:55:34.073Z",
+        "updated_at": "2026-09-15T07:55:34.073Z"
+      },
+      {
+        "id": "page-terms",
+        "slug": "terms",
+        "title": "Terms of Service",
+        "meta_title": "Terms of Service — HireByMinute",
+        "meta_description": "Official Terms of Service governing access to and use of HireByMinute consultation services, accounts, and payments.",
+        "content": "# Terms of Service\n\n**Last Updated:** August 28, 2026\n\n### 1. Acceptance of Terms & Eligibility\nThese Terms of Service (\"Terms\") govern your access to and use of the HireByMinute platform, including all related websites, applications, signaling services, and communication features (collectively, the \"Platform\").\n\nBy registering an account, purchasing minute credits, or offering services, you represent and warrant that you are at least 18 years of age and possess the legal capacity to enter into binding contracts.\n\n### 2. Account Registration & Security\nTo access core features of the Platform, you must create an account. You agree to provide accurate, current, and complete information, including a valid email address and legal name.\n- You are solely responsible for maintaining the confidentiality of your authentication credentials.\n- Usernames assigned upon registration are permanent identifiers and cannot be altered or transferred.\n- HireByMinute reserves the right to suspend or terminate accounts that contain false, misleading, or fraudulent information.\n\n### 3. Consultation Mechanics & Per-Minute Metering\n- Consultations occur in synchronized WebRTC rooms with automated minute tracking.\n- Both parties must abide by professional conduct standards during sessions.\n- Billing is calculated per minute at the published rate agreed upon at booking.\n\n### 4. Platform Fees & Settlement\n- HireByMinute retains a standard platform fee (15%) on completed consultation transactions to cover infrastructure, payment processing, video signaling, and dispute mediation.\n- Expert payouts are processed following session sign-off.",
+        "status": "published",
+        "updated_by": "system",
+        "created_at": "2026-09-15T07:55:34.077Z",
+        "updated_at": "2026-09-15T07:55:34.077Z"
+      },
+      {
+        "id": "page-privacy",
+        "slug": "privacy",
+        "title": "Privacy Policy",
+        "meta_title": "Privacy Policy — HireByMinute",
+        "meta_description": "How HireByMinute collects, uses, protects, and handles personal data and consultation information.",
+        "content": "# Privacy Policy\n\n**Last Updated:** August 28, 2026\n\n### 1. Information We Collect\nWe collect information you provide directly when registering, completing profile details, requesting consultations, or messaging on the Platform:\n- **Identity Information**: Full name, username, email address, avatar photo, and professional biography.\n- **Payment Information**: Transaction IDs, payment gateway authorization references (payment card details are processed directly by PCI-DSS compliant gateways like Razorpay/Stripe and are never stored on our servers).\n- **Session Metadata**: Consultation timestamps, duration, and connection diagnostics.\n\n### 2. How We Use Information\nWe use collected information to:\n- Facilitate expert discovery, booking, and real-time WebRTC connections.\n- Process financial transactions and calculate per-minute billing.\n- Prevent fraud, abusive conduct, and unauthorized account access.\n- Comply with applicable legal, accounting, and tax reporting requirements.\n\n### 3. Data Protection & Security\nWe implement industry-standard encryption protocols (TLS 1.3 in transit, AES-256 for sensitive credentials at rest). Password hashes use bcrypt with high-cost salt factors.",
+        "status": "published",
+        "updated_by": "system",
+        "created_at": "2026-09-15T07:55:34.080Z",
+        "updated_at": "2026-09-15T07:55:34.080Z"
+      },
+      {
+        "id": "page-refund-policy",
+        "slug": "refund-policy",
+        "title": "Refund & Cancellation Policy",
+        "meta_title": "Refund & Cancellation Policy — HireByMinute",
+        "meta_description": "Clear rules and dispute procedures for consultation refunds, no-shows, and technical session interruptions.",
+        "content": "# Refund & Cancellation Policy\n\n**Last Updated:** August 28, 2026\n\n### 1. Pre-Session Cancellations\n- **Client Cancellation**: You may cancel a scheduled consultation up to 2 hours before the session start time for a 100% full refund.\n- **Expert Cancellation**: If an expert cancels or fails to join a scheduled consultation, the client receives a 100% immediate full refund.\n\n### 2. Session Technical Disruptions\nIf a verified technical failure on the platform (e.g. server outage or signaling failure) prevents communication during the first 5 minutes of a session, a full refund or session reschedule is guaranteed upon submission of a support ticket.\n\n### 3. Dispute Resolution Process\nIf you believe a session did not meet professional standards or was interrupted prematurely, submit a dispute ticket through the Support Center within 24 hours of session completion.",
+        "status": "published",
+        "updated_by": "system",
+        "created_at": "2026-09-15T07:55:34.083Z",
+        "updated_at": "2026-09-15T07:55:34.083Z"
+      },
+      {
+        "id": "page-expert-policy",
+        "slug": "expert-policy",
+        "title": "Expert Quality Standards & Policy",
+        "meta_title": "Expert Quality Standards & Guidelines — HireByMinute",
+        "meta_description": "Quality standards, conduct requirements, and verification guidelines for verified experts on HireByMinute.",
+        "content": "# Expert Quality Standards & Guidelines\n\n**Last Updated:** August 28, 2026\n\n### 1. Practitioner Conduct & Professionalism\nVerified experts represent the core credibility of the HireByMinute marketplace. All experts agree to:\n- Arrive punctually for scheduled sessions.\n- Deliver direct, actionable, and courteous professional insight.\n- Keep client discussions, proprietary code, and strategic data strictly confidential.\n\n### 2. Prohibited Conduct\n- Solicit off-platform payments or circumvent the platform escrow system.\n- Misrepresent professional background, credentials, or affiliations.\n- Record sessions without explicit mutual written consent.",
+        "status": "published",
+        "updated_by": "system",
+        "created_at": "2026-09-15T07:55:34.087Z",
+        "updated_at": "2026-09-15T07:55:34.087Z"
+      },
+      {
+        "id": "page-acceptable-use",
+        "slug": "acceptable-use",
+        "title": "Acceptable Use Policy",
+        "meta_title": "Acceptable Use Policy — HireByMinute",
+        "meta_description": "Acceptable use rules prohibiting harmful, illegal, or abusive activities across the HireByMinute network.",
+        "content": "# Acceptable Use Policy\n\n**Last Updated:** August 28, 2026\n\n### 1. Platform Integrity\nUsers may not attempt to reverse engineer, disrupt, overload, or exploit vulnerabilities in the platform infrastructure, API endpoints, or WebRTC signaling.\n\n### 2. Prohibited Content & Behavior\n- Harassment, hate speech, or defamatory statements.\n- Uploading malicious software, viruses, or unauthorized tracking scripts.\n- Providing fraudulent, deceptive, or unlicensed regulated advice (e.g. unauthorized legal practice or unqualified medical advice).",
+        "status": "published",
+        "updated_by": "system",
+        "created_at": "2026-09-15T07:55:34.090Z",
+        "updated_at": "2026-09-15T07:55:34.090Z"
+      },
+      {
+        "id": "page-contact",
+        "slug": "contact",
+        "title": "Contact & Support Desk",
+        "meta_title": "Contact Us — HireByMinute Help & Escalation Desk",
+        "meta_description": "Reach out to HireByMinute platform administration, support, or partnership teams.",
+        "content": "# Contact & Support Desk\n\nNeed assistance with a consultation, billing question, or expert verification? Our support team is ready to help.\n\n- **Support Email**: support@hirebyminute.com\n- **Business Inquiries**: business@hirebyminute.com\n- **Support Hours**: Monday – Friday: 9:00 AM – 6:00 PM EST (24/7 Escalation Desk)\n- **Office Location**: San Francisco, CA, United States",
+        "status": "published",
+        "updated_by": "system",
+        "created_at": "2026-09-15T07:55:34.093Z",
+        "updated_at": "2026-09-15T07:55:34.093Z"
+      },
+      {
+        "id": "page-faq",
+        "slug": "faq",
+        "title": "Frequently Asked Questions",
+        "meta_title": "FAQ — HireByMinute Common Questions Answered",
+        "meta_description": "Frequently asked questions about consultations, per-minute billing, expert verification, and security.",
+        "content": "# Frequently Asked Questions\n\n### How does per-minute billing work?\nWhen you book a session, an authorization hold is placed for the expected duration. When the session finishes, the room timer calculates the exact minutes elapsed, and only that amount is charged.\n\n### What if the expert does not show up?\nIf an expert fails to appear for a scheduled session within 10 minutes of start time, the session is cancelled and 100% of your payment hold is immediately released.\n\n### How do experts get paid?\nExpert earnings are accumulated in their platform balance after successful session completion and settled according to the platform payout schedule.",
+        "status": "published",
+        "updated_by": "system",
+        "created_at": "2026-09-15T07:55:34.096Z",
+        "updated_at": "2026-09-15T07:55:34.096Z"
+      }
+    ],
+    "faqs": [
+      {
+        "id": "faq-1",
+        "question": "How does per-minute billing work?",
+        "answer": "You pay strictly for the elapsed minutes of your consultation. A temporary authorization is held before the session starts, and upon completion, you are charged only for the exact duration spent. Any unused authorized amount is immediately released.",
+        "category": "Billing & Pricing",
+        "sort_order": 1,
+        "is_published": 1,
+        "created_at": "2026-09-15T07:55:34.009Z",
+        "updated_at": "2026-09-15T07:55:34.009Z"
+      },
+      {
+        "id": "faq-2",
+        "question": "How do I join as a verified expert?",
+        "answer": "Click \"Become a Provider\", fill out your profile with your professional background and domain expertise, and submit your identity/credential verification. Our operations team verifies expert qualifications within 24 hours.",
+        "category": "Experts & Providers",
+        "sort_order": 2,
+        "is_published": 1,
+        "created_at": "2026-09-15T07:55:34.015Z",
+        "updated_at": "2026-09-15T07:55:34.015Z"
+      },
+      {
+        "id": "faq-3",
+        "question": "What happens if there is a technical disconnection during a call?",
+        "answer": "Our server-authoritative timer automatically pauses if either party loses WebRTC connectivity. If the connection cannot be restored promptly, you can request an immediate refund or session reschedule with zero penalties.",
+        "category": "Sessions & Audio/Video",
+        "sort_order": 3,
+        "is_published": 1,
+        "created_at": "2026-09-15T07:55:34.018Z",
+        "updated_at": "2026-09-15T07:55:34.018Z"
+      },
+      {
+        "id": "faq-4",
+        "question": "What payment methods are supported on HireByMinute?",
+        "answer": "We support all major debit/credit cards (Visa, MasterCard, Amex), UPI, net banking, and international multi-currency processing via PCI-DSS certified Razorpay gateway.",
+        "category": "Billing & Pricing",
+        "sort_order": 4,
+        "is_published": 1,
+        "created_at": "2026-09-15T07:55:34.042Z",
+        "updated_at": "2026-09-15T07:55:34.042Z"
+      },
+      {
+        "id": "faq-5",
+        "question": "Can I extend my consultation while it is in progress?",
+        "answer": "Yes! Both client and expert can agree to add 5, 15, or 30 minutes directly inside the live consultation room before the countdown clock expires.",
+        "category": "Sessions & Audio/Video",
+        "sort_order": 5,
+        "is_published": 1,
+        "created_at": "2026-09-15T07:55:34.045Z",
+        "updated_at": "2026-09-15T07:55:34.045Z"
+      },
+      {
+        "id": "faq-6",
+        "question": "Are consultation calls and shared files private and secure?",
+        "answer": "Yes. Live audio/video communications are peer-to-peer encrypted via WebRTC. Chat transcripts and uploaded files are protected by strict access control policies and never shared with unauthorized parties.",
+        "category": "Security & Trust",
+        "sort_order": 6,
+        "is_published": 1,
+        "created_at": "2026-09-15T07:55:34.049Z",
+        "updated_at": "2026-09-15T07:55:34.049Z"
+      }
+    ]
+  }
+}

@@ -286,6 +286,149 @@ export const HowItWorksPage: React.FC = () => {
         </div>
 
         {/* ========================================================================= */}
+        {/* SECTION 3: FOR JOB SEEKERS */}
+        {/* ========================================================================= */}
+        <div className="space-y-6 pt-4">
+          <div className="flex items-center justify-between border-b border-timberwolf/60 pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-midnight text-aliceblue flex items-center justify-center font-bold text-sm">
+                03
+              </div>
+              <div>
+                <h2 className="text-2xl font-extrabold text-midnight">For Job Seekers: Full-Time Careers</h2>
+                <p className="text-xs text-midnight/60">Direct applications with resumes, clear salaries, and real milestone visibility</p>
+              </div>
+            </div>
+            <Link
+              to="/jobs"
+              className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-moonstone hover:text-moonstone-dark transition-colors"
+            >
+              <span>Browse Job Openings</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-aliceblue text-moonstone flex items-center justify-center font-bold text-xs border border-timberwolf/60">
+                1
+              </div>
+              <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
+                <Search className="w-4 h-4 text-moonstone" />
+                <span>Discover Verified Roles</span>
+              </h3>
+              <p className="text-xs text-midnight/70 leading-relaxed">
+                Filter permanent positions by Remote, Hybrid, or On-site mode, experience level, salary range, and tech stack.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-aliceblue text-moonstone flex items-center justify-center font-bold text-xs border border-timberwolf/60">
+                2
+              </div>
+              <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
+                <FileText className="w-4 h-4 text-moonstone" />
+                <span>Direct Resume Application</span>
+              </h3>
+              <p className="text-xs text-midnight/70 leading-relaxed">
+                Upload your PDF or DOCX resume document, summarize your impact, and submit directly to the hiring organization without third-party spam.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-aliceblue text-moonstone flex items-center justify-center font-bold text-xs border border-timberwolf/60">
+                3
+              </div>
+              <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-moonstone" />
+                <span>Strict Privacy Isolation</span>
+              </h3>
+              <p className="text-xs text-midnight/70 leading-relaxed">
+                Your resume and internal review notes remain strictly private. Applicant data is secured and never exposed to other candidates.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-aliceblue text-moonstone flex items-center justify-center font-bold text-xs border border-timberwolf/60">
+                4
+              </div>
+              <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Transparent Milestones</span>
+              </h3>
+              <p className="text-xs text-midnight/70 leading-relaxed">
+                Track status transitions from Submitted to Under Review, Shortlisted, Interview, or Hired in your dashboard.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* SECTION 4: FOR EMPLOYERS & HIRING TEAMS */}
+        {/* ========================================================================= */}
+        <div className="space-y-6 pt-4">
+          <div className="flex items-center justify-between border-b border-timberwolf/60 pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-moonstone text-white flex items-center justify-center font-bold text-sm">
+                04
+              </div>
+              <div>
+                <h2 className="text-2xl font-extrabold text-midnight">For Employers: Curated Company Entities</h2>
+                <p className="text-xs text-midnight/60">Streamlined publisher profiles, direct applicant review, and structured candidate evaluation</p>
+              </div>
+            </div>
+            <Link
+              to="/jobs"
+              className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-moonstone hover:text-moonstone-dark transition-colors"
+            >
+              <span>View Active Employers</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-aliceblue text-moonstone flex items-center justify-center font-bold text-xs border border-timberwolf/60">
+                1
+              </div>
+              <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
+                <Award className="w-4 h-4 text-moonstone" />
+                <span>Verified Company Profiles</span>
+              </h3>
+              <p className="text-xs text-midnight/70 leading-relaxed">
+                Showcase your brand identity, engineering culture, website, industry, team size, and headquarters to attract top-tier professionals.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-aliceblue text-moonstone flex items-center justify-center font-bold text-xs border border-timberwolf/60">
+                2
+              </div>
+              <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
+                <FileText className="w-4 h-4 text-moonstone" />
+                <span>Structured Job Publishing</span>
+              </h3>
+              <p className="text-xs text-midnight/70 leading-relaxed">
+                Draft, preview, publish, and close roles with structured responsibilities, requirements, benefits, and Google JobPosting SEO indexing.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-aliceblue text-moonstone flex items-center justify-center font-bold text-xs border border-timberwolf/60">
+                3
+              </div>
+              <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-moonstone" />
+                <span>Direct Applicant Review</span>
+              </h3>
+              <p className="text-xs text-midnight/70 leading-relaxed">
+                Review candidate resumes securely, maintain internal review notes, and trigger in-app updates to keep applicants aligned.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
         {/* KEY PLATFORM PROTOCOLS */}
         {/* ========================================================================= */}
         <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 sm:p-8 shadow-card space-y-6">
