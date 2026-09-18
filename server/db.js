@@ -1225,14 +1225,14 @@ function ensureSettingsAndAdmin(dbInstance) {
   insertSetting.run('logo_url', '', 'Custom brand logo image URL');
   insertSetting.run('header_navigation', JSON.stringify([
     { id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true, is_external: false },
-    { id: 'jobs', label: 'Jobs', url: '/jobs', order: 2, is_visible: true, is_external: false },
-    { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 3, is_visible: true, is_external: false },
+    { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 2, is_visible: true, is_external: false },
+    { id: 'jobs', label: 'Jobs', url: '/jobs', order: 3, is_visible: true, is_external: false },
     { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 4, is_visible: true, is_external: false }
   ]), 'Configurable header navigation items and ordering');
   insertSetting.run('header_cta_label', 'Sign In / Join', 'Header call-to-action button label');
   insertSetting.run('header_cta_url', '/auth', 'Header call-to-action destination URL');
   insertSetting.run('footer_settings', JSON.stringify({
-    company_description: 'The precision marketplace for on-demand consultations and full-time careers. Hire verified experts for exactly the minutes you need, or discover career-defining employment opportunities.',
+    company_description: 'The precision marketplace for on-demand consultations. Hire verified experts for exactly the minutes you need, or monetize specialized knowledge with zero retainers.',
     contact_email: 'support@hirebyminute.com',
     contact_phone: '+1 (800) 555-0199',
     address: 'San Francisco, CA, United States',
@@ -1248,8 +1248,8 @@ function ensureSettingsAndAdmin(dbInstance) {
         { id: 'about', label: 'About Us', url: '/about', order: 1, is_visible: true },
         { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 2, is_visible: true },
         { id: 'services', label: 'Browse Services', url: '/services', order: 3, is_visible: true },
-        { id: 'jobs', label: 'Full-Time Jobs', url: '/jobs', order: 4, is_visible: true },
-        { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 5, is_visible: true, is_new: true }
+        { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 4, is_visible: true, is_new: true },
+        { id: 'jobs', label: 'Jobs', url: '/jobs', order: 5, is_visible: true }
       ],
       policies: [
         { id: 'terms', label: 'Terms of Service', url: '/terms', order: 1, is_visible: true },
@@ -1277,37 +1277,33 @@ function ensureSettingsAndAdmin(dbInstance) {
   }), 'Configurable customer support and platform contact channels');
 
   insertSetting.run('homepage_settings', JSON.stringify({
-    hero_headline: 'What brings you here?',
-    hero_subheadline: 'Hire expertise by the minute, offer freelance services, or discover your next full-time career role.',
-    hero_badge_text: '⚡ Instant 1-on-1 Consultations • Freelance Services • Full-Time Roles',
+    hero_headline: 'Hire Top Experts by the Minute — Live & On Demand',
+    hero_subheadline: 'Find the right expert. Hire them by the minute. Pay only for the time you need.',
+    hero_badge_text: '⚡ Instant 1-on-1 Consultations • Pay Per Exact Minute',
     primary_cta_label: 'Find an Expert',
     primary_cta_url: '/services',
-    secondary_cta_label: 'Browse Jobs',
-    secondary_cta_url: '/jobs',
-    search_placeholder: 'Search experts, skills, or full-time jobs...',
-    popular_tags: ['Python developer', 'Full-Stack Engineer', 'Figma teardown', 'RAG architect', 'B2B growth audit', 'Tax advisor', 'AI Prompt Engineer', 'Fractional CTO'],
-    intent_expert_title: 'HIRE AN EXPERT',
-    intent_expert_desc: 'Get help from a skilled professional and pay only for the time you need.',
-    intent_expert_button: 'Browse Experts',
+    secondary_cta_label: 'List Your Service',
+    secondary_cta_url: '/provider/onboard',
+    search_placeholder: 'Search experts, skills, or services...',
+    popular_tags: ['Python developer', 'Figma teardown', 'RAG architect', 'B2B growth audit', 'Tax advisor', 'AI Prompt Engineer', 'Fractional CTO'],
+    intent_expert_title: 'Find an Expert',
+    intent_expert_desc: 'Pay only for the exact minutes you spend with a vetted professional. No retainers or minimum commitments.',
+    intent_expert_button: 'Find an Expert',
     intent_expert_url: '/services',
-    intent_freelance_title: 'FIND FREELANCE WORK',
-    intent_freelance_desc: 'Discover freelance services and professional opportunities.',
-    intent_freelance_button: 'Explore Freelance',
-    intent_freelance_url: '/services',
-    intent_job_title: 'FIND A FULL-TIME JOB',
-    intent_job_desc: 'Discover full-time roles from companies hiring professionals.',
-    intent_job_button: 'Browse Jobs',
-    intent_job_url: '/jobs',
+    intent_freelance_title: 'List Your Service',
+    intent_freelance_desc: 'Set your own per-minute rate, choose your hours, and get booked by clients who value your time.',
+    intent_freelance_button: 'Become a Service Provider',
+    intent_freelance_url: '/provider/onboard',
     how_it_works_title: 'How HireByMinute works',
-    how_it_works_subtitle: 'From connecting with verified specialists to applying for full-time opportunities.',
+    how_it_works_subtitle: 'From finding the right person to finishing your timed consultation in four easy steps.',
     how_it_works_steps: [
-      { step: '01', title: 'Find an Expert or Role', description: 'Search verified professionals by exact skills or discover permanent full-time employment.' },
-      { step: '02', title: 'Choose Your Engagement', description: 'Schedule timed consultations by the minute or submit direct full-time applications.' },
-      { step: '03', title: 'Live Collaboration', description: 'Collaborate via WebRTC video or interview directly with hiring companies.' },
-      { step: '04', title: 'Transparent Delivery', description: 'Pay strictly for the minutes you use with zero retainers, or advance to hire.' }
+      { step: '01', title: 'Find an Expert', description: 'Find someone who knows exactly what you need without wading through bloated project agencies.' },
+      { step: '02', title: 'Choose Your Time', description: 'Choose exactly how many minutes or hours you need: 15m, 30m, 45m, or custom duration.' },
+      { step: '03', title: 'Live Timed Session', description: 'Chat, call, video, or share files while the server-authoritative countdown clock is active.' },
+      { step: '04', title: 'Session Completes', description: 'When time ends, communication closes naturally. No scope creep, surprise invoices, or billing disputes.' }
     ],
-    cta_title: 'Ready to experience precision consulting and career growth?',
-    cta_subtitle: 'Connect with verified specialists right now or find companies hiring across top technical domains.',
+    cta_title: 'Ready to experience precision consulting?',
+    cta_subtitle: 'Connect with verified specialists right now and pay strictly for the minutes you use.',
     cta_button_label: 'Get Started Today',
     cta_button_url: '/services',
     visibility: {
@@ -1320,7 +1316,7 @@ function ensureSettingsAndAdmin(dbInstance) {
       fulltime_jobs: true,
       cta: true
     }
-  }), 'Configurable homepage content, hero copy, intent cards, and section visibility');
+  }), 'Configurable homepage visual sections, intent cards, and headlines');
 
   insertSetting.run('seo_settings', JSON.stringify({
     site_title: 'HireByMinute — Instant 1-on-1 Consultations by the Minute',

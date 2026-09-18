@@ -383,7 +383,7 @@ export const AdminJobsControl: React.FC = () => {
       ) : jobs.length === 0 ? (
         <div className="bg-white rounded-2xl border border-timberwolf/70 p-12 text-center shadow-card space-y-3 max-w-md mx-auto">
           <Briefcase className="w-10 h-10 text-moonstone mx-auto" />
-          <h3 className="text-base font-bold text-midnight">No Job Positions Found</h3>
+          <h3 className="text-base font-bold text-midnight">No jobs yet.</h3>
           <p className="text-xs text-midnight/70">
             {search || statusFilter !== 'all' || companyFilter !== 'all'
               ? 'No jobs match your current search and filter settings.'

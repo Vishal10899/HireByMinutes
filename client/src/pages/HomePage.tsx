@@ -120,16 +120,16 @@ export const HomePage: React.FC = () => {
           </h1>
           
           <p className="mt-4 sm:mt-5 text-base sm:text-lg text-midnight/70 max-w-xl mx-auto leading-relaxed">
-            {cmsSettings?.hero_subheadline || 'Hire expertise by the minute, or turn your expertise into a service people can book.'}
+            {cmsSettings?.hero_subheadline || 'Find the right expert. Hire them by the minute. Pay only for the time you need.'}
           </p>
 
           {/* ========================================================================= */}
-          {/* THE THREE INTENT CARDS — IMMEDIATE INTENT CHOICE */}
+          {/* PRIMARY MARKETPLACE INTENT ACTIONS (2 CARDS) */}
           {/* ========================================================================= */}
           {cmsSettings?.visibility?.intent_cards !== false && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5 mt-7 sm:mt-9 text-left">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mt-7 sm:mt-9 text-left max-w-3xl mx-auto">
               
-              {/* Card 1: Hire an Expert */}
+              {/* Card 1: Find an Expert */}
               <div className="bg-lightblue/35 border-2 border-lightblue/90 hover:border-moonstone/70 rounded-[22px] p-5 sm:p-6 shadow-subtle flex flex-col justify-between transition-all duration-150">
                 <div>
                   <div className="w-10 h-10 rounded-xl bg-white/90 border border-lightblue/80 text-midnight flex items-center justify-center mb-4 shrink-0 shadow-xs">
@@ -139,7 +139,7 @@ export const HomePage: React.FC = () => {
                     Pay by the Minute
                   </span>
                   <h2 className="text-lg sm:text-xl font-bold text-midnight tracking-tight mb-2">
-                    {cmsSettings?.intent_expert_title || cmsSettings?.intent_client_title || 'Hire an Expert'}
+                    {cmsSettings?.intent_expert_title || cmsSettings?.intent_client_title || 'Find an Expert'}
                   </h2>
                   <p className="text-xs sm:text-sm text-midnight/75 leading-relaxed">
                     {cmsSettings?.intent_expert_desc || cmsSettings?.intent_client_desc || 'Find verified professionals and pay strictly by the minute for precision advice and consultations.'}
@@ -158,17 +158,17 @@ export const HomePage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Card 2: Find Freelance Work */}
+              {/* Card 2: List Your Service / Become a Service Provider */}
               <div className="bg-white border-2 border-timberwolf/80 hover:border-moonstone/70 rounded-[22px] p-5 sm:p-6 shadow-subtle flex flex-col justify-between transition-all duration-150">
                 <div>
                   <div className="w-10 h-10 rounded-xl bg-aliceblue border border-timberwolf/60 text-moonstone flex items-center justify-center mb-4 shrink-0 shadow-xs">
                     <DollarSign className="w-5 h-5 text-moonstone" />
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-midnight/50 block mb-1">
-                    Freelance Marketplace
+                    Monetize Your Time
                   </span>
                   <h2 className="text-lg sm:text-xl font-bold text-midnight tracking-tight mb-2">
-                    {cmsSettings?.intent_freelance_title || cmsSettings?.intent_provider_title || 'Find Freelance Work'}
+                    {cmsSettings?.intent_freelance_title || cmsSettings?.intent_provider_title || 'List Your Service'}
                   </h2>
                   <p className="text-xs sm:text-sm text-midnight/75 leading-relaxed">
                     {cmsSettings?.intent_freelance_desc || cmsSettings?.intent_provider_desc || 'Share what you know, accept client bookings, and monetize your professional minutes.'}
@@ -182,36 +182,7 @@ export const HomePage: React.FC = () => {
                     className="w-full text-xs"
                     iconRight={<ArrowRight className="w-3.5 h-3.5" />}
                   >
-                    {cmsSettings?.intent_freelance_button || cmsSettings?.intent_provider_button || 'Offer Services'}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Card 3: Find a Full-Time Job */}
-              <div className="bg-midnight border border-midnight text-aliceblue rounded-[22px] p-5 sm:p-6 shadow-card flex flex-col justify-between transition-all duration-150">
-                <div>
-                  <div className="w-10 h-10 rounded-xl bg-midnight-light border border-white/10 text-moonstone flex items-center justify-center mb-4 shrink-0">
-                    <Briefcase className="w-5 h-5 text-moonstone" />
-                  </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-moonstone block mb-1">
-                    Full-Time Careers
-                  </span>
-                  <h2 className="text-lg sm:text-xl font-bold text-aliceblue tracking-tight mb-2">
-                    {cmsSettings?.intent_job_title || 'Find a Full-Time Job'}
-                  </h2>
-                  <p className="text-xs sm:text-sm text-aliceblue/80 leading-relaxed">
-                    {cmsSettings?.intent_job_desc || 'Discover verified career positions and apply directly with your resume. Real milestone tracking.'}
-                  </p>
-                </div>
-                <div className="mt-5 pt-1">
-                  <Button
-                    to="/jobs"
-                    variant="accent"
-                    size="sm"
-                    className="w-full text-xs font-bold"
-                    iconRight={<ArrowRight className="w-3.5 h-3.5 text-midnight" />}
-                  >
-                    {cmsSettings?.intent_job_button || 'Browse Full-Time Jobs'}
+                    {cmsSettings?.intent_freelance_button || cmsSettings?.intent_provider_button || 'Become a Service Provider'}
                   </Button>
                 </div>
               </div>
@@ -418,133 +389,7 @@ export const HomePage: React.FC = () => {
         </section>
       )}
 
-      {/* ========================================================================= */}
-      {/* FULL-TIME CAREER OPPORTUNITIES */}
-      {/* ========================================================================= */}
-      {cmsSettings?.visibility?.fulltime_jobs !== false && (
-        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-end justify-between mb-8">
-            <div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-moonstone/10 text-moonstone-dark text-xs font-bold mb-2 border border-moonstone/20">
-                <Briefcase className="w-3.5 h-3.5 text-moonstone" />
-                <span>Permanent & Contract Careers</span>
-              </div>
-              <h2 className="text-2xl font-bold text-midnight tracking-tight">
-                Full-Time Opportunities
-              </h2>
-              <p className="text-sm text-midnight/65 mt-1">
-                Explore open positions from verified companies hiring talent directly on HireByMinute.
-              </p>
-            </div>
-            <Link
-              to="/jobs"
-              className="text-xs sm:text-sm font-semibold text-moonstone hover:text-moonstone-dark flex items-center gap-1 transition-colors"
-            >
-              Explore All Jobs <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
 
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="bg-white/60 border border-timberwolf/40 rounded-2xl p-6 h-48 animate-pulse" />
-              ))}
-            </div>
-          ) : featuredJobs.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-timberwolf/70 p-10 text-center shadow-card space-y-4 max-w-xl mx-auto">
-              <div className="w-12 h-12 rounded-xl bg-aliceblue text-midnight mx-auto flex items-center justify-center border border-timberwolf/60">
-                <Briefcase className="w-6 h-6 text-moonstone" />
-              </div>
-              <h3 className="text-base font-bold text-midnight">No full-time jobs available yet</h3>
-              <p className="text-xs text-midnight/70 leading-relaxed">
-                We are currently onboarding top companies and employers. Check back soon for verified positions or hire experts for immediate per-minute consulting.
-              </p>
-              <div className="pt-1">
-                <Link
-                  to="/jobs"
-                  className="btn-shine inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-all"
-                >
-                  <span>Browse Jobs Marketplace</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
-                </Link>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {featuredJobs.map((job) => {
-                const cName = job.company?.name || job.company_name || 'HireByMinute Employer';
-                const cLogo = job.company?.logo_url || job.company_logo;
-                const loc = job.location_text || [job.city, job.country].filter(Boolean).join(', ') || 'Global';
-
-                return (
-                  <div
-                    key={job.id}
-                    onClick={() => navigate(`/jobs/${job.slug || job.id}`)}
-                    className="bg-white border border-timberwolf/70 hover:border-moonstone/80 rounded-2xl p-5 shadow-card hover:shadow-subtle transition-all duration-150 cursor-pointer group flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <div className="w-10 h-10 rounded-xl bg-aliceblue border border-timberwolf/60 flex items-center justify-center font-bold text-xs text-midnight overflow-hidden shrink-0">
-                          {cLogo ? (
-                            <img src={cLogo} alt={cName} className="w-full h-full object-cover" />
-                          ) : (
-                            cName.slice(0, 2).toUpperCase()
-                          )}
-                        </div>
-                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                          job.work_mode === 'Remote'
-                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                            : job.work_mode === 'Hybrid'
-                            ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
-                            : 'bg-zinc-100 text-zinc-800 border-zinc-200'
-                        }`}>
-                          {job.work_mode}
-                        </span>
-                      </div>
-
-                      <span className="text-xs text-midnight/60 font-medium block truncate mb-1">
-                        {cName}
-                      </span>
-                      <h3 className="text-base font-bold text-midnight group-hover:text-moonstone transition-colors leading-snug tracking-tight line-clamp-2">
-                        {job.title}
-                      </h3>
-                      
-                      <div className="flex items-center gap-3 mt-3 text-xs text-midnight/70">
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3.5 h-3.5 text-moonstone shrink-0" />
-                          <span className="truncate max-w-[120px]">{loc}</span>
-                        </span>
-                        <span className="flex items-center gap-1 font-semibold text-midnight truncate">
-                          <DollarSign className="w-3.5 h-3.5 text-moonstone shrink-0" />
-                          <span>
-                            {job.salary_type === 'undisclosed' || (!job.salary_min && !job.salary_max)
-                              ? 'Undisclosed'
-                              : job.salary_min && job.salary_max
-                              ? `$${(job.salary_min / 1000).toFixed(0)}k - $${(job.salary_max / 1000).toFixed(0)}k`
-                              : job.salary_min
-                              ? `From $${(job.salary_min / 1000).toFixed(0)}k`
-                              : 'Competitive'}
-                          </span>
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="pt-4 mt-4 border-t border-timberwolf/40 flex items-center justify-between">
-                      <span className="text-[11px] font-medium text-midnight/50">
-                        {job.experience_level}
-                      </span>
-                      <span className="text-xs font-bold text-moonstone group-hover:text-moonstone-dark inline-flex items-center gap-0.5">
-                        <span>View Role</span>
-                        <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      )}
 
       {/* ========================================================================= */}
       {/* HOW HIREBYMINUTES WORKS (DYNAMIC STEPS) */}
@@ -645,6 +490,134 @@ export const HomePage: React.FC = () => {
 
         </div>
       </section>
+
+      {/* ========================================================================= */}
+      {/* OPTIONAL SECONDARY FULL-TIME JOBS SECTION */}
+      {/* ========================================================================= */}
+      {cmsSettings?.visibility?.fulltime_jobs !== false && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {featuredJobs.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-5 shadow-subtle">
+              <div className="flex items-center gap-4 text-left">
+                <div className="w-11 h-11 rounded-xl bg-moonstone/10 border border-moonstone/20 text-moonstone flex items-center justify-center shrink-0 shadow-xs">
+                  <Briefcase className="w-5 h-5 text-moonstone" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold text-midnight">
+                    Looking for a full-time role?
+                  </h3>
+                  <p className="text-xs sm:text-sm text-midnight/70 mt-0.5">
+                    Explore current opportunities from companies hiring through HireByMinute.
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/jobs"
+                className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs sm:text-sm font-semibold hover:bg-midnight-hover transition-all shadow-xs"
+              >
+                <span>Browse Jobs</span>
+                <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
+              </Link>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-end justify-between mb-8">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-moonstone/10 text-moonstone-dark text-xs font-bold mb-2 border border-moonstone/20">
+                    <Briefcase className="w-3.5 h-3.5 text-moonstone" />
+                    <span>Company Career Openings</span>
+                  </div>
+                  <h2 className="text-2xl font-bold text-midnight tracking-tight">
+                    Full-Time Opportunities
+                  </h2>
+                  <p className="text-sm text-midnight/65 mt-1">
+                    Explore open positions from verified companies hiring talent directly on HireByMinute.
+                  </p>
+                </div>
+                <Link
+                  to="/jobs"
+                  className="text-xs sm:text-sm font-semibold text-moonstone hover:text-moonstone-dark flex items-center gap-1 transition-colors"
+                >
+                  Explore All Jobs <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {featuredJobs.map((job) => {
+                  const cName = job.company?.name || job.company_name || 'HireByMinute Employer';
+                  const cLogo = job.company?.logo_url || job.company_logo;
+                  const loc = job.location_text || [job.city, job.country].filter(Boolean).join(', ') || 'Global';
+
+                  return (
+                    <div
+                      key={job.id}
+                      onClick={() => navigate(`/jobs/${job.slug || job.id}`)}
+                      className="bg-white border border-timberwolf/70 hover:border-moonstone/80 rounded-2xl p-5 shadow-card hover:shadow-subtle transition-all duration-150 cursor-pointer group flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div className="w-10 h-10 rounded-xl bg-aliceblue border border-timberwolf/60 flex items-center justify-center font-bold text-xs text-midnight overflow-hidden shrink-0">
+                            {cLogo ? (
+                              <img src={cLogo} alt={cName} className="w-full h-full object-cover" />
+                            ) : (
+                              cName.slice(0, 2).toUpperCase()
+                            )}
+                          </div>
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                            job.work_mode === 'Remote'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : job.work_mode === 'Hybrid'
+                              ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                              : 'bg-zinc-100 text-zinc-800 border-zinc-200'
+                          }`}>
+                            {job.work_mode}
+                          </span>
+                        </div>
+
+                        <span className="text-xs text-midnight/60 font-medium block truncate mb-1">
+                          {cName}
+                        </span>
+                        <h3 className="text-base font-bold text-midnight group-hover:text-moonstone transition-colors leading-snug tracking-tight line-clamp-2">
+                          {job.title}
+                        </h3>
+                        
+                        <div className="flex items-center gap-3 mt-3 text-xs text-midnight/70">
+                          <span className="flex items-center gap-1">
+                            <MapPin className="w-3.5 h-3.5 text-moonstone shrink-0" />
+                            <span className="truncate max-w-[120px]">{loc}</span>
+                          </span>
+                          <span className="flex items-center gap-1 font-semibold text-midnight truncate">
+                            <DollarSign className="w-3.5 h-3.5 text-moonstone shrink-0" />
+                            <span>
+                              {job.salary_type === 'undisclosed' || (!job.salary_min && !job.salary_max)
+                                ? 'Undisclosed'
+                                : job.salary_min && job.salary_max
+                                ? `$${(job.salary_min / 1000).toFixed(0)}k - $${(job.salary_max / 1000).toFixed(0)}k`
+                                : job.salary_min
+                                ? `From $${(job.salary_min / 1000).toFixed(0)}k`
+                                : 'Competitive'}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 mt-4 border-t border-timberwolf/40 flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-midnight/50">
+                          {job.experience_level}
+                        </span>
+                        <span className="text-xs font-bold text-moonstone group-hover:text-moonstone-dark inline-flex items-center gap-0.5">
+                          <span>View Role</span>
+                          <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ========================================================================= */}
       {/* BOTTOM CTA BANNER (DYNAMICALLY MANAGED BY ADMIN) */}

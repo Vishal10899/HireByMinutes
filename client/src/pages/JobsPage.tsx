@@ -149,7 +149,7 @@ export const JobsPage: React.FC = () => {
               Full-Time Opportunities
             </h1>
             <p className="mt-3 text-base sm:text-lg text-midnight/70 leading-relaxed">
-              Explore permanent roles and contract career openings from verified employers. Apply directly with your resume and track review milestones in real time.
+              Find full-time opportunities from companies hiring through HireByMinute.
             </p>
 
             {/* Search Bar */}
@@ -356,9 +356,9 @@ export const JobsPage: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    <h3 className="text-lg font-bold text-midnight">No full-time jobs available yet</h3>
+                    <h3 className="text-lg font-bold text-midnight">No full-time opportunities available right now.</h3>
                     <p className="text-xs sm:text-sm text-midnight/70 leading-relaxed">
-                      We are currently onboarding top companies and employers. Check back soon for verified career positions, or connect with expert advisors right now.
+                      Check back soon for new opportunities, or connect with verified specialists for on-demand consultations.
                     </p>
                     <div className="pt-2">
                       <Button to="/services" variant="primary" size="sm" iconRight={<ArrowRight className="w-4 h-4" />}>
