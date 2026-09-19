@@ -84,7 +84,7 @@ import {
   Video,
   CheckCircle2,
   AlertCircle,
-  DollarSign,
+  IndianRupee,
   TrendingUp,
   Mail,
   Bell,
@@ -265,7 +265,7 @@ export const AdminPage: React.FC = () => {
 
   // Campaign State
   const [campaignModalOpen, setCampaignModalOpen] = useState(false);
-  const [newCampaignName, setNewCampaignName] = useState('Weekend Promotion — $0 Listing Fee');
+  const [newCampaignName, setNewCampaignName] = useState('Weekend Promotion — ₹0 Listing Fee');
   const [newCampaignDesc, setNewCampaignDesc] = useState('Temporary promotional waiver for 100% free expert registration');
   const [newCampaignFee, setNewCampaignFee] = useState<number>(0);
   const [newCampaignDurationHours, setNewCampaignDurationHours] = useState<number>(24);
@@ -313,7 +313,7 @@ export const AdminPage: React.FC = () => {
   const [newUserServiceDesc, setNewUserServiceDesc] = useState('');
   const [newUserCategoryId, setNewUserCategoryId] = useState('cat-tech');
   const [newUserSubcategory, setNewUserSubcategory] = useState('');
-  const [newUserRate, setNewUserRate] = useState<number>(2.5);
+  const [newUserRate, setNewUserRate] = useState<number>(50.00);
 
   // Category Modal
   const [categoryModal, setCategoryModal] = useState<{
@@ -438,7 +438,7 @@ export const AdminPage: React.FC = () => {
   };
 
   const handleLaunchFree24h = async () => {
-    if (!confirm('Activate 24-Hour Free Registration promotion ($0.00 listing fee) now?')) return;
+    if (!confirm('Activate 24-Hour Free Registration promotion (₹0.00 listing fee) now?')) return;
     try {
       setActionLoading('launch-24h');
       const res = await api.launchFree24hCampaign();
@@ -497,7 +497,7 @@ export const AdminPage: React.FC = () => {
       setActionLoading('save-base-fee');
       await api.updateAdminListingFee(Number(newBaseFeeInput) || 2.00);
       setEditBaseFeeModalOpen(false);
-      alert(`Base listing fee updated to $${formatCurrency(newBaseFeeInput)}`);
+      alert(`Base listing fee updated to ₹${formatCurrency(newBaseFeeInput)}`);
       await loadAdminData();
     } catch (err: any) {
       alert(err.message || 'Failed to update base fee.');
@@ -867,7 +867,7 @@ export const AdminPage: React.FC = () => {
     }
   };
 
-  // Special Admin User Provisioning Flow ($0 Listing Fee Waiver)
+  // Special Admin User Provisioning Flow (₹0 Listing Fee Waiver)
   const handleAdminCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserName.trim() || !newUserEmail.trim()) {
@@ -896,7 +896,7 @@ export const AdminPage: React.FC = () => {
         price_per_minute: newUserRate
       });
 
-      alert(`User ${newUserName} created successfully with administrative $0 fee waiver!`);
+      alert(`User ${newUserName} created successfully with administrative ₹0 fee waiver!`);
       confetti({ particleCount: 80, spread: 70 });
 
       // Reset form
@@ -1042,7 +1042,7 @@ export const AdminPage: React.FC = () => {
     {
       title: 'FINANCE',
       items: [
-        { id: 'finance', label: 'Financial Overview', icon: DollarSign, count: null },
+        { id: 'finance', label: 'Financial Overview', icon: IndianRupee, count: null },
         { id: 'transactions', label: 'Transactions Ledger', icon: FileText, count: paymentsList.length },
         { id: 'refunds', label: 'Refunds Audit', icon: RefreshCw, count: paymentsList.filter((p) => p.type === 'refund').length },
         { id: 'registration_offers', label: 'Registration Offers', icon: Tag, count: campaignsList.filter((c) => c.status === 'active').length || null }
@@ -1236,7 +1236,7 @@ export const AdminPage: React.FC = () => {
                         className="btn-shine inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
                       >
                         <PlusCircle className="w-4 h-4 text-moonstone" />
-                        <span>Add User ($0 Waiver)</span>
+                        <span>Add User (₹0 Waiver)</span>
                       </button>
 
                       <button
@@ -1308,17 +1308,17 @@ export const AdminPage: React.FC = () => {
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Gross Volume</span>
                         <div className="w-9 h-9 rounded-xl bg-aliceblue text-midnight flex items-center justify-center border border-lightblue/60">
-                          <DollarSign className="w-4 h-4 text-moonstone" />
+                          <IndianRupee className="w-4 h-4 text-moonstone" />
                         </div>
                       </div>
                       <div>
                         <div className="text-2xl font-extrabold text-midnight font-mono">
-                          ${formatCurrency(stats?.grossRevenue)}
+                          ₹{formatCurrency(stats?.grossRevenue)}
                         </div>
                         <div className="flex items-center gap-2 mt-1 text-[11px] text-midnight/60">
-                          <span>Net: ${formatCurrency(stats?.netRevenue)}</span>
+                          <span>Net: ₹{formatCurrency(stats?.netRevenue)}</span>
                           <span>•</span>
-                          <span>Ref: ${formatCurrency(stats?.totalRefunds)}</span>
+                          <span>Ref: ₹{formatCurrency(stats?.totalRefunds)}</span>
                         </div>
                       </div>
                     </div>
@@ -1336,10 +1336,10 @@ export const AdminPage: React.FC = () => {
                       </div>
                       <div>
                         <div className="text-2xl font-extrabold text-moonstone-dark font-mono">
-                          ${formatCurrency(stats?.platformRevenue)}
+                          ₹{formatCurrency(stats?.platformRevenue)}
                         </div>
                         <div className="text-[11px] text-midnight/60 mt-1">
-                          Expert Payouts: ${formatCurrency(stats?.expertPayouts)}
+                          Expert Payouts: ₹{formatCurrency(stats?.expertPayouts)}
                         </div>
                       </div>
                     </div>
@@ -1441,7 +1441,7 @@ export const AdminPage: React.FC = () => {
                         </div>
                         <div className="flex items-center justify-between text-xs py-1">
                           <span className="text-midnight/70">Today's Revenue</span>
-                          <span className="font-bold text-midnight font-mono">${formatCurrency(stats?.today?.revenue)}</span>
+                          <span className="font-bold text-midnight font-mono">₹{formatCurrency(stats?.today?.revenue)}</span>
                         </div>
                       </div>
                     </div>
@@ -1640,7 +1640,7 @@ export const AdminPage: React.FC = () => {
                     className="btn-shine inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
                   >
                     <PlusCircle className="w-4 h-4 text-moonstone" />
-                    <span>Provision User ($0 Fee)</span>
+                    <span>Provision User (₹0 Fee)</span>
                   </button>
                 </div>
               </div>
@@ -1733,7 +1733,7 @@ export const AdminPage: React.FC = () => {
                                     <span>{u.full_name}</span>
                                     {u.created_by_admin === 1 && (
                                       <span
-                                        title="Created via administrative flow ($0 fee waiver)"
+                                        title="Created via administrative flow (₹0 fee waiver)"
                                         className="text-[9px] bg-moonstone/10 text-moonstone-dark px-1.5 py-0.2 rounded font-mono font-bold"
                                       >
                                         Admin-Provisioned
@@ -1795,8 +1795,8 @@ export const AdminPage: React.FC = () => {
                             {/* Financial */}
                             <td className="py-3.5 px-4 font-mono font-bold text-midnight">
                               {u.role === 'provider'
-                                ? `Earned $${formatCurrency(u.revenue_generated)}`
-                                : `Spent $${formatCurrency(u.total_spent)}`}
+                                ? `Earned ₹${formatCurrency(u.revenue_generated)}`
+                                : `Spent ₹${formatCurrency(u.total_spent)}`}
                             </td>
 
                             {/* Actions */}
@@ -1921,7 +1921,7 @@ export const AdminPage: React.FC = () => {
                           </td>
                           <td className="py-3.5 px-4 font-semibold text-midnight">{s.provider_name}</td>
                           <td className="py-3.5 px-4 font-mono font-bold text-midnight">
-                            ${formatCurrency(s.price_per_minute)}/min
+                            ₹{formatCurrency(s.price_per_minute)}/min
                           </td>
                           <td className="py-3.5 px-4 text-midnight/80 font-medium">
                             {s.category_name} {s.subcategory ? `· ${s.subcategory}` : ''}
@@ -1946,7 +1946,7 @@ export const AdminPage: React.FC = () => {
                               </span>
                             ) : (
                               <span className="text-[11px] text-amber-700 font-semibold flex items-center gap-1">
-                                <Clock className="w-3 h-3" /> Pending $2
+                                <Clock className="w-3 h-3" /> Pending ₹2
                               </span>
                             )}
                           </td>
@@ -2177,12 +2177,12 @@ export const AdminPage: React.FC = () => {
                             <div className="text-[11px] text-midnight/60 line-clamp-1">{opp.description}</div>
                           </td>
                           <td className="py-3.5 px-4 text-midnight/80 font-medium">{opp.category_name}</td>
-                          <td className="py-3.5 px-4 font-mono font-bold text-midnight">${formatCurrency(opp.budget)}</td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-midnight">₹{formatCurrency(opp.budget)}</td>
                           <td className="py-3.5 px-4 text-midnight/70">{opp.duration_minutes} mins</td>
                           <td className="py-3.5 px-4">
-                            {opp.pricing_type === 'paid' && Number(opp.entry_fee_usd) > 0 ? (
+                            {opp.pricing_type === 'paid' && Number(opp.entry_fee_inr || opp.entry_fee_usd) > 0 ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 font-mono">
-                                PAID: ${formatCurrency(opp.entry_fee_usd)}
+                                PAID: ₹{formatCurrency(opp.entry_fee_inr || opp.entry_fee_usd)}
                               </span>
                             ) : (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
@@ -2304,7 +2304,7 @@ export const AdminPage: React.FC = () => {
                             </span>
                           </td>
                           <td className="py-3.5 px-4 font-mono font-bold text-midnight">
-                            ${formatCurrency(req.total_price)}
+                            ₹{formatCurrency(req.total_price)}
                           </td>
                         </tr>
                       ))}
@@ -2333,28 +2333,28 @@ export const AdminPage: React.FC = () => {
                 <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
                   <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Gross Volume</span>
                   <div className="text-2xl font-extrabold text-midnight font-mono mt-1">
-                    ${formatCurrency(stats?.grossRevenue)}
+                    ₹{formatCurrency(stats?.grossRevenue)}
                   </div>
                 </div>
 
                 <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
                   <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Platform Take (15%)</span>
                   <div className="text-2xl font-extrabold text-moonstone-dark font-mono mt-1">
-                    ${formatCurrency(stats?.platformRevenue)}
+                    ₹{formatCurrency(stats?.platformRevenue)}
                   </div>
                 </div>
 
                 <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
                   <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Expert Payouts (85%)</span>
                   <div className="text-2xl font-extrabold text-emerald-700 font-mono mt-1">
-                    ${formatCurrency(stats?.expertPayouts)}
+                    ₹{formatCurrency(stats?.expertPayouts)}
                   </div>
                 </div>
 
                 <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
                   <span className="text-xs font-bold text-midnight/60 uppercase tracking-wider">Total Refunds</span>
                   <div className="text-2xl font-extrabold text-rose-700 font-mono mt-1">
-                    ${formatCurrency(stats?.totalRefunds)}
+                    ₹{formatCurrency(stats?.totalRefunds)}
                   </div>
                 </div>
               </div>
@@ -2388,9 +2388,9 @@ export const AdminPage: React.FC = () => {
                               {p.type}
                             </span>
                           </td>
-                          <td className="py-3.5 px-4 font-mono font-bold text-midnight">${formatCurrency(p.amount)}</td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-midnight">₹{formatCurrency(p.amount)}</td>
                           <td className="py-3.5 px-4 font-mono text-moonstone-dark">
-                            ${p.type === 'session_payment' ? formatCurrency(formatNumber(p.amount) * 0.15) : '—'}
+                            {p.type === 'session_payment' ? `₹${formatCurrency(formatNumber(p.amount) * 0.15)}` : '—'}
                           </td>
                           <td className="py-3.5 px-4">
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -2490,7 +2490,7 @@ export const AdminPage: React.FC = () => {
           )}
 
           {/* ===================================================================== */}
-          {/* TAB 9: SPECIAL ADMIN FLOW — ADD USER ($0 LISTING FEE WAIVER) */}
+          {/* TAB 9: SPECIAL ADMIN FLOW — ADD USER (₹0 LISTING FEE WAIVER) */}
           {/* ===================================================================== */}
           {activeTab === 'add_user' && (
             <div className="max-w-3xl mx-auto space-y-6">
@@ -2500,10 +2500,10 @@ export const AdminPage: React.FC = () => {
                   <span>Administrative Exception</span>
                 </div>
                 <h1 className="text-2xl font-extrabold text-midnight tracking-tight">
-                  Direct User Provisioning ($0 Fee Waiver)
+                  Direct User Provisioning (₹0 Fee Waiver)
                 </h1>
                 <p className="text-xs text-midnight/70 mt-1">
-                  Create expert or client profiles directly. Experts provisioned by Admin receive an automatic $0 listing fee waiver with audit tracking.
+                  Create expert or client profiles directly. Experts provisioned by Admin receive an automatic ₹0 listing fee waiver with audit tracking.
                 </p>
               </div>
 
@@ -2604,13 +2604,14 @@ export const AdminPage: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-midnight mb-1">Price Per Minute ($)</label>
+                        <label className="block text-xs font-semibold text-midnight mb-1">Price Per Minute (₹ INR)</label>
                         <input
                           type="number"
-                          step="0.25"
-                          min="0.5"
+                          step="1"
+                          min="1"
+                          max="10000"
                           value={newUserRate}
-                          onChange={(e) => setNewUserRate(parseFloat(e.target.value) || 1.5)}
+                          onChange={(e) => setNewUserRate(parseFloat(e.target.value) || 50)}
                           className="w-full bg-white border border-timberwolf/70 rounded-xl px-3.5 py-2 text-xs text-midnight focus:border-moonstone focus:ring-2 focus:ring-moonstone/20 shadow-subtle font-mono"
                         />
                       </div>
@@ -2753,7 +2754,7 @@ export const AdminPage: React.FC = () => {
                     Registration & Listing Offers
                   </h1>
                   <p className="text-xs text-midnight/70 mt-1">
-                    Manage temporary $0 listing fee promotions, scheduled platform offers, and base expert registration fees.
+                    Manage temporary ₹0 listing fee promotions, scheduled platform offers, and base expert registration fees.
                   </p>
                 </div>
 
@@ -2764,7 +2765,7 @@ export const AdminPage: React.FC = () => {
                     className="btn-shine px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-subtle flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     <Sparkles className="w-4 h-4 text-emerald-200" />
-                    <span>Launch 24-Hour Free Promotion ($0.00)</span>
+                    <span>Launch 24-Hour Free Promotion (₹0.00)</span>
                   </button>
                   <button
                     onClick={() => {
@@ -2795,18 +2796,18 @@ export const AdminPage: React.FC = () => {
                         {effectiveFeeData.activeCampaign.name}
                       </h2>
                       <p className="text-xs text-aliceblue/80 leading-relaxed">
-                        {effectiveFeeData.activeCampaign.description || 'Experts can register and publish new service listings with $0.00 listing fee.'}
+                        {effectiveFeeData.activeCampaign.description || 'Experts can register and publish new service listings with ₹0.00 listing fee.'}
                       </p>
 
                       <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-aliceblue/70">
                         <div>
                           <span className="text-white/50 block text-[10px] uppercase font-bold">Active Fee</span>
-                          <span className="font-mono font-extrabold text-emerald-400 text-lg">$0.00 USD</span>
+                          <span className="font-mono font-extrabold text-emerald-400 text-lg">₹0.00</span>
                         </div>
                         <div className="h-8 w-[1px] bg-white/10" />
                         <div>
                           <span className="text-white/50 block text-[10px] uppercase font-bold">Standard Fee</span>
-                          <span className="font-mono font-bold text-white/80 line-through">${formatCurrency(effectiveFeeData.baseFee)} USD</span>
+                          <span className="font-mono font-bold text-white/80 line-through">₹{formatCurrency(effectiveFeeData.baseFee)}</span>
                         </div>
                         <div className="h-8 w-[1px] bg-white/10" />
                         <div>
@@ -2848,7 +2849,7 @@ export const AdminPage: React.FC = () => {
                       <span>Standard Fee Active (No Active Promotional Campaign)</span>
                     </div>
                     <h2 className="text-xl font-bold text-midnight">
-                      Standard Registration Fee: <span className="font-mono text-moonstone">${formatCurrency(effectiveFeeData?.baseFee || 2.00)} USD</span>
+                      Standard Registration Fee: <span className="font-mono text-moonstone">₹{formatCurrency(effectiveFeeData?.baseFee || 2.00)}</span>
                     </h2>
                     <p className="text-xs text-midnight/70 max-w-xl">
                       When no promotional campaign is active, experts pay the base listing fee configured in platform settings to activate and publish new services.
@@ -2915,12 +2916,12 @@ export const AdminPage: React.FC = () => {
                               <div className="text-[10px] font-mono text-midnight/50 mt-0.5">{c.id}</div>
                             </td>
                             <td className="py-3.5 px-4 font-mono font-bold text-midnight">
-                              {c.fee_usd === 0 ? (
+                              {Number(c.fee_inr ?? c.fee_usd ?? 0) === 0 ? (
                                 <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                                  $0.00 (FREE)
+                                  ₹0.00 (FREE)
                                 </span>
                               ) : (
-                                `$${formatCurrency(c.fee_usd)}`
+                                `₹${formatCurrency(c.fee_inr ?? c.fee_usd)}`
                               )}
                             </td>
                             <td className="py-3.5 px-4 font-mono text-midnight/80 text-[11px]">
@@ -3137,7 +3138,7 @@ export const AdminPage: React.FC = () => {
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-timberwolf/30">
                     <span className="text-midnight/70">Standard Listing Fee</span>
-                    <span className="font-bold text-midnight font-mono">$2.00 (Waived for Admin-created)</span>
+                    <span className="font-bold text-midnight font-mono">₹2.00 (Waived for Admin-created)</span>
                   </div>
                   <div className="flex items-center justify-between py-1.5">
                     <span className="text-midnight/70">Consultation Response SLA</span>
@@ -3570,7 +3571,7 @@ export const AdminPage: React.FC = () => {
                                 {s.actual_duration_minutes || s.duration_minutes || 0} mins
                               </td>
                               <td className="py-3.5 px-4 font-mono font-bold text-midnight">
-                                ${formatCurrency(s.total_price || s.price || 0)}
+                                ₹{formatCurrency(s.total_price || s.price || 0)}
                               </td>
                               <td className="py-3.5 px-4 text-midnight/60">
                                 {s.ended_at ? new Date(s.ended_at).toLocaleString() : s.created_at ? new Date(s.created_at).toLocaleDateString() : '—'}
@@ -3609,15 +3610,15 @@ export const AdminPage: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
                   <div className="text-xs text-midnight/60 font-semibold mb-1">Gross Settled Volume</div>
-                  <div className="text-xl font-bold font-mono text-midnight">${formatCurrency(stats?.grossRevenue)}</div>
+                  <div className="text-xl font-bold font-mono text-midnight">₹{formatCurrency(stats?.grossRevenue)}</div>
                 </div>
                 <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
                   <div className="text-xs text-midnight/60 font-semibold mb-1">Platform Revenue</div>
-                  <div className="text-xl font-bold font-mono text-moonstone">${formatCurrency(stats?.platformRevenue)}</div>
+                  <div className="text-xl font-bold font-mono text-moonstone">₹{formatCurrency(stats?.platformRevenue)}</div>
                 </div>
                 <div className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card">
                   <div className="text-xs text-midnight/60 font-semibold mb-1">Expert Payouts</div>
-                  <div className="text-xl font-bold font-mono text-emerald-600">${formatCurrency(stats?.expertPayouts)}</div>
+                  <div className="text-xl font-bold font-mono text-emerald-600">₹{formatCurrency(stats?.expertPayouts)}</div>
                 </div>
               </div>
 
@@ -3625,7 +3626,7 @@ export const AdminPage: React.FC = () => {
                 {paymentsList.length === 0 ? (
                   <div className="py-16 text-center space-y-3">
                     <div className="w-12 h-12 rounded-full bg-aliceblue text-midnight/40 flex items-center justify-center mx-auto border border-timberwolf/40">
-                      <DollarSign className="w-6 h-6" />
+                      <IndianRupee className="w-6 h-6" />
                     </div>
                     <h4 className="text-sm font-bold text-midnight">No Transactions Recorded</h4>
                     <p className="text-xs text-midnight/60 max-w-sm mx-auto">
@@ -3661,10 +3662,10 @@ export const AdminPage: React.FC = () => {
                               </span>
                             </td>
                             <td className="py-3.5 px-4 font-mono font-bold text-midnight">
-                              ${formatCurrency(p.amount)}
+                              ₹{formatCurrency(p.amount)}
                             </td>
                             <td className="py-3.5 px-4 font-mono text-moonstone font-semibold">
-                              ${formatCurrency(p.platform_fee ?? (p.type === 'session_payment' ? formatNumber(p.amount) * 0.15 : 0))}
+                              ₹{formatCurrency(p.platform_fee ?? (p.type === 'session_payment' ? formatNumber(p.amount) * 0.15 : 0))}
                             </td>
                             <td className="py-3.5 px-4">
                               <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
@@ -3708,7 +3709,7 @@ export const AdminPage: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl border border-rose-200">
-                      Total Reversals: ${formatCurrency(stats?.totalRefunds)}
+                      Total Reversals: ₹{formatCurrency(stats?.totalRefunds)}
                     </span>
                   </div>
                 </div>
@@ -3747,7 +3748,7 @@ export const AdminPage: React.FC = () => {
                                 {r.user_name || r.user_email || 'Customer'}
                               </td>
                               <td className="py-3.5 px-4 font-mono font-bold text-rose-600">
-                                -${formatCurrency(r.amount)}
+                                -₹{formatCurrency(r.amount)}
                               </td>
                               <td className="py-3.5 px-4 text-midnight/60">
                                 {r.created_at ? new Date(r.created_at).toLocaleString() : '—'}
@@ -3934,11 +3935,11 @@ export const AdminPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="p-3 bg-aliceblue rounded-xl border border-timberwolf/40">
                   <span className="text-midnight/60 block">Total Spent</span>
-                  <span className="font-bold text-sm text-midnight font-mono">${formatCurrency(selectedUserDetail.financial.total_spent)}</span>
+                  <span className="font-bold text-sm text-midnight font-mono">₹{formatCurrency(selectedUserDetail.financial.total_spent)}</span>
                 </div>
                 <div className="p-3 bg-aliceblue rounded-xl border border-timberwolf/40">
                   <span className="text-midnight/60 block">Total Earned</span>
-                  <span className="font-bold text-sm text-emerald-700 font-mono">${formatCurrency(selectedUserDetail.financial.total_earned)}</span>
+                  <span className="font-bold text-sm text-emerald-700 font-mono">₹{formatCurrency(selectedUserDetail.financial.total_earned)}</span>
                 </div>
               </div>
             )}
@@ -4110,7 +4111,7 @@ export const AdminPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-midnight mb-1">Budget ($)</label>
+                <label className="block text-xs font-semibold text-midnight mb-1">Budget (₹ INR)</label>
                 <input
                   type="number"
                   value={opportunityModal.budget}
@@ -4140,14 +4141,14 @@ export const AdminPage: React.FC = () => {
                     onChange={(e) => setOpportunityModal({ ...opportunityModal, pricing_type: e.target.value as any })}
                     className="w-full bg-white border border-timberwolf/70 rounded-xl p-2 text-xs text-midnight"
                   >
-                    <option value="free">Free Application ($0)</option>
+                    <option value="free">Free Application (₹0)</option>
                     <option value="paid">Paid Application Fee</option>
                   </select>
                 </div>
 
                 {opportunityModal.pricing_type === 'paid' && (
                   <div>
-                    <label className="block text-[11px] font-semibold text-midnight mb-1">Application Fee ($ USD)</label>
+                    <label className="block text-[11px] font-semibold text-midnight mb-1">Application Fee (INR ₹)</label>
                     <input
                       type="number"
                       step="0.5"
@@ -4440,14 +4441,14 @@ export const AdminPage: React.FC = () => {
                   rows={2}
                   value={newCampaignDesc}
                   onChange={(e) => setNewCampaignDesc(e.target.value)}
-                  placeholder="e.g. 100% free expert registration and service listing for 24 hours ($0.00 fee)."
+                  placeholder="e.g. 100% free expert registration and service listing for 24 hours (₹0.00 fee)."
                   className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-midnight mb-1">Promotional Fee (USD) *</label>
+                  <label className="block text-xs font-semibold text-midnight mb-1">Promotional Fee (INR ₹) *</label>
                   <input
                     type="number"
                     step="0.01"
@@ -4457,7 +4458,7 @@ export const AdminPage: React.FC = () => {
                     onChange={(e) => setNewCampaignFee(parseFloat(e.target.value) || 0)}
                     className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight font-mono focus:border-moonstone"
                   />
-                  <span className="text-[10px] text-midnight/50 mt-0.5 block">Set $0.00 for 100% free waiver</span>
+                  <span className="text-[10px] text-midnight/50 mt-0.5 block">Set ₹0.00 for 100% free waiver</span>
                 </div>
 
                 <div>
@@ -4528,9 +4529,9 @@ export const AdminPage: React.FC = () => {
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block text-xs font-semibold text-midnight mb-1">Standard Listing Fee (USD) *</label>
+                <label className="block text-xs font-semibold text-midnight mb-1">Standard Listing Fee (INR ₹) *</label>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-2.5 text-midnight/50 font-mono font-bold">$</span>
+                  <span className="absolute left-3.5 top-2.5 text-midnight/50 font-mono font-bold">₹</span>
                   <input
                     type="number"
                     step="0.25"
@@ -4541,7 +4542,7 @@ export const AdminPage: React.FC = () => {
                     className="w-full pl-7 pr-3.5 py-2.5 bg-white border border-timberwolf/70 rounded-xl text-xs text-midnight font-mono font-bold focus:border-moonstone"
                   />
                 </div>
-                <span className="text-[10px] text-midnight/50 mt-1 block">Default platform baseline: $2.00</span>
+                <span className="text-[10px] text-midnight/50 mt-1 block">Default platform baseline: ₹2.00</span>
               </div>
             </div>
 

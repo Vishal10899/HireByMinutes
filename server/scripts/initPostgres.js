@@ -396,7 +396,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   salary_type VARCHAR(32) DEFAULT 'undisclosed' CHECK(salary_type IN ('range', 'starting_from', 'up_to', 'undisclosed')),
   salary_min NUMERIC(12,2),
   salary_max NUMERIC(12,2),
-  currency VARCHAR(16) DEFAULT 'USD',
+  currency VARCHAR(16) DEFAULT 'INR',
   application_deadline TIMESTAMP WITH TIME ZONE,
   status VARCHAR(32) NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'published', 'closed', 'archived')),
   featured INTEGER DEFAULT 0,
@@ -514,7 +514,10 @@ async function initPostgres(customPool = null) {
     const defaultSettings = [
       ['platform_name', 'HireByMinute', 'The public platform name'],
       ['platform_fee_percent', '15', 'Platform take rate percentage on consultations'],
+      ['listing_fee_inr', '2.00', 'Flat fee in INR charged to experts to activate a service listing'],
       ['listing_fee_usd', '2.00', 'Flat fee charged to experts to activate a service listing'],
+      ['currency', 'INR', 'Platform base currency'],
+      ['currency_symbol', '₹', 'Platform base currency symbol'],
       ['min_session_duration', '5', 'Minimum consultation duration in minutes'],
       ['max_session_duration', '180', 'Maximum consultation duration in minutes'],
       ['payout_schedule', 'weekly', 'Expert earnings settlement schedule'],
@@ -683,7 +686,7 @@ async function initPostgres(customPool = null) {
     `, [
       'camp-launch-free-24h',
       'Launch Promotion — Free Expert Registration',
-      'Launch Offer: 100% free expert registration and service listing for 24 hours ($0.00 fee).',
+      'Launch Offer: 100% free expert registration and service listing for 24 hours (₹0.00 fee).',
       0.00,
       now.toISOString(),
       end.toISOString()

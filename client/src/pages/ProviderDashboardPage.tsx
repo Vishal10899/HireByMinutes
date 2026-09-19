@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { ConsultationRequest } from '../types';
 import {
-  DollarSign,
+  IndianRupee,
   Clock,
   CheckCircle2,
   XCircle,
@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { formatINR } from '../utils/currency';
 
 // Real-time Countdown Timer for Individual Consultation Request
 const RequestTimer: React.FC<{ initialSeconds: number; onExpire?: () => void }> = ({
@@ -294,7 +295,7 @@ export const ProviderDashboardPage: React.FC = () => {
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-xs hover:bg-midnight-hover shadow-subtle transition-colors"
           >
             <PlusCircle className="w-4 h-4 text-moonstone" />
-            <span>Add New Service ($2 Fee)</span>
+            <span>Add New Service (₹2 Fee)</span>
           </Link>
         </div>
       </div>
@@ -306,14 +307,14 @@ export const ProviderDashboardPage: React.FC = () => {
           <div>
             <span className="text-[11px] font-semibold text-midnight/60 uppercase tracking-wider">Net Earnings (85%)</span>
             <div className="text-2xl font-extrabold text-midnight font-mono mt-0.5">
-              ${earnings.total.toFixed(2)}
+              {formatINR(earnings.total)}
             </div>
             <span className="text-[10px] text-midnight/50 block mt-0.5">
-              Gross: ${(earnings.gross || 0).toFixed(2)} • 15% platform fee
+              Gross: {formatINR(earnings.gross || 0)} • 15% platform fee
             </span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-            <DollarSign className="w-5 h-5" />
+            <IndianRupee className="w-5 h-5" />
           </div>
         </div>
 
@@ -322,10 +323,10 @@ export const ProviderDashboardPage: React.FC = () => {
           <div>
             <span className="text-[11px] font-semibold text-midnight/60 uppercase tracking-wider">Today's Net</span>
             <div className="text-2xl font-extrabold text-midnight font-mono mt-0.5">
-              ${(earnings.todayNet || 0).toFixed(2)}
+              {formatINR(earnings.todayNet || 0)}
             </div>
             <span className="text-[10px] text-midnight/50 block mt-0.5">
-              Today Gross: ${(earnings.todayGross || 0).toFixed(2)}
+              Today Gross: {formatINR(earnings.todayGross || 0)}
             </span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-aliceblue text-moonstone flex items-center justify-center shrink-0">
@@ -432,7 +433,7 @@ export const ProviderDashboardPage: React.FC = () => {
                         <div className="flex items-center gap-2 text-[11px] text-midnight/60 mt-0.5">
                           <span className="font-semibold">{req.duration_minutes} minutes</span>
                           <span>•</span>
-                          <span className="font-mono font-bold text-emerald-700">${Number(req.total_price).toFixed(2)}</span>
+                          <span className="font-mono font-bold text-emerald-700">{formatINR(req.total_price)}</span>
                           <span>•</span>
                           <span className="text-moonstone font-medium">
                             {req.connect_type === 'now' ? 'Connect Now' : 'Scheduled'}
@@ -558,7 +559,7 @@ export const ProviderDashboardPage: React.FC = () => {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
-            <DollarSign className="w-5 h-5 text-moonstone" />
+            <IndianRupee className="w-5 h-5 text-moonstone" />
             <span>Completed Consultations & Earnings Breakdown ({completedSessionsBreakdown.length})</span>
           </h2>
           <span className="text-xs text-midnight/60">Transparent 15% platform commission • 85% net payout</span>
@@ -598,10 +599,10 @@ export const ProviderDashboardPage: React.FC = () => {
                       </div>
                     </td>
                     <td className="py-3 px-4 font-medium">{item.duration_minutes} mins</td>
-                    <td className="py-3 px-4 font-mono font-semibold">${Number(item.gross_amount).toFixed(2)}</td>
-                    <td className="py-3 px-4 font-mono text-rose-700">-${Number(item.platform_fee).toFixed(2)}</td>
+                    <td className="py-3 px-4 font-mono font-semibold">{formatINR(item.gross_amount)}</td>
+                    <td className="py-3 px-4 font-mono text-rose-700">-{formatINR(item.platform_fee)}</td>
                     <td className="py-3 px-4 font-mono font-extrabold text-emerald-700 text-sm">
-                      ${Number(item.net_earned).toFixed(2)}
+                      {formatINR(item.net_earned)}
                     </td>
                     <td className="py-3 px-4 text-midnight/60">
                       {item.actual_end ? new Date(item.actual_end).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'}
@@ -669,7 +670,7 @@ export const ProviderDashboardPage: React.FC = () => {
 
                 <div className="pt-3 border-t border-timberwolf/40 flex items-center justify-between">
                   <div className="font-mono text-sm font-extrabold text-midnight">
-                    ${srv.price_per_minute.toFixed(2)}
+                    {formatINR(srv.price_per_minute)}
                     <span className="text-[10px] font-normal text-midnight/60 font-sans"> / min</span>
                   </div>
 
@@ -678,7 +679,7 @@ export const ProviderDashboardPage: React.FC = () => {
                       to={`/services/${srv.id}`}
                       className="px-3 py-1.5 rounded-lg bg-amber-500 text-white font-bold text-xs hover:bg-amber-600"
                     >
-                      Pay $2 Activation
+                      Pay ₹2 Activation
                     </Link>
                   ) : (
                     <button

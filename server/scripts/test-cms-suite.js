@@ -278,7 +278,7 @@ async function run() {
   });
   if (!oppRes.ok || !oppRes.data.opportunity?.id) throw new Error('Failed to create paid opportunity: ' + JSON.stringify(oppRes.data));
   const oppId = oppRes.data.opportunity.id;
-  console.log('   ✓ Paid opportunity created with $15 entry fee. ID:', oppId);
+  console.log('   ✓ Paid opportunity created with ₹15 entry fee. ID:', oppId);
 
   // Duplicate opportunity
   const dupRes = await req(`/api/admin/opportunities/${oppId}/duplicate`, {

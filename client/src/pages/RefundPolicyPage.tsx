@@ -8,7 +8,7 @@ import {
   ShieldCheck,
   CreditCard,
   Mail,
-  DollarSign
+  IndianRupee
 } from 'lucide-react';
 import { usePageSEO } from '../hooks/usePageSEO';
 
@@ -108,16 +108,16 @@ export const RefundPolicyPage: React.FC = () => {
           {/* Section 3 */}
           <section className="space-y-3">
             <h2 className="text-base sm:text-lg font-bold text-midnight flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-moonstone" />
+              <IndianRupee className="w-4 h-4 text-moonstone" />
               <span>3. Service Listing Activation Fee Policy</span>
             </h2>
             <p>
-              The $2.00 listing fee is a one-time administrative cataloging fee charged when an Expert publishes a new service.
+              The ₹2.00 listing fee is a one-time administrative cataloging fee charged when an Expert publishes a new service.
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li>Listing fees cover catalog indexing, database hosting, and spam mitigation.</li>
-              <li>Once a service listing is activated and published to the public marketplace, the $2.00 listing fee is non-refundable.</li>
-              <li>Administrative exceptions ($0 fee waivers) applied by platform administrators carry no fee balance and are non-convertible.</li>
+              <li>Once a service listing is activated and published to the public marketplace, the ₹2.00 listing fee is non-refundable.</li>
+              <li>Administrative exceptions (₹0 fee waivers) applied by platform administrators carry no fee balance and are non-convertible.</li>
             </ul>
           </section>
 

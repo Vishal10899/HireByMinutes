@@ -9,7 +9,7 @@ import {
   Search,
   MapPin,
   Building2,
-  DollarSign,
+  IndianRupee,
   Clock,
   Filter,
   X,
@@ -118,8 +118,8 @@ export const JobsPage: React.FC = () => {
     if (job.salary_type === 'undisclosed' || (!job.salary_min && !job.salary_max)) {
       return 'Salary Undisclosed';
     }
-    const curr = job.currency || 'USD';
-    const sym = curr === 'USD' ? '$' : `${curr} `;
+    const curr = job.currency || 'INR';
+    const sym = curr === 'INR' ? '₹' : `${curr} `;
     if (job.salary_type === 'starting_from' && job.salary_min) {
       return `From ${sym}${Number(job.salary_min).toLocaleString()} / yr`;
     }
@@ -421,7 +421,7 @@ export const JobsPage: React.FC = () => {
                               <span>{locationDisplay}</span>
                             </span>
                             <span className="flex items-center gap-1 font-semibold text-midnight">
-                              <DollarSign className="w-3.5 h-3.5 text-moonstone" />
+                              <IndianRupee className="w-3.5 h-3.5 text-moonstone" />
                               <span>{formatSalary(job)}</span>
                             </span>
                             <span className="flex items-center gap-1">

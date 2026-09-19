@@ -219,6 +219,7 @@ export interface Opportunity {
   duration_minutes: number;
   budget: number;
   pricing_type?: 'free' | 'paid';
+  entry_fee_inr?: number;
   entry_fee_usd?: number;
   location?: string;
   deadline?: string;
@@ -270,6 +271,7 @@ export interface RegistrationCampaign {
   id: string;
   name: string;
   description?: string;
+  fee_inr?: number;
   fee_usd: number;
   start_time: string;
   end_time: string;

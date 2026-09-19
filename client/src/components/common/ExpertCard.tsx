@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Service } from '../../types';
 import { Star, CheckCircle, ArrowRight } from 'lucide-react';
+import { formatINR } from '../../utils/currency';
 
 interface ExpertCardProps {
   service: Service;
@@ -113,7 +114,7 @@ export const ExpertCard: React.FC<ExpertCardProps> = ({ service }) => {
         <div className="min-w-0 shrink-0">
           <div className="flex items-baseline gap-1">
             <span className="font-extrabold text-xl text-midnight tracking-tight">
-              ${service.price_per_minute.toFixed(2)}
+              {formatINR(service.price_per_minute)}
             </span>
             <span className="text-xs font-semibold text-midnight/60">/min</span>
           </div>

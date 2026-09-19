@@ -21,6 +21,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { formatINR } from '../utils/currency';
 
 export const ServicesPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -61,7 +62,7 @@ export const ServicesPage: React.FC = () => {
   const [selectedCountry, setSelectedCountry] = useState(countryParam);
   const [cityQuery, setCityQuery] = useState(cityParam);
   const [sortBy, setSortBy] = useState(sortParam);
-  const [maxPrice, setMaxPrice] = useState<number>(Number(searchParams.get('maxPrice')) || 5.0);
+  const [maxPrice, setMaxPrice] = useState<number>(Number(searchParams.get('maxPrice')) || 500);
   const [minRating, setMinRating] = useState<number>(Number(searchParams.get('rating')) || 0);
   const [minExperience, setMinExperience] = useState<number>(Number(searchParams.get('experience')) || 0);
   const [minSessions, setMinSessions] = useState<number>(Number(searchParams.get('minCompletedSessions')) || 0);
@@ -200,7 +201,7 @@ export const ServicesPage: React.FC = () => {
     setSelectedLanguage('all');
     setSelectedCountry('all');
     setCityQuery('');
-    setMaxPrice(5.0);
+    setMaxPrice(500);
     setMinRating(0);
     setMinExperience(0);
     setMinSessions(0);
@@ -223,7 +224,7 @@ export const ServicesPage: React.FC = () => {
     minSessions > 0,
     verifiedOnly,
     availableNowOnly,
-    maxPrice < 5.0,
+    maxPrice < 500,
     sortBy !== 'best_match'
   ].filter(Boolean).length;
 
@@ -301,20 +302,20 @@ export const ServicesPage: React.FC = () => {
       <div className="space-y-2 pt-2 border-t border-timberwolf/30">
         <div className="flex justify-between text-xs font-semibold text-midnight">
           <span>Max Rate / Minute</span>
-          <span className="text-moonstone font-mono font-bold">${maxPrice.toFixed(2)}/min</span>
+          <span className="text-moonstone font-mono font-bold">{formatINR(maxPrice)}/min</span>
         </div>
         <input
           type="range"
-          min="0.50"
-          max="5.00"
-          step="0.10"
+          min="5"
+          max="500"
+          step="5"
           value={maxPrice}
           onChange={(e) => setMaxPrice(parseFloat(e.target.value))}
           className="w-full accent-moonstone cursor-pointer h-6"
         />
         <div className="flex justify-between text-[10px] text-midnight/50">
-          <span>$0.50</span>
-          <span>$5.00+</span>
+          <span>{formatINR(5)}</span>
+          <span>{formatINR(500)}+</span>
         </div>
       </div>
 

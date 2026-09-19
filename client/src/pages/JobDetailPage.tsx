@@ -9,7 +9,7 @@ import {
   Briefcase,
   MapPin,
   Building2,
-  DollarSign,
+  IndianRupee,
   Clock,
   ArrowLeft,
   Calendar,
@@ -124,7 +124,7 @@ export const JobDetailPage: React.FC = () => {
     if (job.salary_min || job.salary_max) {
       jobPostingSchema.baseSalary = {
         '@type': 'MonetaryAmount',
-        currency: job.currency || 'USD',
+        currency: job.currency || 'INR',
         value: {
           '@type': 'QuantitativeValue',
           minValue: job.salary_min || undefined,
@@ -244,8 +244,8 @@ export const JobDetailPage: React.FC = () => {
     if (j.salary_type === 'undisclosed' || (!j.salary_min && !j.salary_max)) {
       return 'Salary Undisclosed';
     }
-    const curr = j.currency || 'USD';
-    const sym = curr === 'USD' ? '$' : `${curr} `;
+    const curr = j.currency || 'INR';
+    const sym = curr === 'INR' ? '₹' : `${curr} `;
     if (j.salary_type === 'starting_from' && j.salary_min) {
       return `From ${sym}${Number(j.salary_min).toLocaleString()} / year`;
     }
@@ -393,7 +393,7 @@ export const JobDetailPage: React.FC = () => {
                       <span>{locationDisplay}</span>
                     </span>
                     <span className="flex items-center gap-1 font-semibold text-midnight">
-                      <DollarSign className="w-4 h-4 text-moonstone" />
+                      <IndianRupee className="w-4 h-4 text-moonstone" />
                       <span>{formatSalary(job)}</span>
                     </span>
                     <span className="flex items-center gap-1">

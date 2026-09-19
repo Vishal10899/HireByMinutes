@@ -9,7 +9,7 @@ import {
   Star,
   ShieldCheck,
   Award,
-  DollarSign,
+  IndianRupee,
   ArrowRight,
   PlusCircle,
   FileText,
@@ -275,7 +275,7 @@ export const HowItWorksPage: React.FC = () => {
                 6
               </div>
               <h3 className="text-sm font-bold text-midnight flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-emerald-600" />
+                <IndianRupee className="w-4 h-4 text-emerald-600" />
                 <span>Direct 85% Payout Share</span>
               </h3>
               <p className="text-xs text-midnight/70 leading-relaxed">
@@ -455,7 +455,7 @@ export const HowItWorksPage: React.FC = () => {
             <div className="space-y-1.5">
               <h4 className="font-bold text-midnight">Listing Activation Fee</h4>
               <p className="text-midnight/70 leading-relaxed">
-                A one-time $2.00 listing fee applies when publishing new services to protect marketplace quality and prevent spam catalog indexing.
+                A one-time ₹2.00 listing fee applies when publishing new services to protect marketplace quality and prevent spam catalog indexing.
               </p>
             </div>
 

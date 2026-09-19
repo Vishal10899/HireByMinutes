@@ -9,6 +9,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const emailService = require('./services/emailService');
 const storageService = require('./services/storageService');
+const crypto = require('crypto');
+const { CURRENCY, CURRENCY_SYMBOL, toPaise, toRupees, formatINR, getRazorpaySafeDiagnostics } = require('./currency');
 
 const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev-jwt-secret-hirebyminutes-key' : null);
 if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
@@ -116,13 +118,19 @@ function sanitizeUser(user) {
 function getEffectiveListingFee() {
   let baseFee = 2.00;
   try {
-    const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'listing_fee_usd'").get();
-    if (setting && setting.value !== undefined) {
-      const parsed = parseFloat(setting.value);
+    const settingInr = db.prepare("SELECT value FROM platform_settings WHERE key = 'listing_fee_inr'").get();
+    if (settingInr && settingInr.value !== undefined) {
+      const parsed = parseFloat(settingInr.value);
       if (!isNaN(parsed)) baseFee = parsed;
+    } else {
+      const settingUsd = db.prepare("SELECT value FROM platform_settings WHERE key = 'listing_fee_usd'").get();
+      if (settingUsd && settingUsd.value !== undefined) {
+        const parsed = parseFloat(settingUsd.value);
+        if (!isNaN(parsed)) baseFee = parsed;
+      }
     }
   } catch (e) {
-    baseFee = parseFloat(process.env.LISTING_FEE_USD) || 2.00;
+    baseFee = parseFloat(process.env.LISTING_FEE_INR) || parseFloat(process.env.LISTING_FEE_USD) || 2.00;
   }
 
   const now = Date.now();
@@ -172,12 +180,16 @@ function getEffectiveListingFee() {
     if (activeCampaign) {
       const endMs = new Date(activeCampaign.end_time).getTime();
       const remainingSeconds = Math.max(0, Math.floor((endMs - now) / 1000));
+      const fee = Number(activeCampaign.fee_inr !== undefined ? activeCampaign.fee_inr : activeCampaign.fee_usd);
       return {
-        fee: Number(activeCampaign.fee_usd),
+        fee,
         baseFee,
+        currency: CURRENCY,
+        currency_symbol: CURRENCY_SYMBOL,
         isPromotionActive: true,
         activeCampaign: {
           ...activeCampaign,
+          fee_inr: fee,
           remaining_seconds: remainingSeconds
         },
         upcomingCampaigns,
@@ -188,6 +200,8 @@ function getEffectiveListingFee() {
     return {
       fee: baseFee,
       baseFee,
+      currency: CURRENCY,
+      currency_symbol: CURRENCY_SYMBOL,
       isPromotionActive: false,
       activeCampaign: null,
       upcomingCampaigns,
@@ -198,6 +212,8 @@ function getEffectiveListingFee() {
     return {
       fee: baseFee,
       baseFee,
+      currency: CURRENCY,
+      currency_symbol: CURRENCY_SYMBOL,
       isPromotionActive: false,
       activeCampaign: null,
       upcomingCampaigns: [],
@@ -206,7 +222,81 @@ function getEffectiveListingFee() {
   }
 }
 
-const crypto = require('crypto');
+// Server-Authoritative Razorpay Native Order Dispatch Helper (Strictly INR)
+async function createRazorpayNativeOrder({ amountPaise, receipt, notes = {} }) {
+  const keyId = (process.env.RAZORPAY_KEY_ID || '').trim().replace(/^["']|["']$/g, '');
+  const keySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim().replace(/^["']|["']$/g, '');
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const hasRealKeys = Boolean(keySecret && keyId && !keyId.includes('placeholder'));
+
+  if (isProduction || hasRealKeys) {
+    if (!keyId || !keySecret) {
+      console.error('[Razorpay Safe Diagnostic] Missing credentials in environment.', getRazorpaySafeDiagnostics());
+      const err = new Error('Payment could not be initialized. Please try again.');
+      err.statusCode = 502;
+      throw err;
+    }
+
+    if (keyId.startsWith('rzp_test_') && isProduction) {
+      console.warn('[Razorpay Warning Safe Diagnostic] Test mode key detected in production environment.', getRazorpaySafeDiagnostics());
+    }
+
+    const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+    const rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
+      method: 'POST',
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        amount: amountPaise,
+        currency: CURRENCY, // Explicitly INR
+        receipt: String(receipt).slice(0, 40),
+        notes: {
+          ...notes,
+          currency: CURRENCY
+        }
+      })
+    });
+
+    if (!rzpRes.ok) {
+      let rzpErr = {};
+      try {
+        rzpErr = await rzpRes.json();
+      } catch {}
+      console.error('[Razorpay Order Creation Failed Safe Diagnostic]', {
+        status: rzpRes.status,
+        code: rzpErr.error?.code,
+        description: rzpErr.error?.description,
+        source: rzpErr.error?.source,
+        step: rzpErr.error?.step,
+        reason: rzpErr.error?.reason,
+        diagnostics: getRazorpaySafeDiagnostics()
+      });
+      const err = new Error('Payment could not be initialized. Please try again.');
+      err.statusCode = 502;
+      throw err;
+    }
+
+    const rzpOrder = await rzpRes.json();
+    return {
+      order_id: rzpOrder.id,
+      currency: rzpOrder.currency || CURRENCY,
+      key_id: keyId,
+      amount_paise: amountPaise
+    };
+  } else {
+    // Development / test simulation order with zero external dependency
+    const simulatedOrderId = `order_${uuidv4().replace(/-/g, '').slice(0, 14)}`;
+    return {
+      order_id: simulatedOrderId,
+      currency: CURRENCY,
+      key_id: keyId || 'rzp_test_placeholder',
+      amount_paise: amountPaise
+    };
+  }
+}
 
 module.exports = function(timerEngine, io) {
   // Initialize email service with database reference
@@ -1462,8 +1552,8 @@ module.exports = function(timerEngine, io) {
         let newPrice = existingService.price_per_minute;
         if (price_per_minute !== undefined) {
           const parsedPrice = parseFloat(price_per_minute);
-          if (isNaN(parsedPrice) || parsedPrice <= 0 || parsedPrice > 100) {
-            return res.status(400).json({ error: 'Rate per minute must be a valid positive number between $0.10 and $100.00' });
+          if (isNaN(parsedPrice) || parsedPrice <= 0 || parsedPrice > 10000) {
+            return res.status(400).json({ error: 'Rate per minute must be a valid positive number between ₹1.00 and ₹10,000.00' });
           }
           newPrice = Number(parsedPrice.toFixed(2));
         }
@@ -1863,7 +1953,7 @@ module.exports = function(timerEngine, io) {
     const isFreePromotion = feeData.fee === 0;
 
     if (isFreePromotion) {
-      // Free promotion active: activate service immediately ($0 fee)
+      // Free promotion active: activate service immediately (₹0 fee)
       const paymentId = `promo-free-${uuidv4().slice(0, 8)}`;
       db.prepare(`
         INSERT INTO services (id, provider_id, title, category_id, description, price_per_minute, listing_status, listing_fee_paid, listing_fee_payment_id, skills_json, languages_json, experience_years, available_now)
@@ -1882,14 +1972,14 @@ module.exports = function(timerEngine, io) {
         available_now ? 1 : 0
       );
 
-      // Log $0 promotional listing payment record
+      // Log ₹0 promotional listing payment record
       db.prepare(`
         INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
         VALUES (?, ?, 'listing_fee', 0.00, 'succeeded', ?, ?)
       `).run(paymentId, req.user.id, id, JSON.stringify({
         service_title: title.trim(),
         campaign_id: feeData.activeCampaign?.id || 'launch-promo',
-        description: 'Temporary Launch Promotion: $0 Free Registration & Listing Fee'
+        description: 'Temporary Launch Promotion: ₹0 Free Registration & Listing Fee'
       }));
 
       db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(category_id);
@@ -1901,7 +1991,7 @@ module.exports = function(timerEngine, io) {
         `notif-${uuidv4().slice(0, 8)}`,
         req.user.id,
         'Service is Live (Free Launch Promotion)',
-        `"${title.trim()}" is active and published immediately with $0 listing fee!`,
+        `"${title.trim()}" is active and published immediately with ₹0 listing fee!`,
         'success',
         `/services/${id}`
       );
@@ -1914,7 +2004,7 @@ module.exports = function(timerEngine, io) {
       return res.status(201).json({
         service: created,
         is_free: true,
-        message: 'Free registration campaign active! Your service listing is live immediately with $0 listing fee.'
+        message: 'Free registration campaign active! Your service listing is live immediately with ₹0 listing fee.'
       });
     } else {
       // Normal listing fee applies: create draft
@@ -1943,12 +2033,14 @@ module.exports = function(timerEngine, io) {
         service: created,
         is_free: false,
         fee: feeData.fee,
-        message: `Service draft created. Pay $${feeData.fee.toFixed(2)} listing fee to publish.`
+        currency: CURRENCY,
+        currency_symbol: CURRENCY_SYMBOL,
+        message: `Service draft created. Pay ${formatINR(feeData.fee)} listing fee to publish.`
       });
     }
   });
 
-  // Pay Listing Fee to Activate Service (Secured: strictly allows only valid $0 free promotional activations)
+  // Pay Listing Fee to Activate Service (Secured: strictly allows only valid ₹0 free promotional activations)
   router.post('/services/:id/pay-listing-fee', authMiddleware, (req, res) => {
     const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
     if (!service) return res.status(404).json({ error: 'Service not found' });
@@ -1966,21 +2058,23 @@ module.exports = function(timerEngine, io) {
     // If fee > 0, direct activation without verified payment gateway processing is strictly prohibited
     if (feeAmount > 0) {
       return res.status(400).json({
-        error: `Payment of $${feeAmount.toFixed(2)} is required to activate this listing. Please complete payment via Razorpay.`,
+        error: `Payment of ${formatINR(feeAmount)} is required to activate this listing. Please complete payment via Razorpay.`,
         requires_checkout: true,
-        fee: feeAmount
+        fee: feeAmount,
+        currency: CURRENCY
       });
     }
 
-    // Free activation exclusively allowed when server-authoritative effective fee is $0
+    // Free activation exclusively allowed when server-authoritative effective fee is ₹0
     const paymentId = `promo-free-${uuidv4().slice(0, 8)}`;
 
     db.prepare(`
       INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
       VALUES (?, ?, 'listing_fee', 0.00, 'succeeded', ?, ?)
     `).run(paymentId, req.user.id, service.id, JSON.stringify({
+      currency: CURRENCY,
       service_title: service.title,
-      description: 'Temporary Launch Promotion: $0 Free Registration & Listing Fee'
+      description: 'Temporary Launch Promotion: ₹0 Free Registration & Listing Fee'
     }));
 
     db.prepare(`
@@ -2008,7 +2102,8 @@ module.exports = function(timerEngine, io) {
       free_activated: true,
       message: 'Free launch promotion applied! Service is live.',
       paymentId,
-      fee: 0
+      fee: 0,
+      currency: CURRENCY
     });
   });
 
@@ -2025,17 +2120,18 @@ module.exports = function(timerEngine, io) {
     }
 
     const feeData = getEffectiveListingFee();
-    const listingFeeUsd = feeData.fee;
+    const listingFeeInr = feeData.fee;
 
     // If promotion is active and fee is 0, activate immediately with no Razorpay order
-    if (listingFeeUsd === 0) {
+    if (listingFeeInr === 0) {
       const paymentId = `promo-free-${uuidv4().slice(0, 8)}`;
       db.prepare(`
         INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
         VALUES (?, ?, 'listing_fee', 0.00, 'succeeded', ?, ?)
       `).run(paymentId, req.user.id, service.id, JSON.stringify({
+        currency: CURRENCY,
         service_title: service.title,
-        description: 'Temporary Launch Promotion: $0 Free Registration & Listing Fee'
+        description: 'Temporary Launch Promotion: ₹0 Free Registration & Listing Fee'
       }));
 
       db.prepare(`
@@ -2049,63 +2145,36 @@ module.exports = function(timerEngine, io) {
       return res.json({
         free_activated: true,
         amount: 0,
+        currency: CURRENCY,
         message: 'Free registration promotion applied! Service is live.'
       });
     }
 
-    const amountInPaise = Math.round(listingFeeUsd * 100);
-    const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_live_placeholder';
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const amountInPaise = toPaise(listingFeeInr);
 
     try {
-      if (process.env.NODE_ENV === 'production' && keySecret && !keyId.includes('placeholder')) {
-        const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-        const rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
-          method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            amount: amountInPaise,
-            currency: 'USD',
-            receipt: `fee_${service.id}`,
-            notes: {
-              service_id: service.id,
-              provider_id: service.provider_id,
-              service_title: service.title
-            }
-          })
-        });
-
-        if (!rzpRes.ok) {
-          const rzpErr = await rzpRes.json();
-          throw new Error(rzpErr.error?.description || 'Razorpay order creation failed');
+      const order = await createRazorpayNativeOrder({
+        amountPaise: amountInPaise,
+        receipt: `fee_${service.id.slice(0, 32)}`,
+        notes: {
+          service_id: service.id,
+          provider_id: service.provider_id,
+          service_title: service.title,
+          currency: CURRENCY
         }
+      });
 
-        const rzpOrder = await rzpRes.json();
-        return res.json({
-          order_id: rzpOrder.id,
-          amount: listingFeeUsd,
-          amount_paise: amountInPaise,
-          currency: rzpOrder.currency || 'USD',
-          key_id: keyId,
-          service_id: service.id
-        });
-      } else {
-        const simulatedOrderId = `order_${uuidv4().replace(/-/g, '').slice(0, 14)}`;
-        return res.json({
-          order_id: simulatedOrderId,
-          amount: listingFeeUsd,
-          amount_paise: amountInPaise,
-          currency: 'USD',
-          key_id: keyId,
-          service_id: service.id
-        });
-      }
+      return res.json({
+        order_id: order.order_id,
+        amount: listingFeeInr,
+        amount_paise: amountInPaise,
+        currency: CURRENCY,
+        key_id: order.key_id,
+        service_id: service.id
+      });
     } catch (err) {
       console.error('[Razorpay Listing Fee Order Error]', err.message);
-      return res.status(500).json({ error: `Payment gateway error: ${err.message}` });
+      return res.status(err.statusCode || 500).json({ error: 'Payment could not be initialized. Please try again.' });
     }
   });
 
@@ -2122,7 +2191,7 @@ module.exports = function(timerEngine, io) {
       return res.json({ success: true, message: 'Service is already active and published.', service });
     }
 
-    const keySecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    const keySecret = (process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : '')).trim().replace(/^["']|["']$/g, '');
     if (process.env.NODE_ENV === 'production') {
       if (!keySecret) {
         return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required in production.' });
@@ -2160,6 +2229,7 @@ module.exports = function(timerEngine, io) {
         if (existingPayment.reference_id === service.id) {
           return res.json({
             success: true,
+            currency: CURRENCY,
             message: 'Payment was already verified. Service is active.',
             service: db.prepare('SELECT * FROM services WHERE id = ?').get(service.id),
             paymentId: razorpay_payment_id
@@ -2170,18 +2240,19 @@ module.exports = function(timerEngine, io) {
     }
 
     const feeData = getEffectiveListingFee();
-    const listingFeeUsd = feeData.fee;
+    const listingFeeInr = feeData.fee;
     const paymentId = razorpay_payment_id || `pay-fee-${uuidv4().slice(0, 8)}`;
 
     db.prepare(`
       INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
       VALUES (?, ?, 'listing_fee', ?, 'succeeded', ?, ?)
-    `).run(paymentId, req.user.id, listingFeeUsd, service.id, JSON.stringify({
+    `).run(paymentId, req.user.id, listingFeeInr, service.id, JSON.stringify({
       gateway: 'razorpay',
+      currency: CURRENCY,
       order_id: razorpay_order_id,
       payment_id: razorpay_payment_id,
       service_title: service.title,
-      description: `HireByMinute $${listingFeeUsd.toFixed(2)} Service Listing Activation Fee`
+      description: `HireByMinute ${formatINR(listingFeeInr)} Service Listing Activation Fee`
     }));
 
     db.prepare(`
@@ -2733,61 +2804,31 @@ module.exports = function(timerEngine, io) {
       });
     }
 
-    const amountInPaise = Math.round(request.total_price * 100);
-    const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_live_placeholder';
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const amountInPaise = toPaise(request.total_price);
 
     try {
-      if (process.env.NODE_ENV === 'production' && keySecret && !keyId.includes('placeholder')) {
-        // Native Razorpay Order API call
-        const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-        const rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
-          method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            amount: amountInPaise,
-            currency: 'USD',
-            receipt: request.id,
-            notes: {
-              request_id: request.id,
-              client_id: request.client_id,
-              service_title: request.service_title
-            }
-          })
-        });
-
-        if (!rzpRes.ok) {
-          const rzpErr = await rzpRes.json();
-          throw new Error(rzpErr.error?.description || 'Razorpay order creation failed');
+      const order = await createRazorpayNativeOrder({
+        amountPaise: amountInPaise,
+        receipt: request.id,
+        notes: {
+          request_id: request.id,
+          client_id: request.client_id,
+          service_title: request.service_title
         }
+      });
 
-        const rzpOrder = await rzpRes.json();
-        return res.json({
-          order_id: rzpOrder.id,
-          amount: request.total_price,
-          amount_paise: amountInPaise,
-          currency: rzpOrder.currency || 'USD',
-          key_id: keyId,
-          request_id: request.id
-        });
-      } else {
-        // Safe Development / Simulation Order
-        const simulatedOrderId = `order_${uuidv4().replace(/-/g, '').slice(0, 14)}`;
-        return res.json({
-          order_id: simulatedOrderId,
-          amount: request.total_price,
-          amount_paise: amountInPaise,
-          currency: 'USD',
-          key_id: keyId,
-          request_id: request.id
-        });
-      }
+      return res.json({
+        order_id: order.order_id,
+        amount: request.total_price,
+        amount_paise: amountInPaise,
+        currency: order.currency,
+        key_id: order.key_id,
+        request_id: request.id
+      });
     } catch (err) {
       console.error('[Razorpay Order Error]', err.message);
-      return res.status(500).json({ error: `Payment gateway error: ${err.message}` });
+      const statusCode = err.statusCode || 500;
+      return res.status(statusCode).json({ error: err.message || 'Payment could not be initialized. Please try again.' });
     }
   });
 
@@ -2834,7 +2875,8 @@ module.exports = function(timerEngine, io) {
     }
 
     // Strict HMAC SHA-256 Signature Verification
-    const keySecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    const rawSecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    const keySecret = rawSecret ? rawSecret.trim().replace(/^["']|["']$/g, '') : null;
     if (process.env.NODE_ENV === 'production') {
       if (!keySecret) {
         return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required in production.' });
@@ -2904,6 +2946,7 @@ module.exports = function(timerEngine, io) {
         gateway: 'razorpay',
         order_id: razorpay_order_id,
         payment_id: razorpay_payment_id,
+        currency: CURRENCY,
         service_title: request.service_title,
         duration_minutes: request.duration_minutes,
         provider_id: request.provider_id
@@ -2998,7 +3041,8 @@ module.exports = function(timerEngine, io) {
   // RAZORPAY PRODUCTION WEBHOOK HANDLER
   // ==========================================
   router.post('/payments/razorpay-webhook', (req, res) => {
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || (process.env.NODE_ENV !== 'production' ? 'whsec_test_secret_for_razorpay_98765' : null);
+    const rawWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || (process.env.NODE_ENV !== 'production' ? 'whsec_test_secret_for_razorpay_98765' : null);
+    const webhookSecret = rawWebhookSecret ? rawWebhookSecret.trim().replace(/^["']|["']$/g, '') : null;
     if (!webhookSecret) {
       console.warn('[Razorpay Webhook] RAZORPAY_WEBHOOK_SECRET is not configured on server.');
       return res.status(500).json({ error: 'Webhook secret not configured on server' });
@@ -3044,7 +3088,7 @@ module.exports = function(timerEngine, io) {
         const receipt = orderEntity?.receipt || '';
         const paymentId = paymentEntity?.id;
         const orderId = paymentEntity?.order_id || orderEntity?.id;
-        const amountUsd = paymentEntity?.amount ? Number((paymentEntity.amount / 100).toFixed(2)) : 0;
+        const amountInr = paymentEntity?.amount ? toRupees(paymentEntity.amount) : 0;
 
         // Case A: Consultation Request Payment
         const requestId = notes.request_id || (receipt.startsWith('cr-') ? receipt : null);
@@ -3079,6 +3123,7 @@ module.exports = function(timerEngine, io) {
                 gateway: 'razorpay_webhook',
                 order_id: orderId,
                 payment_id: pId,
+                currency: CURRENCY,
                 event_id: eventId
               }));
             }
@@ -3164,14 +3209,16 @@ module.exports = function(timerEngine, io) {
           if (service && service.listing_status !== 'active') {
             const pId = paymentId || `pay-fee-wh-${uuidv4().slice(0, 8)}`;
             const existingPay = db.prepare('SELECT id FROM payments WHERE id = ?').get(pId);
+            const { fee: listingFee } = getEffectiveListingFee();
             if (!existingPay) {
               db.prepare(`
                 INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
                 VALUES (?, ?, 'listing_fee', ?, 'succeeded', ?, ?)
-              `).run(pId, service.provider_id, amountUsd || 2.00, service.id, JSON.stringify({
+              `).run(pId, service.provider_id, amountInr || listingFee, service.id, JSON.stringify({
                 gateway: 'razorpay_webhook',
                 order_id: orderId,
                 payment_id: pId,
+                currency: CURRENCY,
                 event_id: eventId
               }));
             }
@@ -3206,10 +3253,11 @@ module.exports = function(timerEngine, io) {
             const pId = paymentId || `pay-ext-wh-${uuidv4().slice(0, 8)}`;
             const existingPay = db.prepare('SELECT id FROM payments WHERE id = ?').get(pId);
             if (!existingPay) {
+              const serviceRate = db.prepare('SELECT price_per_minute FROM services WHERE id = ?').get(session.service_id)?.price_per_minute || 1;
               const addMins = notes.additional_minutes ? parseInt(notes.additional_minutes, 10) : (
-                amountUsd > 0 ? Math.round(amountUsd / (db.prepare('SELECT price_per_minute FROM services WHERE id = ?').get(session.service_id)?.price_per_minute || 1)) : 15
+                amountInr > 0 ? Math.round(amountInr / serviceRate) : 15
               );
-              const extensionAmount = amountUsd || Number((addMins * 1.00).toFixed(2));
+              const extensionAmount = amountInr || Number((addMins * serviceRate).toFixed(2));
 
               db.prepare(`
                 INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
@@ -3220,6 +3268,7 @@ module.exports = function(timerEngine, io) {
                 session_id: session.id,
                 order_id: orderId,
                 payment_id: pId,
+                currency: CURRENCY,
                 gateway: 'razorpay_webhook',
                 event_id: eventId
               }));
@@ -3263,14 +3312,16 @@ module.exports = function(timerEngine, io) {
             const existingPay = db.prepare('SELECT id FROM payments WHERE id = ?').get(pId);
             if (!existingPay) {
               const providerId = notes.provider_id || notes.user_id;
+              const appFee = Number(opp.entry_fee_inr || opp.entry_fee_usd || 2.00);
               db.prepare(`
                 INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
                 VALUES (?, ?, 'application_fee', ?, 'succeeded', ?, ?)
-              `).run(pId, providerId || opp.creator_id, amountUsd || 2.00, opp.id, JSON.stringify({
+              `).run(pId, providerId || opp.creator_id, amountInr || appFee, opp.id, JSON.stringify({
                 opportunity_id: opp.id,
                 opportunity_title: opp.title,
                 order_id: orderId,
                 payment_id: pId,
+                currency: CURRENCY,
                 gateway: 'razorpay_webhook',
                 event_id: eventId
               }));
@@ -3587,57 +3638,32 @@ module.exports = function(timerEngine, io) {
     const service = db.prepare('SELECT price_per_minute, title FROM services WHERE id = ?').get(session.service_id);
     const ratePerMinute = service ? service.price_per_minute : 1.00;
     const extensionAmount = Number((additionalMinutes * ratePerMinute).toFixed(2));
-    const amountInPaise = Math.round(extensionAmount * 100);
-
-    const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_live_placeholder';
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const amountInPaise = toPaise(extensionAmount);
 
     try {
-      if (process.env.NODE_ENV === 'production' && keySecret && !keyId.includes('placeholder')) {
-        const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-        const rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
-          method: 'POST',
-          headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            amount: amountInPaise,
-            currency: 'USD',
-            receipt: `ext_${session.id.slice(0, 8)}_${Date.now()}`,
-            notes: {
-              session_id: session.id,
-              additional_minutes: additionalMinutes,
-              client_id: req.user.id
-            }
-          })
-        });
-        if (!rzpRes.ok) {
-          const rzpErr = await rzpRes.json();
-          throw new Error(rzpErr.error?.description || 'Razorpay extension order creation failed');
+      const order = await createRazorpayNativeOrder({
+        amountPaise: amountInPaise,
+        receipt: `ext_${session.id.slice(0, 8)}_${Date.now()}`,
+        notes: {
+          session_id: session.id,
+          additional_minutes: additionalMinutes,
+          client_id: req.user.id
         }
-        const rzpOrder = await rzpRes.json();
-        return res.json({
-          order_id: rzpOrder.id,
-          amount: extensionAmount,
-          amount_paise: amountInPaise,
-          currency: rzpOrder.currency || 'USD',
-          key_id: keyId,
-          additional_minutes: additionalMinutes,
-          rate_per_minute: ratePerMinute
-        });
-      } else {
-        const simulatedOrderId = `order_ext_${uuidv4().replace(/-/g, '').slice(0, 14)}`;
-        return res.json({
-          order_id: simulatedOrderId,
-          amount: extensionAmount,
-          amount_paise: amountInPaise,
-          currency: 'USD',
-          key_id: keyId,
-          additional_minutes: additionalMinutes,
-          rate_per_minute: ratePerMinute
-        });
-      }
+      });
+
+      return res.json({
+        order_id: order.order_id,
+        amount: extensionAmount,
+        amount_paise: amountInPaise,
+        currency: order.currency,
+        key_id: order.key_id,
+        additional_minutes: additionalMinutes,
+        rate_per_minute: ratePerMinute
+      });
     } catch (err) {
       console.error('[Session Extension Order Error]', err.message);
-      return res.status(500).json({ error: `Payment gateway error: ${err.message}` });
+      const statusCode = err.statusCode || 500;
+      return res.status(statusCode).json({ error: err.message || 'Payment could not be initialized. Please try again.' });
     }
   });
 
@@ -3658,7 +3684,8 @@ module.exports = function(timerEngine, io) {
       return res.status(400).json({ error: 'Invalid extension duration.' });
     }
 
-    const keySecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    const rawSecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    const keySecret = rawSecret ? rawSecret.trim().replace(/^["']|["']$/g, '') : null;
     if (!keySecret) {
       return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required.' });
     }
@@ -3700,6 +3727,7 @@ module.exports = function(timerEngine, io) {
         session_id: session.id,
         order_id: razorpay_order_id,
         payment_id: razorpay_payment_id,
+        currency: CURRENCY,
         service_title: service?.title
       })
     );
@@ -4027,7 +4055,7 @@ module.exports = function(timerEngine, io) {
     res.status(201).json({ opportunity: created, message: 'Opportunity posted successfully.' });
   });
 
-  // Create Razorpay Order for $2.00 Opportunity Application Entry Fee
+  // Create Razorpay Order for Opportunity Application Entry Fee (INR ₹)
   router.post('/opportunities/:id/create-application-order', authMiddleware, async (req, res) => {
     const opp = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(req.params.id);
     if (!opp) return res.status(404).json({ error: 'Opportunity not found.' });
@@ -4043,68 +4071,44 @@ module.exports = function(timerEngine, io) {
       return res.status(400).json({ error: 'You have already submitted an application for this opportunity.' });
     }
 
-    const isFree = (opp.pricing_type || 'free') === 'free' || Number(opp.entry_fee_usd || 0) <= 0;
+    const isFree = (opp.pricing_type || 'free') === 'free' || Number(opp.entry_fee_inr || opp.entry_fee_usd || 0) <= 0;
     if (isFree) {
       return res.json({
         is_free: true,
         amount: 0.00,
         amount_paise: 0,
-        currency: 'USD',
+        currency: CURRENCY,
         key_id: process.env.RAZORPAY_KEY_ID || 'rzp_live_placeholder',
         opportunity_id: opp.id
       });
     }
 
-    const appFee = Number(opp.entry_fee_usd);
-    const amountInPaise = Math.round(appFee * 100);
-    const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_live_placeholder';
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const appFee = Number(opp.entry_fee_inr || opp.entry_fee_usd || 2.00);
+    const amountInPaise = toPaise(appFee);
 
     try {
-      if (process.env.NODE_ENV === 'production' && keySecret && !keyId.includes('placeholder')) {
-        const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-        const rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
-          method: 'POST',
-          headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            amount: amountInPaise,
-            currency: 'USD',
-            receipt: `app_${opp.id.slice(0, 8)}_${Date.now()}`,
-            notes: {
-              opportunity_id: opp.id,
-              provider_id: req.user.id
-            }
-          })
-        });
-        if (!rzpRes.ok) {
-          const rzpErr = await rzpRes.json();
-          throw new Error(rzpErr.error?.description || 'Razorpay application order creation failed');
+      const order = await createRazorpayNativeOrder({
+        amountPaise: amountInPaise,
+        receipt: `app_${opp.id.slice(0, 8)}_${Date.now()}`,
+        notes: {
+          opportunity_id: opp.id,
+          provider_id: req.user.id
         }
-        const rzpOrder = await rzpRes.json();
-        return res.json({
-          is_free: false,
-          order_id: rzpOrder.id,
-          amount: appFee,
-          amount_paise: amountInPaise,
-          currency: rzpOrder.currency || 'USD',
-          key_id: keyId,
-          opportunity_id: opp.id
-        });
-      } else {
-        const simulatedOrderId = `order_app_${uuidv4().replace(/-/g, '').slice(0, 14)}`;
-        return res.json({
-          is_free: false,
-          order_id: simulatedOrderId,
-          amount: appFee,
-          amount_paise: amountInPaise,
-          currency: 'USD',
-          key_id: keyId,
-          opportunity_id: opp.id
-        });
-      }
+      });
+
+      return res.json({
+        is_free: false,
+        order_id: order.order_id,
+        amount: appFee,
+        amount_paise: amountInPaise,
+        currency: order.currency,
+        key_id: order.key_id,
+        opportunity_id: opp.id
+      });
     } catch (err) {
       console.error('[Opportunity Application Order Error]', err.message);
-      return res.status(500).json({ error: `Payment gateway error: ${err.message}` });
+      const statusCode = err.statusCode || 500;
+      return res.status(statusCode).json({ error: err.message || 'Payment could not be initialized. Please try again.' });
     }
   });
 
@@ -4129,7 +4133,8 @@ module.exports = function(timerEngine, io) {
     }
 
     // Verify HMAC SHA-256 signature
-    const keySecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    const rawSecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    const keySecret = rawSecret ? rawSecret.trim().replace(/^["']|["']$/g, '') : null;
     if (!keySecret) {
       return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required.' });
     }
@@ -4152,7 +4157,7 @@ module.exports = function(timerEngine, io) {
       return res.status(409).json({ error: 'Payment ID has already been processed for this or another transaction.' });
     }
 
-    const appFee = Number(opp.entry_fee_usd) || 2.00;
+    const appFee = Number(opp.entry_fee_inr || opp.entry_fee_usd || 2.00);
     const appId = `app-${uuidv4().slice(0, 8)}`;
     db.prepare(`
       INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
@@ -4166,7 +4171,8 @@ module.exports = function(timerEngine, io) {
         opportunity_id: opp.id,
         opportunity_title: opp.title,
         order_id: razorpay_order_id,
-        payment_id: razorpay_payment_id
+        payment_id: razorpay_payment_id,
+        currency: CURRENCY
       })
     );
 
@@ -4366,6 +4372,8 @@ module.exports = function(timerEngine, io) {
 
     res.json({
       stats: {
+        currency: CURRENCY,
+        currency_symbol: CURRENCY_SYMBOL,
         totalUsers,
         totalProviders,
         totalClients,
@@ -5574,6 +5582,7 @@ module.exports = function(timerEngine, io) {
   router.put('/admin/settings', adminAuthMiddleware, (req, res) => {
     const { 
       platform_name, 
+      listing_fee_inr,
       listing_fee_usd, 
       platform_fee_percent, 
       default_response_time, 
@@ -5596,7 +5605,13 @@ module.exports = function(timerEngine, io) {
       }
       updateStmt.run('platform_name', cleanName, 'The official platform brand name');
     }
-    if (listing_fee_usd !== undefined) updateStmt.run('listing_fee_usd', String(listing_fee_usd), 'One-time fee in USD to publish a service listing');
+    const targetFee = listing_fee_inr !== undefined ? listing_fee_inr : listing_fee_usd;
+    if (targetFee !== undefined) {
+      updateStmt.run('listing_fee_inr', String(targetFee), 'One-time fee in INR to publish a service listing');
+      updateStmt.run('listing_fee_usd', String(targetFee), 'One-time fee to publish a service listing');
+      updateStmt.run('currency', CURRENCY, 'Platform base currency');
+      updateStmt.run('currency_symbol', CURRENCY_SYMBOL, 'Platform base currency symbol');
+    }
     
     if (platform_fee_percent !== undefined) {
       const currentSetting = db.prepare("SELECT value FROM platform_settings WHERE key = 'platform_fee_percent'").get();
@@ -6341,7 +6356,7 @@ module.exports = function(timerEngine, io) {
     `).run(
       id,
       'Launch Promotion — Free Expert Registration',
-      'Launch Offer: 100% free expert registration and service listing for 24 hours ($0.00 fee).',
+      'Launch Offer: 100% free expert registration and service listing for 24 hours (₹0.00 fee).',
       0.00,
       now.toISOString(),
       end.toISOString(),
@@ -6396,23 +6411,29 @@ module.exports = function(timerEngine, io) {
   });
 
   router.patch('/admin/settings/listing-fee', adminAuthMiddleware, (req, res) => {
-    const { listing_fee_usd } = req.body;
-    if (listing_fee_usd === undefined || isNaN(parseFloat(listing_fee_usd))) {
-      return res.status(400).json({ error: 'Valid listing_fee_usd number is required.' });
+    const rawFee = req.body.listing_fee_inr !== undefined ? req.body.listing_fee_inr : req.body.listing_fee_usd;
+    if (rawFee === undefined || isNaN(parseFloat(rawFee))) {
+      return res.status(400).json({ error: 'Valid listing fee number is required.' });
     }
 
-    const feeNum = parseFloat(listing_fee_usd);
-    db.prepare(`
+    const feeNum = parseFloat(rawFee);
+    const updateSetting = db.prepare(`
       INSERT INTO platform_settings (key, value, description)
-      VALUES ('listing_fee_usd', ?, 'Base flat fee charged to experts to activate a service listing')
+      VALUES (?, ?, ?)
       ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
-    `).run(feeNum.toFixed(2));
+    `);
+    updateSetting.run('listing_fee_inr', feeNum.toFixed(2), 'Base flat fee in INR charged to experts to activate a service listing');
+    updateSetting.run('listing_fee_usd', feeNum.toFixed(2), 'Base flat fee charged to experts to activate a service listing');
+    updateSetting.run('currency', CURRENCY, 'Platform base currency');
+    updateSetting.run('currency_symbol', CURRENCY_SYMBOL, 'Platform base currency symbol');
 
-    logAuditAction(req.user, 'UPDATE_BASE_LISTING_FEE', 'platform_settings', 'listing_fee_usd', { new_fee: feeNum });
+    logAuditAction(req.user, 'UPDATE_BASE_LISTING_FEE', 'platform_settings', 'listing_fee_inr', { new_fee: feeNum, currency: CURRENCY });
 
     res.json({
       success: true,
       base_fee: feeNum,
+      currency: CURRENCY,
+      currency_symbol: CURRENCY_SYMBOL,
       effective: getEffectiveListingFee()
     });
   });
@@ -6998,7 +7019,7 @@ module.exports = function(timerEngine, io) {
       salary_type = 'undisclosed',
       salary_min,
       salary_max,
-      currency = 'USD',
+      currency = 'INR',
       application_deadline,
       status = 'draft',
       featured = 0
@@ -7059,7 +7080,7 @@ module.exports = function(timerEngine, io) {
       cleanSalaryType,
       salary_min ? Number(salary_min) : null,
       salary_max ? Number(salary_max) : null,
-      currency || 'USD',
+      currency || 'INR',
       application_deadline ? new Date(application_deadline).toISOString() : null,
       cleanStatus,
       featured ? 1 : 0,
@@ -7178,7 +7199,7 @@ module.exports = function(timerEngine, io) {
       salary_type || 'undisclosed',
       salary_min !== undefined ? (salary_min !== null && !isNaN(Number(salary_min)) ? Number(salary_min) : null) : job.salary_min,
       salary_max !== undefined ? (salary_max !== null && !isNaN(Number(salary_max)) ? Number(salary_max) : null) : job.salary_max,
-      currency || 'USD',
+      currency || 'INR',
       application_deadline ? new Date(application_deadline).toISOString() : null,
       cleanStatus,
       featured ? 1 : 0,

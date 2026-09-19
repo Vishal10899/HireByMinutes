@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Briefcase,
   Clock,
-  DollarSign,
+  IndianRupee,
   Send,
   PlusCircle,
   X,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { formatINR, CURRENCY } from '../utils/currency';
 
 export const OpportunitiesPage: React.FC = () => {
   usePageSEO({
@@ -139,15 +140,15 @@ export const OpportunitiesPage: React.FC = () => {
         throw new Error('Failed to load Razorpay payment gateway.');
       }
 
-      const oppFee = Number(selectedOpp.entry_fee_usd || 2).toFixed(2);
+      const oppFee = Number(selectedOpp.entry_fee_inr || selectedOpp.entry_fee_usd || 2).toFixed(2);
 
       // 2. Launch Razorpay modal
       const options = {
         key: orderRes.key_id,
         amount: orderRes.amount_paise,
-        currency: orderRes.currency || 'USD',
+        currency: orderRes.currency || CURRENCY,
         name: 'HireByMinute',
-        description: `Opportunity Application Fee ($${oppFee}) - ${selectedOpp.title.slice(0, 30)}`,
+        description: `Opportunity Application Fee (${formatINR(oppFee)}) - ${selectedOpp.title.slice(0, 30)}`,
         order_id: orderRes.order_id,
         prefill: {
           name: user?.full_name || '',
@@ -172,7 +173,7 @@ export const OpportunitiesPage: React.FC = () => {
               availability: applyAvailability
             });
 
-            alert(`Application and $${oppFee} entry fee verified successfully!`);
+            alert(`Application and ${formatINR(oppFee)} entry fee verified successfully!`);
             confetti({ particleCount: 80, spread: 70 });
             setSelectedOpp(null);
             setApplyMessage('');
@@ -277,9 +278,9 @@ export const OpportunitiesPage: React.FC = () => {
                     {opp.category_name}
                   </span>
                   <div className="flex items-center gap-1.5">
-                    {opp.pricing_type === 'paid' && Number(opp.entry_fee_usd || 0) > 0 ? (
+                    {opp.pricing_type === 'paid' && Number(opp.entry_fee_inr || opp.entry_fee_usd || 0) > 0 ? (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-300">
-                        ${Number(opp.entry_fee_usd).toFixed(2)} Entry Fee
+                        {formatINR(opp.entry_fee_inr || opp.entry_fee_usd || 0)} Entry Fee
                       </span>
                     ) : (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
@@ -305,7 +306,7 @@ export const OpportunitiesPage: React.FC = () => {
                 <div>
                   <span className="text-[10px] text-midnight/50 uppercase font-semibold block">Fixed Budget</span>
                   <span className="font-extrabold text-base text-midnight font-mono">
-                    ${Number(opp.budget).toFixed(2)}
+                    {formatINR(opp.budget)}
                   </span>
                 </div>
 
@@ -329,7 +330,7 @@ export const OpportunitiesPage: React.FC = () => {
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-moonstone">Application</span>
                 <h3 className="text-lg font-bold text-midnight mt-0.5">{selectedOpp.title}</h3>
-                <p className="text-xs text-midnight/60 font-mono mt-0.5">Budget: ${Number(selectedOpp.budget).toFixed(2)} • {selectedOpp.duration_minutes} mins</p>
+                <p className="text-xs text-midnight/60 font-mono mt-0.5">Budget: {formatINR(selectedOpp.budget)} • {selectedOpp.duration_minutes} mins</p>
               </div>
               <button
                 onClick={() => setSelectedOpp(null)}
@@ -379,7 +380,7 @@ export const OpportunitiesPage: React.FC = () => {
                   <label className="font-semibold text-midnight block">Proposed Rate (Optional)</label>
                   <input
                     type="number"
-                    placeholder={`$${selectedOpp.budget}`}
+                    placeholder={formatINR(selectedOpp.budget)}
                     value={applyRate}
                     onChange={(e) => setApplyRate(e.target.value)}
                     className="w-full p-2.5 bg-aliceblue/30 border border-timberwolf/70 rounded-xl text-midnight"
@@ -388,13 +389,13 @@ export const OpportunitiesPage: React.FC = () => {
               </div>
 
               {/* Dynamic Application Pricing Display */}
-              {selectedOpp.pricing_type === 'paid' && Number(selectedOpp.entry_fee_usd || 0) > 0 ? (
+              {selectedOpp.pricing_type === 'paid' && Number(selectedOpp.entry_fee_inr || selectedOpp.entry_fee_usd || 0) > 0 ? (
                 <div className="p-3 bg-amber-50/80 border border-amber-300 rounded-xl flex items-center justify-between text-xs text-midnight">
                   <div className="flex items-center gap-2">
-                    <DollarSign className="w-4 h-4 text-amber-700" />
+                    <IndianRupee className="w-4 h-4 text-amber-700" />
                     <span className="font-medium text-amber-950">Application Entry Fee (Verified via Razorpay)</span>
                   </div>
-                  <span className="font-mono font-bold text-sm text-amber-900">${Number(selectedOpp.entry_fee_usd).toFixed(2)} USD</span>
+                  <span className="font-mono font-bold text-sm text-amber-900">{formatINR(selectedOpp.entry_fee_inr || selectedOpp.entry_fee_usd || 0)}</span>
                 </div>
               ) : (
                 <div className="p-3 bg-emerald-50/80 border border-emerald-300 rounded-xl flex items-center justify-between text-xs text-midnight">
@@ -402,7 +403,7 @@ export const OpportunitiesPage: React.FC = () => {
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     <span className="font-medium text-emerald-950">Free Opportunity Application</span>
                   </div>
-                  <span className="font-mono font-bold text-sm text-emerald-700">FREE ($0.00)</span>
+                  <span className="font-mono font-bold text-sm text-emerald-700">FREE ({formatINR(0)})</span>
                 </div>
               )}
 
@@ -424,9 +425,9 @@ export const OpportunitiesPage: React.FC = () => {
                       <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                       Submitting Application...
                     </span>
-                  ) : selectedOpp.pricing_type === 'paid' && Number(selectedOpp.entry_fee_usd || 0) > 0 ? (
+                  ) : selectedOpp.pricing_type === 'paid' && Number(selectedOpp.entry_fee_inr || selectedOpp.entry_fee_usd || 0) > 0 ? (
                     <>
-                      <span>Pay ${Number(selectedOpp.entry_fee_usd).toFixed(2)} & Submit</span>
+                      <span>Pay {formatINR(selectedOpp.entry_fee_inr || selectedOpp.entry_fee_usd || 0)} & Submit</span>
                       <ArrowRight className="w-4 h-4 text-moonstone" />
                     </>
                   ) : (
@@ -508,7 +509,7 @@ export const OpportunitiesPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-semibold text-midnight block">Budget ($)</label>
+                  <label className="font-semibold text-midnight block">Budget (₹ INR)</label>
                   <input
                     type="number"
                     min="10"

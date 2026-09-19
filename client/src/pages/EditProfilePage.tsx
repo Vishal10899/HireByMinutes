@@ -12,7 +12,7 @@ import {
   Check,
   X,
   Plus,
-  DollarSign,
+  IndianRupee,
   Globe,
   MapPin,
   Sparkles,
@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { formatINR } from '../utils/currency';
 
 export const EditProfilePage: React.FC = () => {
   usePageSEO({
@@ -68,7 +69,7 @@ export const EditProfilePage: React.FC = () => {
   const [serviceDescription, setServiceDescription] = useState('');
   const [categoryId, setCategoryId] = useState('cat-tech');
   const [subcategory, setSubcategory] = useState('');
-  const [pricePerMinute, setPricePerMinute] = useState<number>(1.5);
+  const [pricePerMinute, setPricePerMinute] = useState<number>(50);
   const [availableNow, setAvailableNow] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
 
@@ -113,7 +114,7 @@ export const EditProfilePage: React.FC = () => {
           setServiceDescription(s.description || '');
           setCategoryId(s.category_id || (catRes.categories[0]?.id || 'cat-tech'));
           setSubcategory(s.subcategory || '');
-          setPricePerMinute(s.price_per_minute || 1.5);
+          setPricePerMinute(s.price_per_minute || 50);
           setAvailableNow(s.available_now === 1 || s.available_now === true);
         }
 
@@ -613,7 +614,7 @@ export const EditProfilePage: React.FC = () => {
           <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-6 sm:p-7 shadow-card space-y-6">
             <div className="flex items-center justify-between pb-2 border-b border-timberwolf/40">
               <h2 className="text-base font-bold text-midnight flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-moonstone" />
+                <IndianRupee className="w-4 h-4 text-moonstone" />
                 <span>Expert Consultation & Service Settings</span>
               </h2>
               <span className="text-[11px] text-midnight/50">Applies to future consultation requests</span>
@@ -700,35 +701,35 @@ export const EditProfilePage: React.FC = () => {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-midnight block">
-                    Rate Per Minute (USD)
+                    Rate Per Minute (INR ₹)
                   </label>
                   <span className="text-[11px] font-mono text-emerald-700 font-bold">
-                    ${(pricePerMinute * 30).toFixed(2)} / 30m
+                    {formatINR(pricePerMinute * 30)} / 30m
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setPricePerMinute((prev) => Math.max(0.20, Number((prev - 0.10).toFixed(2))))}
+                    onClick={() => setPricePerMinute((prev) => Math.max(1, Number((prev - 5).toFixed(0))))}
                     className="w-10 h-10 rounded-xl border border-timberwolf bg-aliceblue text-midnight font-bold text-sm hover:border-moonstone transition-colors flex items-center justify-center cursor-pointer"
                   >
                     -
                   </button>
                   <div className="relative flex-1">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-midnight/50 font-bold text-xs">$</span>
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-midnight/50 font-bold text-xs">₹</span>
                     <input
                       type="number"
-                      step="0.05"
-                      min="0.20"
-                      max="100"
+                      step="1"
+                      min="1"
+                      max="10000"
                       value={pricePerMinute}
-                      onChange={(e) => setPricePerMinute(Math.max(0.20, parseFloat(e.target.value) || 0.20))}
+                      onChange={(e) => setPricePerMinute(Math.max(1, parseFloat(e.target.value) || 1))}
                       className="w-full pl-8 pr-3.5 py-2.5 rounded-xl border border-timberwolf/70 text-xs font-mono font-bold text-midnight bg-aliceblue/30 focus:outline-none focus:border-moonstone text-center"
                     />
                   </div>
                   <button
                     type="button"
-                    onClick={() => setPricePerMinute((prev) => Number((prev + 0.10).toFixed(2)))}
+                    onClick={() => setPricePerMinute((prev) => Math.min(10000, Number((prev + 5).toFixed(0))))}
                     className="w-10 h-10 rounded-xl border border-timberwolf bg-aliceblue text-midnight font-bold text-sm hover:border-moonstone transition-colors flex items-center justify-center cursor-pointer"
                   >
                     +

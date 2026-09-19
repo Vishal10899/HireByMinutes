@@ -4,7 +4,7 @@ import {
   FileText,
   Shield,
   Clock,
-  DollarSign,
+  IndianRupee,
   AlertCircle,
   CheckCircle2,
   Mail,
@@ -100,10 +100,10 @@ export const TermsPage: React.FC = () => {
               4. Service Listings & Pricing
             </h2>
             <p>
-              Experts may create service listings specifying their domain of expertise, description of consultative scope, and a transparent per-minute rate denominated in US Dollars ($ USD).
+              Experts may create service listings specifying their domain of expertise, description of consultative scope, and a transparent per-minute rate denominated in Indian Rupees (INR ₹).
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
-              <li><strong>Listing Activation Fee:</strong> A one-time administrative fee of $2.00 applies when publishing a new service to maintain marketplace quality and cover cataloging, unless waived by administrative discretion.</li>
+              <li><strong>Listing Activation Fee:</strong> A one-time administrative fee of ₹2.00 applies when publishing a new service to maintain marketplace quality and cover cataloging, unless waived by administrative discretion.</li>
               <li><strong>Price per Minute:</strong> All consultations are billed strictly on a per-minute basis. Rates must be accurate and non-misleading.</li>
               <li><strong>Listing Modifications:</strong> Experts may update their service title, description, or per-minute rate through their provider dashboard. New rates apply exclusively to subsequent consultation requests.</li>
             </ul>

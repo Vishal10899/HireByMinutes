@@ -4,7 +4,7 @@ import {
   Award,
   ShieldCheck,
   CheckCircle2,
-  DollarSign,
+  IndianRupee,
   AlertTriangle,
   FileCheck,
   Lock,
@@ -72,16 +72,16 @@ export const ExpertPolicyPage: React.FC = () => {
           {/* Section 2 */}
           <section className="space-y-3">
             <h2 className="text-base sm:text-lg font-bold text-midnight flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-moonstone" />
-              <span>2. Pricing Transparency & The $2 Listing Fee</span>
+              <IndianRupee className="w-4 h-4 text-moonstone" />
+              <span>2. Pricing Transparency & The ₹2 Listing Fee</span>
             </h2>
             <p>
               HireByMinute uses transparent, per-minute billing. Providers must adhere to transparent pricing rules:
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
-              <li><strong>Explicit Per-Minute Rates:</strong> Rates must be clearly set (e.g. $1.50/min, $3.00/min) and reflect the total cost of consultative delivery during the session.</li>
+              <li><strong>Explicit Per-Minute Rates:</strong> Rates must be clearly set (e.g. ₹50/min, ₹100/min) and reflect the total cost of consultative delivery during the session.</li>
               <li><strong>No Hidden Upcharges:</strong> You may not demand off-platform payments, hidden retainers, or unauthorized follow-up fees.</li>
-              <li><strong>Listing Activation Fee ($2.00):</strong> Each published service requires a $2.00 cataloging activation fee (unless waived by platform administrator exception), which is non-refundable upon activation.</li>
+              <li><strong>Listing Activation Fee (₹2.00):</strong> Each published service requires a ₹2.00 cataloging activation fee (unless waived by platform administrator exception), which is non-refundable upon activation.</li>
               <li><strong>85% Payout Economics:</strong> Providers receive 85% of total completed session fees; the platform retains 15% for signaling infrastructure, payment processing, and dispute moderation.</li>
             </ul>
           </section>

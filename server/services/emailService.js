@@ -3,6 +3,7 @@
 // Provides safe development fallbacks and isolated provider adapters
 
 const crypto = require('crypto');
+const { formatINR, CURRENCY, CURRENCY_SYMBOL } = require('../currency');
 
 class EmailService {
   constructor() {
@@ -348,7 +349,7 @@ HireByMinute Team`;
       <div class="info-card">
         <div class="info-row"><strong>Service:</strong> ${serviceTitle}</div>
         <div class="info-row"><strong>Requested Duration:</strong> ${durationMinutes} minutes</div>
-        <div class="info-row"><strong>Rate:</strong> $${Number(ratePerMinute).toFixed(2)} / min &nbsp;•&nbsp; <strong>Estimated Total:</strong> $${Number(totalPrice).toFixed(2)}</div>
+        <div class="info-row"><strong>Rate:</strong> ${formatINR(ratePerMinute)} / min &nbsp;•&nbsp; <strong>Estimated Total:</strong> ${formatINR(totalPrice)}</div>
         <div class="info-row"><strong>Type:</strong> ${timeDisplay}</div>
         <div class="info-row" style="margin-top: 8px; border-top: 1px dashed #D3D0C8; padding-top: 8px;">
           <strong>Client's Problem Topic:</strong><br>
@@ -368,7 +369,7 @@ ${clientName} has sent you a ${durationMinutes}-minute consultation request for 
 
 Details:
 - Duration: ${durationMinutes} minutes
-- Rate: $${Number(ratePerMinute).toFixed(2)}/min (Est Total: $${Number(totalPrice).toFixed(2)})
+- Rate: ${formatINR(ratePerMinute)}/min (Est Total: ${formatINR(totalPrice)})
 - Type: ${timeDisplay}
 - Client Topic: "${problemDescription}"
 
@@ -417,7 +418,7 @@ HireByMinute Team`;
     const config = this.getConfig();
     const actionUrl = `${config.clientOrigin}/client`;
     const subject = `${expertName} accepted your consultation request!`;
-    const preheader = `Your expert is ready. Complete payment of $${Number(totalPrice).toFixed(2)} to enter the live session.`;
+    const preheader = `Your expert is ready. Complete payment of ${formatINR(totalPrice)} to enter the live session.`;
 
     const contentHtml = `
       <p class="paragraph">Hi <strong>${clientName}</strong>,</p>
@@ -428,7 +429,7 @@ HireByMinute Team`;
         <div class="info-row"><strong>Service:</strong> ${serviceTitle}</div>
         <div class="info-row"><strong>Duration:</strong> ${durationMinutes} minutes</div>
         <div class="info-row" style="font-size: 15px; color: #004554; font-weight: 800; margin-top: 6px;">
-          <strong>Total Amount:</strong> $${Number(totalPrice).toFixed(2)}
+          <strong>Total Amount:</strong> ${formatINR(totalPrice)}
         </div>
       </div>
 
@@ -441,7 +442,7 @@ HireByMinute Team`;
 
 Great news! ${expertName} has accepted your consultation request for "${serviceTitle}" (${durationMinutes} minutes).
 
-Total: $${Number(totalPrice).toFixed(2)}
+Total: ${formatINR(totalPrice)}
 
 Complete payment now to enter your live session workspace:
 ${actionUrl}
@@ -592,14 +593,14 @@ HireByMinute Team`;
         <div class="info-row"><strong>Service:</strong> ${serviceTitle}</div>
         <div class="info-row"><strong>Expert:</strong> ${expertName}</div>
         <div class="info-row"><strong>Duration:</strong> ${durationMinutes} minutes</div>
-        <div class="info-row"><strong>Amount Paid:</strong> $${Number(totalPrice).toFixed(2)} USD</div>
+        <div class="info-row"><strong>Amount Paid:</strong> ${formatINR(totalPrice)}</div>
         <div class="info-row"><strong>Status:</strong> <span style="color: #059669; font-weight: bold;">Active Session Workspace</span></div>
       </div>
     `;
 
     const clientText = `Hi ${clientName},
 
-Payment of $${Number(totalPrice).toFixed(2)} confirmed. Your session with ${expertName} for "${serviceTitle}" is ready.
+Payment of ${formatINR(totalPrice)} confirmed. Your session with ${expertName} for "${serviceTitle}" is ready.
 
 Join live session:
 ${sessionUrl}
@@ -631,7 +632,7 @@ HireByMinute Team`;
         <div class="info-row"><strong>Client:</strong> ${clientName}</div>
         <div class="info-row"><strong>Service:</strong> ${serviceTitle}</div>
         <div class="info-row"><strong>Duration:</strong> ${durationMinutes} minutes</div>
-        <div class="info-row"><strong>Escrow Amount:</strong> $${Number(totalPrice).toFixed(2)} USD</div>
+        <div class="info-row"><strong>Escrow Amount:</strong> ${formatINR(totalPrice)}</div>
       </div>
     `;
 

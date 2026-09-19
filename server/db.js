@@ -489,7 +489,7 @@ function initPostgresSchema(db) {
       salary_type VARCHAR(32) DEFAULT 'undisclosed' CHECK(salary_type IN ('range', 'starting_from', 'up_to', 'undisclosed')),
       salary_min NUMERIC(12,2),
       salary_max NUMERIC(12,2),
-      currency VARCHAR(16) DEFAULT 'USD',
+      currency VARCHAR(16) DEFAULT 'INR',
       application_deadline TIMESTAMP WITH TIME ZONE,
       status VARCHAR(32) NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'published', 'closed', 'archived')),
       featured INTEGER DEFAULT 0,
@@ -1000,7 +1000,7 @@ function initSqliteSchema(db) {
       salary_type TEXT DEFAULT 'undisclosed' CHECK(salary_type IN ('range', 'starting_from', 'up_to', 'undisclosed')),
       salary_min REAL,
       salary_max REAL,
-      currency TEXT DEFAULT 'USD',
+      currency TEXT DEFAULT 'INR',
       application_deadline DATETIME,
       status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'published', 'closed', 'archived')),
       featured INTEGER DEFAULT 0,
@@ -1084,7 +1084,9 @@ function initSqliteSchema(db) {
   safeAddColumn('categories', "subcategories_json TEXT DEFAULT '[]'");
   safeAddColumn('categories', 'image_url TEXT');
   safeAddColumn('opportunities', "pricing_type TEXT DEFAULT 'free'");
+  safeAddColumn('opportunities', 'entry_fee_inr REAL DEFAULT 0.00');
   safeAddColumn('opportunities', 'entry_fee_usd REAL DEFAULT 0.00');
+  safeAddColumn('registration_campaigns', 'fee_inr REAL DEFAULT 0.00');
   safeAddColumn('opportunities', 'is_featured INTEGER DEFAULT 0');
   safeAddColumn('opportunities', "skills_json TEXT DEFAULT '[]'");
   safeAddColumn('opportunities', 'requirements TEXT');
@@ -1218,7 +1220,10 @@ function ensureSettingsAndAdmin(dbInstance) {
   `);
 
   insertSetting.run('platform_name', 'HireByMinute', 'The official platform brand name');
+  insertSetting.run('listing_fee_inr', '2.00', 'One-time fee in INR to publish a service listing');
   insertSetting.run('listing_fee_usd', '2.00', 'One-time fee in USD to publish a service listing');
+  insertSetting.run('currency', 'INR', 'Platform base currency');
+  insertSetting.run('currency_symbol', '₹', 'Platform base currency symbol');
   insertSetting.run('platform_fee_percent', '15', 'Standard percentage fee taken from completed session payments');
   insertSetting.run('default_response_time', 'Within 15 mins', 'Target response time for verified providers');
   insertSetting.run('payout_schedule', 'Instant on completion', 'Frequency of expert earnings settlement');
@@ -1453,7 +1458,7 @@ function ensureDefaultCampaigns(dbInstance) {
   `).run(
     'camp-launch-free-24h',
     'Launch Promotion — Free Expert Registration',
-    'Launch Offer: 100% free expert registration and service listing for 24 hours ($0.00 fee).',
+    'Launch Offer: 100% free expert registration and service listing for 24 hours (₹0.00 fee).',
     0.00,
     now.toISOString(),
     end.toISOString()

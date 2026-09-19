@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
+import { formatINR } from '../utils/currency';
 
 interface SocketNotification {
   id: string;
@@ -30,20 +31,23 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (socket) {
         socket.disconnect();
         setSocket(null);
-        setConnected(false);
       }
       return;
     }
 
-    const socketUrl = import.meta.env.VITE_SOCKET_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5000');
+    const socketUrl = import.meta.env.VITE_API_URL 
+      ? import.meta.env.VITE_API_URL.replace(/\/api$/, '') 
+      : (window.location.origin.includes('localhost') ? 'http://localhost:5000' : window.location.origin);
+
     const newSocket = io(socketUrl, {
       auth: { token },
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
     });
 
     newSocket.on('connect', () => {
       setConnected(true);
-      newSocket.emit('join_user');
     });
 
     newSocket.on('disconnect', () => {
@@ -55,7 +59,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setActiveNotification({
         id: `notif-${Date.now()}`,
         title: 'New Session Request Received',
-        message: `${data.clientName} booked a ${data.duration}-minute session for $${Number(data.totalPrice).toFixed(2)}.`,
+        message: `${data.clientName} booked a ${data.duration}-minute session for ${formatINR(Number(data.totalPrice))}.`,
         type: 'info',
         link: '/provider'
       });

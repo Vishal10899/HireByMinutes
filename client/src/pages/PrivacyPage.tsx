@@ -87,7 +87,7 @@ export const PrivacyPage: React.FC = () => {
               <div className="p-3.5 bg-aliceblue rounded-xl border border-timberwolf/50 space-y-1">
                 <h4 className="font-bold text-midnight text-xs">Transaction & Ledger Data</h4>
                 <p className="text-xs text-midnight/75">
-                  Records of listing activation payments ($2.00 fee), consultation payments, expert payout credits (85%), platform commission entries (15%), and refund transactions. We do not store raw credit card numbers on our servers.
+                  Records of listing activation payments (₹2.00 fee), consultation payments, expert payout credits (85%), platform commission entries (15%), and refund transactions. We do not store raw credit card numbers on our servers.
                 </p>
               </div>
 

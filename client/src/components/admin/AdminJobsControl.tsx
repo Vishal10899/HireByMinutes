@@ -15,7 +15,7 @@ import {
   AlertCircle,
   Clock,
   Sparkles,
-  DollarSign,
+  IndianRupee,
   Building2,
   Archive,
   Eye,
@@ -55,7 +55,7 @@ export const AdminJobsControl: React.FC = () => {
   const [salaryType, setSalaryType] = useState<SalaryType>('undisclosed');
   const [salaryMin, setSalaryMin] = useState<string>('');
   const [salaryMax, setSalaryMax] = useState<string>('');
-  const [currency, setCurrency] = useState('USD');
+  const [currency, setCurrency] = useState('INR');
   const [deadline, setDeadline] = useState('');
   const [status, setStatus] = useState<JobStatus>('draft');
   const [featured, setFeatured] = useState(false);
@@ -122,7 +122,7 @@ export const AdminJobsControl: React.FC = () => {
     setSalaryType('undisclosed');
     setSalaryMin('');
     setSalaryMax('');
-    setCurrency('USD');
+    setCurrency('INR');
     setDeadline('');
     setStatus('draft');
     setFeatured(false);
@@ -150,7 +150,7 @@ export const AdminJobsControl: React.FC = () => {
     setSalaryType(job.salary_type || 'undisclosed');
     setSalaryMin(job.salary_min ? String(job.salary_min) : '');
     setSalaryMax(job.salary_max ? String(job.salary_max) : '');
-    setCurrency(job.currency || 'USD');
+    setCurrency(job.currency || 'INR');
     setDeadline(job.application_deadline ? job.application_deadline.slice(0, 10) : '');
     setStatus(job.status || 'draft');
     setFeatured(Boolean(job.featured));
@@ -273,8 +273,8 @@ export const AdminJobsControl: React.FC = () => {
     if (j.salary_type === 'undisclosed' || (!j.salary_min && !j.salary_max)) {
       return 'Undisclosed';
     }
-    const curr = j.currency || 'USD';
-    const sym = curr === 'USD' ? '$' : `${curr} `;
+    const curr = j.currency || 'INR';
+    const sym = curr === 'INR' ? '₹' : `${curr} `;
     if (j.salary_type === 'starting_from' && j.salary_min) {
       return `From ${sym}${Number(j.salary_min).toLocaleString()}`;
     }
@@ -740,7 +740,7 @@ export const AdminJobsControl: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-bold text-midnight mb-1">
-                    Salary Min ($)
+                    Salary Min (₹ INR)
                   </label>
                   <input
                     type="number"
@@ -753,7 +753,7 @@ export const AdminJobsControl: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-bold text-midnight mb-1">
-                    Salary Max ($)
+                    Salary Max (₹ INR)
                   </label>
                   <input
                     type="number"

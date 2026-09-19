@@ -27,11 +27,13 @@ import {
   FileText,
   X,
   CreditCard,
-  ChevronRight
+  ChevronRight,
+  IndianRupee
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Button } from '../components/common/Button';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { formatINR, CURRENCY, CURRENCY_SYMBOL } from '../utils/currency';
 
 export const ServiceDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -248,7 +250,7 @@ export const ServiceDetailPage: React.FC = () => {
       const options = {
         key: orderRes.key_id,
         amount: orderRes.amount_paise,
-        currency: orderRes.currency || 'USD',
+        currency: orderRes.currency || CURRENCY,
         name: 'HireByMinute',
         description: `Consultation: ${service?.title || 'Expert Session'} (${activeRequest.duration_minutes}m)`,
         order_id: orderRes.order_id,
@@ -332,7 +334,7 @@ export const ServiceDetailPage: React.FC = () => {
               <span>Step {hireStep} of 6: {stepNames[hireStep - 1]}</span>
             </span>
             <span className="font-mono text-moonstone font-bold text-xs bg-aliceblue px-2 py-0.5 rounded-full border border-timberwolf/50">
-              ${service.price_per_minute.toFixed(2)}/min
+              {formatINR(service.price_per_minute)}/min
             </span>
           </div>
 
@@ -470,7 +472,7 @@ export const ServiceDetailPage: React.FC = () => {
                   >
                     <span className="text-sm font-extrabold">{mins}m</span>
                     <span className={`text-[11px] font-mono ${isSelected ? 'text-aliceblue/80' : 'text-midnight/60'}`}>
-                      ${cost}
+                      {formatINR(cost)}
                     </span>
                   </button>
                 );
@@ -509,7 +511,7 @@ export const ServiceDetailPage: React.FC = () => {
             <div className="p-3.5 bg-aliceblue rounded-xl border border-timberwolf/60 flex items-center justify-between text-xs">
               <span className="text-midnight/70">Estimated Cost:</span>
               <span className="font-mono font-extrabold text-base text-midnight">
-                ${totalPrice} <span className="text-xs font-normal text-midnight/60">({durationMinutes}m × ${service.price_per_minute.toFixed(2)})</span>
+                {formatINR(totalPrice)} <span className="text-xs font-normal text-midnight/60">({durationMinutes}m × {formatINR(service.price_per_minute)})</span>
               </span>
             </div>
 
@@ -626,8 +628,8 @@ export const ServiceDetailPage: React.FC = () => {
             {/* Itemized Cost Summary */}
             <div className="bg-aliceblue p-3.5 rounded-xl border border-timberwolf/60 space-y-2 text-xs">
               <div className="flex justify-between text-midnight/70">
-                <span>{durationMinutes} minutes × ${service.price_per_minute.toFixed(2)}</span>
-                <span className="font-mono font-semibold text-midnight">${totalPrice}</span>
+                <span>{durationMinutes} minutes × {formatINR(service.price_per_minute)}</span>
+                <span className="font-mono font-semibold text-midnight">{formatINR(totalPrice)}</span>
               </div>
               <div className="flex justify-between text-midnight/70">
                 <span>Platform payment protection</span>
@@ -635,7 +637,7 @@ export const ServiceDetailPage: React.FC = () => {
               </div>
               <div className="border-t border-timberwolf/40 pt-2 flex justify-between items-baseline font-bold text-midnight">
                 <span className="text-xs uppercase tracking-wider">Estimated Total</span>
-                <span className="text-lg font-mono">${totalPrice}</span>
+                <span className="text-lg font-mono">{formatINR(totalPrice)}</span>
               </div>
             </div>
 
@@ -722,7 +724,7 @@ export const ServiceDetailPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-midnight/60">Estimated Total:</span>
-                <span className="font-semibold font-mono">${Number(activeRequest.total_price).toFixed(2)}</span>
+                <span className="font-semibold font-mono">{formatINR(activeRequest.total_price)}</span>
               </div>
             </div>
 
@@ -759,8 +761,8 @@ export const ServiceDetailPage: React.FC = () => {
             {/* Itemized Payment Breakdown */}
             <div className="bg-aliceblue p-4 rounded-xl border border-timberwolf/60 space-y-2 text-xs">
               <div className="flex justify-between text-midnight/80">
-                <span>{activeRequest.duration_minutes} minutes × ${service.price_per_minute.toFixed(2)}</span>
-                <span className="font-mono font-semibold">${Number(activeRequest.total_price).toFixed(2)}</span>
+                <span>{activeRequest.duration_minutes} minutes × {formatINR(service.price_per_minute)}</span>
+                <span className="font-mono font-semibold">{formatINR(activeRequest.total_price)}</span>
               </div>
               <div className="flex justify-between text-midnight/80">
                 <span>Platform payment protection</span>
@@ -768,7 +770,7 @@ export const ServiceDetailPage: React.FC = () => {
               </div>
               <div className="border-t border-timberwolf/40 pt-2 flex justify-between items-baseline font-bold text-midnight">
                 <span className="text-sm">Total</span>
-                <span className="text-xl font-mono">${Number(activeRequest.total_price).toFixed(2)}</span>
+                <span className="text-xl font-mono">{formatINR(activeRequest.total_price)}</span>
               </div>
             </div>
 
@@ -966,7 +968,7 @@ export const ServiceDetailPage: React.FC = () => {
                 <span className="text-[11px] font-semibold text-midnight/60 block">Consultation Rate</span>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-extrabold text-midnight font-mono">
-                    ${service.price_per_minute.toFixed(2)}
+                    {formatINR(service.price_per_minute)}
                   </span>
                   <span className="text-xs text-midnight/70 font-medium">/ min</span>
                 </div>
@@ -1124,7 +1126,7 @@ export const ServiceDetailPage: React.FC = () => {
                   Hire {service.provider_name}
                 </h3>
                 <p className="text-xs text-midnight/60 font-mono">
-                  ${service.price_per_minute.toFixed(2)}/min · Billed per minute
+                  {formatINR(service.price_per_minute)}/min · Billed per minute
                 </p>
               </div>
               <button
@@ -1154,12 +1156,12 @@ export const ServiceDetailPage: React.FC = () => {
             <div>
               <div className="flex items-baseline gap-1">
                 <span className="text-xl font-extrabold text-midnight font-mono">
-                  ${service.price_per_minute.toFixed(2)}
+                  {formatINR(service.price_per_minute)}
                 </span>
                 <span className="text-xs text-midnight/60 font-medium">/ min</span>
               </div>
               <span className="text-[11px] text-midnight/50 block font-mono">
-                Est. ${totalPrice} ({durationMinutes}m)
+                Est. {formatINR(totalPrice)} ({durationMinutes}m)
               </span>
             </div>
             <Button
@@ -1194,7 +1196,7 @@ export const ServiceDetailPage: React.FC = () => {
           <>
             <div>
               <span className="text-[10px] font-bold uppercase text-emerald-800 block">✓ Accepted</span>
-              <span className="text-sm font-mono font-bold text-midnight">${Number(activeRequest.total_price).toFixed(2)}</span>
+              <span className="text-sm font-mono font-bold text-midnight">{formatINR(activeRequest.total_price)}</span>
             </div>
             <button
               type="button"

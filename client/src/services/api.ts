@@ -1189,15 +1189,21 @@ export const api = {
   createAdminCampaign: async (data: {
     name: string;
     description?: string;
-    fee_usd: number;
+    fee_inr?: number;
+    fee_usd?: number;
     start_time: string;
     end_time: string;
     is_active?: number;
   }) => {
+    const payload = {
+      ...data,
+      fee_inr: data.fee_inr !== undefined ? data.fee_inr : data.fee_usd,
+      fee_usd: data.fee_inr !== undefined ? data.fee_inr : data.fee_usd
+    };
     const res = await fetch(`${API_BASE}/admin/campaigns`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify(data)
+      body: JSON.stringify(payload)
     });
     if (!res.ok) {
       const err = await res.json();
@@ -1221,15 +1227,21 @@ export const api = {
   updateAdminCampaign: async (id: string, data: {
     is_active?: number;
     status?: string;
+    fee_inr?: number;
     fee_usd?: number;
     name?: string;
     description?: string;
     end_time?: string;
   }) => {
+    const payload = {
+      ...data,
+      fee_inr: data.fee_inr !== undefined ? data.fee_inr : data.fee_usd,
+      fee_usd: data.fee_inr !== undefined ? data.fee_inr : data.fee_usd
+    };
     const res = await fetch(`${API_BASE}/admin/campaigns/${id}`, {
       method: 'PATCH',
       headers: getAuthHeaders(),
-      body: JSON.stringify(data)
+      body: JSON.stringify(payload)
     });
     if (!res.ok) {
       const err = await res.json();
@@ -1238,11 +1250,11 @@ export const api = {
     return res.json();
   },
 
-  updateAdminListingFee: async (listing_fee_usd: number) => {
+  updateAdminListingFee: async (fee: number) => {
     const res = await fetch(`${API_BASE}/admin/settings/listing-fee`, {
       method: 'PATCH',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ listing_fee_usd })
+      body: JSON.stringify({ listing_fee_inr: fee, listing_fee_usd: fee })
     });
     if (!res.ok) {
       const err = await res.json();

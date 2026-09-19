@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { formatINR, CURRENCY } from '../utils/currency';
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
@@ -564,7 +565,7 @@ export const SessionPage: React.FC = () => {
       const options = {
         key: orderRes.key_id,
         amount: orderRes.amount_paise,
-        currency: orderRes.currency || 'USD',
+        currency: orderRes.currency || CURRENCY,
         name: 'HireByMinute',
         description: `Extend Consultation: +${additionalMinutes} mins`,
         order_id: orderRes.order_id,
@@ -814,7 +815,7 @@ export const SessionPage: React.FC = () => {
                     onClick={() => handleExtendSession(mins)}
                     className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-subtle cursor-pointer disabled:opacity-50 transition-all"
                   >
-                    +{mins}m (${cost})
+                    +{mins}m ({formatINR(cost)})
                   </button>
                 );
               })}
@@ -1266,7 +1267,7 @@ export const SessionPage: React.FC = () => {
                     className="p-3 rounded-2xl border-2 border-amber-300 bg-amber-50/60 hover:bg-amber-100/80 text-amber-950 transition-all cursor-pointer flex flex-col items-center gap-1 disabled:opacity-50"
                   >
                     <span className="font-extrabold text-base">+{mins} min</span>
-                    <span className="text-xs font-mono font-bold text-amber-800">${cost}</span>
+                    <span className="text-xs font-mono font-bold text-amber-800">{formatINR(cost)}</span>
                   </button>
                 );
               })}

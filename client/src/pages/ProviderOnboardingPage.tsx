@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Sparkles,
   Clock,
-  DollarSign,
+  IndianRupee,
   CheckCircle2,
   ArrowRight,
   ShieldCheck,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { formatINR, CURRENCY } from '../utils/currency';
 
 export const ProviderOnboardingPage: React.FC = () => {
   usePageSEO({
@@ -34,10 +35,11 @@ export const ProviderOnboardingPage: React.FC = () => {
   // Form states
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [headline, setHeadline] = useState(user?.headline || '');
+  const [bio, setBio] = useState(user?.bio || '');
   const [title, setTitle] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [description, setDescription] = useState('');
-  const [pricePerMinute, setPricePerMinute] = useState<number>(1.25);
+  const [pricePerMinute, setPricePerMinute] = useState<number>(50.00);
   const [skillsText, setSkillsText] = useState('Python, FastAPI, System Design');
   const [experienceYears, setExperienceYears] = useState(5);
   const [availableNow, setAvailableNow] = useState(true);
@@ -98,7 +100,7 @@ export const ProviderOnboardingPage: React.FC = () => {
 
       setCreatedServiceId(res.service.id);
       
-      // If service is already active (e.g. via $0 promo waiver), mark published immediately!
+      // If service is already active (e.g. via ₹0 promo waiver), mark published immediately!
       if (res.service.listing_status === 'active' || res.is_free) {
         setIsPublished(true);
         await refreshUser();
@@ -120,7 +122,7 @@ export const ProviderOnboardingPage: React.FC = () => {
       // 1. Initiate order creation on server
       const orderRes = await api.createListingOrder(createdServiceId);
 
-      // If promotional $0 waiver applied by server
+      // If promotional ₹0 waiver applied by server
       if (orderRes.free_activated || orderRes.amount === 0) {
         setIsPublished(true);
         await refreshUser();
@@ -150,9 +152,9 @@ export const ProviderOnboardingPage: React.FC = () => {
       const options = {
         key: orderRes.key_id,
         amount: orderRes.amount_paise,
-        currency: orderRes.currency || 'USD',
+        currency: orderRes.currency || CURRENCY,
         name: 'HireByMinute',
-        description: `Service Listing Activation Fee ($${Number(orderRes.amount).toFixed(2)})`,
+        description: `Service Listing Activation Fee (${formatINR(orderRes.amount)})`,
         order_id: orderRes.order_id,
         prefill: {
           name: user?.full_name || '',
@@ -222,7 +224,7 @@ export const ProviderOnboardingPage: React.FC = () => {
         {isFree && (
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold mt-2">
             <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Launch Promotion: $0 Free Registration & Listing Active</span>
+            <span>Launch Promotion: ₹0 Free Registration & Listing Active</span>
           </div>
         )}
 
@@ -273,11 +275,11 @@ export const ProviderOnboardingPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-midnight/60">Rate</span>
-                <span className="font-mono font-bold text-midnight">${pricePerMinute.toFixed(2)}/min</span>
+                <span className="font-mono font-bold text-midnight">{formatINR(pricePerMinute)}/min</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-midnight/60">Listing Fee</span>
-                <span className="font-bold text-emerald-600">{isFree ? '$0.00 (Promotion Waiver)' : `$${feeInfo.fee.toFixed(2)} (Paid)`}</span>
+                <span className="font-bold text-emerald-600">{isFree ? '₹0.00 (Promotion Waiver)' : `${formatINR(feeInfo.fee)} (Paid)`}</span>
               </div>
             </div>
 
@@ -377,7 +379,7 @@ export const ProviderOnboardingPage: React.FC = () => {
                   <span className="font-bold text-midnight">Price per minute</span>
                   <div className="flex items-baseline gap-1">
                     <span className="text-2xl font-extrabold text-midnight font-mono">
-                      ${pricePerMinute.toFixed(2)}
+                      {formatINR(pricePerMinute)}
                     </span>
                     <span className="text-midnight/60 font-medium">/ min</span>
                   </div>
@@ -385,17 +387,17 @@ export const ProviderOnboardingPage: React.FC = () => {
 
                 <input
                   type="range"
-                  min="0.50"
-                  max="5.00"
-                  step="0.05"
+                  min="5.00"
+                  max="500.00"
+                  step="1.00"
                   value={pricePerMinute}
                   onChange={(e) => setPricePerMinute(parseFloat(e.target.value))}
                   className="w-full accent-moonstone cursor-pointer"
                 />
 
                 <div className="text-[11px] text-midnight/60 flex justify-between">
-                  <span>30 mins = ${(pricePerMinute * 30).toFixed(2)}</span>
-                  <span>60 mins = ${(pricePerMinute * 60).toFixed(2)}</span>
+                  <span>30 mins = {formatINR(pricePerMinute * 30)}</span>
+                  <span>60 mins = {formatINR(pricePerMinute * 60)}</span>
                 </div>
               </div>
 
@@ -452,7 +454,7 @@ export const ProviderOnboardingPage: React.FC = () => {
                 disabled={loading}
                 className="px-6 py-3 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover transition-all flex items-center gap-2 cursor-pointer shadow-subtle disabled:opacity-50"
               >
-                {loading ? 'Publishing...' : isFree ? 'Publish Service ($0.00 Free Launch Offer)' : `Review & Continue to $${feeInfo.fee.toFixed(2)} Listing Fee`}
+                {loading ? 'Publishing...' : isFree ? 'Publish Service (₹0.00 Free Launch Offer)' : `Review & Continue to ${formatINR(feeInfo.fee)} Listing Fee`}
                 <ArrowRight className="w-4 h-4 text-moonstone" />
               </button>
             </div>
@@ -462,7 +464,7 @@ export const ProviderOnboardingPage: React.FC = () => {
           /* STEP 3: LISTING FEE PAYMENT STEP */
           <div className="space-y-6 animate-fade-in">
             <div className="space-y-1">
-              <h3 className="text-lg font-bold text-midnight">Activate Your Listing (${feeInfo.fee.toFixed(2)})</h3>
+              <h3 className="text-lg font-bold text-midnight">Activate Your Listing ({formatINR(feeInfo.fee)})</h3>
               <p className="text-xs text-midnight/70">
                 A nominal listing fee helps maintain a high-signal marketplace free of spam.
               </p>
@@ -475,7 +477,7 @@ export const ProviderOnboardingPage: React.FC = () => {
                   <span className="text-[10px] font-bold uppercase tracking-wider text-moonstone">Listing Summary</span>
                   <h4 className="font-bold text-sm text-midnight mt-0.5">{title}</h4>
                 </div>
-                <span className="font-mono font-bold text-sm text-midnight">${pricePerMinute.toFixed(2)}/min</span>
+                <span className="font-mono font-bold text-sm text-midnight">{formatINR(pricePerMinute)}/min</span>
               </div>
               <p className="text-xs text-midnight/70 line-clamp-2 leading-relaxed">{description}</p>
             </div>
@@ -484,7 +486,7 @@ export const ProviderOnboardingPage: React.FC = () => {
             <div className="border border-timberwolf/60 rounded-xl p-4 text-xs space-y-2">
               <div className="flex justify-between text-midnight/70">
                 <span>Service Listing Activation Fee</span>
-                <span className="font-mono font-semibold text-midnight">${feeInfo.fee.toFixed(2)}</span>
+                <span className="font-mono font-semibold text-midnight">{formatINR(feeInfo.fee)}</span>
               </div>
               <div className="flex justify-between text-midnight/70">
                 <span>Listing Duration</span>
@@ -492,7 +494,7 @@ export const ProviderOnboardingPage: React.FC = () => {
               </div>
               <div className="border-t border-timberwolf/40 pt-2 flex justify-between items-baseline font-bold text-midnight text-sm">
                 <span>Total Due Now</span>
-                <span className="font-mono text-base">${feeInfo.fee.toFixed(2)}</span>
+                <span className="font-mono text-base">{formatINR(feeInfo.fee)}</span>
               </div>
             </div>
 
@@ -525,7 +527,7 @@ export const ProviderOnboardingPage: React.FC = () => {
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4 text-moonstone" />
-                    <span>Pay ${feeInfo.fee.toFixed(2)} & Publish Service</span>
+                    <span>Pay {formatINR(feeInfo.fee)} & Publish Service</span>
                   </>
                 )}
               </button>

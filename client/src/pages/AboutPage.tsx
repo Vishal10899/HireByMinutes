@@ -12,7 +12,7 @@ import {
   Lock,
   Globe,
   Sparkles,
-  DollarSign
+  IndianRupee
 } from 'lucide-react';
 import { usePageSEO } from '../hooks/usePageSEO';
 
@@ -168,7 +168,7 @@ export const AboutPage: React.FC = () => {
         {/* Transparent Economics */}
         <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 sm:p-8 shadow-card space-y-4">
           <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
-            <DollarSign className="w-5 h-5 text-moonstone" />
+            <IndianRupee className="w-5 h-5 text-moonstone" />
             <span>Fair & Transparent Platform Economics</span>
           </h2>
           <p className="text-xs sm:text-sm text-midnight/80 leading-relaxed">

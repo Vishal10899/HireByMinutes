@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { formatINR, CURRENCY } from '../utils/currency';
 
 // Real-time Countdown Timer for Client Consultation Request
 const ClientRequestTimer: React.FC<{ initialSeconds: number; onExpire?: () => void }> = ({
@@ -226,7 +227,7 @@ export const ClientDashboardPage: React.FC = () => {
       const options = {
         key: orderRes.key_id,
         amount: orderRes.amount_paise,
-        currency: orderRes.currency || 'USD',
+        currency: orderRes.currency || CURRENCY,
         name: 'HireByMinute',
         description: `Consultation Payment (${orderRes.order_id})`,
         order_id: orderRes.order_id,
@@ -509,7 +510,7 @@ export const ClientDashboardPage: React.FC = () => {
                         <h4 className="font-bold text-sm text-midnight">{req.provider_name}</h4>
                         <p className="text-xs text-midnight/70 line-clamp-1">{req.service_title}</p>
                         <span className="text-[11px] text-midnight/60 block mt-0.5">
-                          {req.duration_minutes} mins • ${Number(req.total_price).toFixed(2)}
+                          {req.duration_minutes} mins • {formatINR(req.total_price)}
                         </span>
                       </div>
                     </div>
@@ -571,7 +572,7 @@ export const ClientDashboardPage: React.FC = () => {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between text-xs text-emerald-800 font-semibold">
                         <span>{req.provider_name} has accepted!</span>
-                        <span className="font-mono text-sm">${Number(req.total_price).toFixed(2)}</span>
+                        <span className="font-mono text-sm">{formatINR(req.total_price)}</span>
                       </div>
                       <button
                         type="button"
@@ -746,7 +747,7 @@ export const ClientDashboardPage: React.FC = () => {
                       <div className="text-[11px] text-midnight/50 flex items-center gap-2 pt-0.5">
                         <span>{exp.sessions_count} session{exp.sessions_count > 1 ? 's' : ''}</span>
                         <span>•</span>
-                        <span className="font-mono font-bold text-midnight">${Number(exp.price_per_minute || 1).toFixed(2)}/min</span>
+                        <span className="font-mono font-bold text-midnight">{formatINR(exp.price_per_minute || 1)}/min</span>
                       </div>
                     </div>
                   </div>
@@ -799,7 +800,7 @@ export const ClientDashboardPage: React.FC = () => {
                     <tr key={pay.id} className="hover:bg-aliceblue/30">
                       <td className="py-3 px-4 font-mono text-[11px] text-midnight">{pay.id}</td>
                       <td className="py-3 px-4 capitalize font-medium">{pay.type.replace('_', ' ')}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-midnight">${Number(pay.amount).toFixed(2)}</td>
+                      <td className="py-3 px-4 font-mono font-bold text-midnight">{formatINR(pay.amount)}</td>
                       <td className="py-3 px-4">
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800">
                           {pay.status}

@@ -16,7 +16,7 @@ import {
   Palette,
   Megaphone,
   Briefcase,
-  DollarSign,
+  IndianRupee,
   Scale,
   GraduationCap,
   Shield,
@@ -93,7 +93,8 @@ export const HomePage: React.FC = () => {
       case 'Palette': return <Palette className="w-5 h-5" />;
       case 'Megaphone': return <Megaphone className="w-5 h-5" />;
       case 'Briefcase': return <Briefcase className="w-5 h-5" />;
-      case 'DollarSign': return <DollarSign className="w-5 h-5" />;
+      case 'DollarSign':
+      case 'IndianRupee': return <IndianRupee className="w-5 h-5" />;
       case 'Scale': return <Scale className="w-5 h-5" />;
       case 'GraduationCap': return <GraduationCap className="w-5 h-5" />;
       default: return <Sparkles className="w-5 h-5" />;
@@ -162,7 +163,7 @@ export const HomePage: React.FC = () => {
               <div className="bg-white border-2 border-timberwolf/80 hover:border-moonstone/70 rounded-[22px] p-5 sm:p-6 shadow-subtle flex flex-col justify-between transition-all duration-150">
                 <div>
                   <div className="w-10 h-10 rounded-xl bg-aliceblue border border-timberwolf/60 text-moonstone flex items-center justify-center mb-4 shrink-0 shadow-xs">
-                    <DollarSign className="w-5 h-5 text-moonstone" />
+                    <IndianRupee className="w-5 h-5 text-moonstone" />
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-midnight/50 block mb-1">
                     Monetize Your Time
@@ -587,14 +588,14 @@ export const HomePage: React.FC = () => {
                             <span className="truncate max-w-[120px]">{loc}</span>
                           </span>
                           <span className="flex items-center gap-1 font-semibold text-midnight truncate">
-                            <DollarSign className="w-3.5 h-3.5 text-moonstone shrink-0" />
+                            <IndianRupee className="w-3.5 h-3.5 text-moonstone shrink-0" />
                             <span>
                               {job.salary_type === 'undisclosed' || (!job.salary_min && !job.salary_max)
                                 ? 'Undisclosed'
                                 : job.salary_min && job.salary_max
-                                ? `$${(job.salary_min / 1000).toFixed(0)}k - $${(job.salary_max / 1000).toFixed(0)}k`
+                                ? `₹${(job.salary_min / 1000).toFixed(0)}k - ₹${(job.salary_max / 1000).toFixed(0)}k`
                                 : job.salary_min
-                                ? `From $${(job.salary_min / 1000).toFixed(0)}k`
+                                ? `From ₹${(job.salary_min / 1000).toFixed(0)}k`
                                 : 'Competitive'}
                             </span>
                           </span>
