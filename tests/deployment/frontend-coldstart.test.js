@@ -94,9 +94,9 @@ async function runRenderDeploymentTests() {
 
   try {
     // ---------------------------------------------------------------------------
-    // TEST 2: Health Probes (/api/health and /health)
+    // TEST 2: Health & Keep-Alive Probes (/api/health, /health, /ping, /api/ping)
     // ---------------------------------------------------------------------------
-    console.log('\n2. Testing Lightweight /health & /api/health Endpoints...');
+    console.log('\n2. Testing Lightweight /health & /ping Keep-Alive Endpoints...');
     const apiHealth = await makeRequest({
       hostname: '127.0.0.1',
       port: PORT,
@@ -105,6 +105,9 @@ async function runRenderDeploymentTests() {
     });
     assert(apiHealth.statusCode === 200, 'GET /api/health returns 200 OK');
     assert(apiHealth.body.status === 'healthy', 'GET /api/health body reports status: "healthy"');
+    assert(apiHealth.body.ok === true, 'GET /api/health body reports ok: true');
+    assert((apiHealth.headers['cache-control'] || '').includes('no-store'),
+      'GET /api/health includes anti-caching headers (no-store)');
 
     const rootHealthHead = await makeRequest({
       hostname: '127.0.0.1',
@@ -113,6 +116,32 @@ async function runRenderDeploymentTests() {
       method: 'HEAD'
     });
     assert(rootHealthHead.statusCode === 200, 'HEAD /health returns 200 OK without body');
+
+    const apiPing = await makeRequest({
+      hostname: '127.0.0.1',
+      port: PORT,
+      path: '/api/ping',
+      method: 'GET'
+    });
+    assert(apiPing.statusCode === 200, 'GET /api/ping returns 200 OK');
+    assert(apiPing.body === 'pong', 'GET /api/ping returns "pong"');
+
+    const pingHead = await makeRequest({
+      hostname: '127.0.0.1',
+      port: PORT,
+      path: '/ping',
+      method: 'HEAD'
+    });
+    assert(pingHead.statusCode === 200, 'HEAD /ping returns 200 OK without body');
+
+    const wwwHealth = await makeRequest({
+      hostname: '127.0.0.1',
+      port: PORT,
+      path: '/api/health',
+      method: 'GET',
+      headers: { 'Host': 'www.hirebyminute.com' }
+    });
+    assert(wwwHealth.statusCode === 200, 'GET /api/health on www host returns 200 OK without 301 redirect');
 
     // ---------------------------------------------------------------------------
     // TEST 3: CORS Headers for Production & Custom Domain Origins

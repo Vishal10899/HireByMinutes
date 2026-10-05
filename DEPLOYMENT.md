@@ -170,29 +170,69 @@ When deployed on Render's Free tier, backend containers enter a low-power sleep 
 
 ---
 
-## 6. External Uptime Monitoring Setup
+## 6. Render Free Tier Keep-Alive Monitoring
 
-To keep the Render backend warm during peak hours and prevent idling:
+When hosted on Render's Free tier, the web service automatically spins down into an idle sleep state after **15 minutes of inactivity** (no inbound HTTP requests). The next incoming visitor experiences a 30–45 second cold start while the container provisions and boots.
 
-1. Create a free account at [UptimeRobot](https://uptimerobot.com/) or [BetterStack](https://betterstack.com/).
-2. Add a new HTTP Monitor:
-   - **Type**: `HTTP(s)`
-   - **Friendly Name**: `HireByMinute Production`
-   - **URL**: `https://hirebyminute.com/api/health`
-   - **Monitoring Interval**: `5 minutes` (or `10 minutes`)
-   - **HTTP Method**: `GET` or `HEAD`
-   - **Timeout**: `30 seconds` (to accommodate cold-start wakeups)
-3. **Endpoint Response**:
-   The `/api/health` and `/health` endpoints are lightweight (< 1ms, < 300 bytes), execute zero database queries on simple probes, and return HTTP 200:
+To eliminate this cold start, use an external uptime monitoring service (such as [UptimeRobot](https://uptimerobot.com/), [BetterStack](https://betterstack.com/), or [Cron-Job.org](https://cron-job.org/)) to send periodic lightweight HTTP probes to keep the service warm.
+
+> [!IMPORTANT]
+> **No Internal Self-Pings**: Do NOT implement an internal `setInterval` or self-ping loop inside the backend. Internal loops consume CPU cycles, cannot wake an already-sleeping container, and waste instance resources. An external monitor provides reliable inbound traffic that keeps Render warm legitimately.
+
+### Recommended Monitor Configuration
+
+| Parameter | Recommended Setting | Description |
+| :--- | :--- | :--- |
+| **Monitor Type** | `HTTP(s)` | Standard web probe |
+| **Friendly Name** | `HireByMinute Production Health` | Descriptive identifier in dashboard |
+| **URL (Primary)** | `https://hirebyminute.com/api/health` | Authoritative custom production domain |
+| **URL (Direct Fallback)** | `https://hirebyminutes.onrender.com/api/health` | Direct Render service URL (if DNS is ever updating) |
+| **HTTP Method** | `GET` (or `HEAD`) | Both return HTTP 200 with zero database writes |
+| **Monitoring Interval** | `Every 5 minutes` | Well within Render's 15-minute sleep threshold |
+| **Expected HTTP Status** | `200` | Indicates healthy application process |
+| **Request Timeout** | `30 seconds` | Accommodates initial cold boot latency if service was stopped |
+
+### Verified Production Endpoints
+
+The backend provides four dedicated, unauthenticated, non-blocking monitoring endpoints:
+
+1. **`GET /api/health`** (Standard): Returns JSON payload (< 1ms execution, no database queries on routine pings):
    ```json
    {
      "status": "healthy",
+     "ok": true,
      "platform": "HireByMinute",
+     "version": "2.4.0",
      "environment": "production",
      "database": "connected",
-     "uptimeSeconds": 1420
+     "uptimeSeconds": 1420,
+     "timestamp": "2026-10-05T14:12:26.511Z",
+     "memory": {
+       "rssMb": 45,
+       "heapUsedMb": 28,
+       "heapTotalMb": 35
+     }
    }
    ```
+2. **`HEAD /api/health`** or **`HEAD /health`**: Returns HTTP 200 immediately without body bytes.
+3. **`GET /health`**: Root alias for `/api/health`.
+4. **`GET /api/ping`** or **`GET /ping`**: Ultra-lightweight endpoint returning plain text `pong`.
+
+### Cache Prevention Guaranteed
+All health and ping endpoints strictly emit:
+```http
+Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0
+Pragma: no-cache
+Expires: 0
+Surrogate-Control: no-store
+```
+This guarantees that intermediate edge caches, Cloudflare, and CDN proxies never serve a cached 200 to the monitoring service — every probe reaches the running Render Node.js container.
+
+### Render Free Tier Quota Consideration
+- Render Free tier accounts receive **750 free instance hours per calendar month**.
+- A 31-day month contains 744 hours (24 × 31).
+- **Single Service**: If HireByMinute is the only free service on your Render account, 5-minute keep-alive pings keep it 100% warm 24/7 without exceeding your 750 free monthly hours.
+- **Multiple Services**: If your Render account hosts multiple free services sharing the 750-hour pool, configure your monitor (e.g. in Cron-Job.org or UptimeRobot schedules) to ping during peak business hours (e.g., 08:00–23:00) to conserve pooled hours.
 
 ---
 

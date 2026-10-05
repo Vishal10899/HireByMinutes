@@ -130,6 +130,15 @@ app.use(cors(corsOptions));
 app.use((req, res, next) => {
   const host = (req.headers.host || '').toLowerCase();
   if (host.startsWith('www.hirebyminute.com')) {
+    // Exclude health and ping probes from 301 redirect to support monitoring services that don't follow redirects
+    if (
+      req.path === '/health' ||
+      req.path === '/api/health' ||
+      req.path === '/ping' ||
+      req.path === '/api/ping'
+    ) {
+      return next();
+    }
     const canonicalUrl = `https://hirebyminute.com${req.originalUrl}`;
     return res.redirect(301, canonicalUrl);
   }
@@ -244,12 +253,19 @@ app.use('/api/admin/change-password', rateLimiter(10, 60000));
 app.use('/api', createRoutes(timerEngine, io));
 
 // =============================================================================
-// PRODUCTION HEALTH MONITORING ENDPOINTS (/api/health & /health)
+// PRODUCTION HEALTH & KEEP-ALIVE MONITORING ENDPOINTS
 // Extremely lightweight: returns HTTP 200 quickly without auth, no external APIs,
 // and no expensive database queries on basic uptime probes.
-// Compatible with Render Health Checks, UptimeRobot, BetterStack, Pingdom, HEAD/GET
+// Includes anti-caching headers so external monitors and CDNs never cache 200 responses.
+// Compatible with Render Health Checks, UptimeRobot, BetterStack, Cron-Job.org, HEAD/GET
 // =============================================================================
 const handleHealthCheck = (req, res) => {
+  // Prevent any proxy or CDN caching so pings always hit the Render backend process
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+
   // Deep connectivity check only when explicitly requested (e.g., ?deep=1 or ?checkDb=true)
   if (req.query && (req.query.deep === '1' || req.query.checkDb === 'true')) {
     try {
@@ -290,6 +306,7 @@ const handleHealthCheck = (req, res) => {
 
   res.status(200).json({
     status: 'healthy',
+    ok: true,
     platform: 'HireByMinute',
     version: '2.4.0',
     environment: process.env.NODE_ENV || 'development',
@@ -304,10 +321,24 @@ const handleHealthCheck = (req, res) => {
   });
 };
 
+// Ultra-fast zero-overhead ping handler for external keep-alive uptime bots
+const handlePing = (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  if (req.method === 'HEAD') return res.status(200).end();
+  res.status(200).send('pong');
+};
+
 app.get('/api/health', handleHealthCheck);
 app.head('/api/health', handleHealthCheck);
 app.get('/health', handleHealthCheck);
 app.head('/health', handleHealthCheck);
+app.get('/api/ping', handlePing);
+app.head('/api/ping', handlePing);
+app.get('/ping', handlePing);
+app.head('/ping', handlePing);
 
 // =============================================================================
 // PRODUCTION SEARCH ENGINE OPTIMIZATION (SEO) & CRAWLER DIRECTIVES
@@ -639,6 +670,8 @@ app.use((req, res, next) => {
   if (
     req.path === '/health' ||
     req.path.startsWith('/health/') ||
+    req.path === '/ping' ||
+    req.path.startsWith('/ping/') ||
     req.path.startsWith('/api') ||
     req.path.startsWith('/uploads') ||
     req.path.startsWith('/socket.io')

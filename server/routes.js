@@ -304,6 +304,12 @@ module.exports = function(timerEngine, io) {
 
   // Production Health Monitoring Endpoints (Extremely lightweight, Render Free safe, no auth, no external API)
   const handleHealth = (req, res) => {
+    // Prevent any proxy or CDN caching so pings always reach the Render backend process
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+
     // Optional deep query probe if specifically requested via ?deep=1 or ?checkDb=true
     if (req.query && (req.query.deep === '1' || req.query.checkDb === 'true')) {
       try {
@@ -340,6 +346,7 @@ module.exports = function(timerEngine, io) {
     const memoryUsage = process.memoryUsage();
     return res.status(200).json({
       status: 'healthy',
+      ok: true,
       platform: 'HireByMinute',
       version: '2.4.0',
       environment: process.env.NODE_ENV || 'development',
@@ -353,9 +360,21 @@ module.exports = function(timerEngine, io) {
       }
     });
   };
+
+  const handlePing = (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    if (req.method === 'HEAD') return res.status(200).end();
+    res.status(200).send('pong');
+  };
+
   router.get('/health', handleHealth);
   router.head('/health', handleHealth);
   router.get('/healthz', handleHealth);
+  router.get('/ping', handlePing);
+  router.head('/ping', handlePing);
 
   // Public Platform Registration / Listing Fee Status Endpoint
   router.get('/platform/registration-fee', (req, res) => {
