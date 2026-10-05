@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { backendStatus } from '../services/backendStatus';
 import { Opportunity, Category } from '../types';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -13,11 +14,14 @@ import {
   Sparkles,
   ArrowRight,
   UserCheck,
-  RefreshCw
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
 import { formatINR, CURRENCY } from '../utils/currency';
+
+export type PageState = 'loading' | 'connecting' | 'success_with_data' | 'success_empty' | 'error';
 
 export const OpportunitiesPage: React.FC = () => {
   usePageSEO({
@@ -30,8 +34,8 @@ export const OpportunitiesPage: React.FC = () => {
 
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(false);
+  const [pageState, setPageState] = useState<PageState>('loading');
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   // Apply Modal state
   const [selectedOpp, setSelectedOpp] = useState<Opportunity | null>(null);
@@ -50,31 +54,82 @@ export const OpportunitiesPage: React.FC = () => {
   const [postBudget, setPostBudget] = useState<number>(75);
   const [postLoading, setPostLoading] = useState(false);
 
-  const loadOpps = async () => {
-    setLoading(true);
-    setFetchError(false);
+  const loadOpps = async (_isManualRefresh = false) => {
+    setPageState('loading');
+    setErrorMessage('');
+
+    // Dynamically transition to 'connecting' if cold-start (>2.5s) is in progress
+    let isRequestActive = true;
+    const unsubscribe = backendStatus.subscribe((status) => {
+      if (isRequestActive && (status.state === 'waking_up' || status.isSleeping)) {
+        setPageState('connecting');
+      }
+    });
+
     try {
       const results = await Promise.allSettled([
         api.getOpportunities(),
         api.getCategories()
       ]);
+
+      isRequestActive = false;
+      unsubscribe();
+
       const [oppRes, catRes] = results;
-      if (oppRes.status === 'fulfilled' && oppRes.value?.opportunities) {
-        setOpportunities(oppRes.value.opportunities);
-      } else if (oppRes.status === 'rejected') {
-        setFetchError(true);
-      }
+
       if (catRes.status === 'fulfilled' && catRes.value?.categories) {
         setCategories(catRes.value.categories);
         if (catRes.value.categories.length > 0) {
           setPostCategoryId(catRes.value.categories[0].id);
         }
       }
-    } catch (err) {
-      console.error(err);
-      setFetchError(true);
-    } finally {
-      setLoading(false);
+
+      if (oppRes.status === 'fulfilled') {
+        const val = oppRes.value;
+        const list: Opportunity[] = Array.isArray(val?.opportunities)
+          ? val.opportunities
+          : Array.isArray(val?.data)
+          ? val.data
+          : Array.isArray(val)
+          ? val
+          : [];
+
+        setOpportunities(list);
+
+        if (list.length > 0) {
+          setPageState('success_with_data');
+        } else {
+          setPageState('success_empty');
+        }
+      } else {
+        const error: any = oppRes.reason;
+        const statusObj = backendStatus.getStatus();
+        const isColdStart =
+          statusObj.isSleeping ||
+          statusObj.state === 'waking_up' ||
+          error?.name === 'AbortError' ||
+          (typeof error?.message === 'string' && (
+            error.message.includes('502') ||
+            error.message.includes('503') ||
+            error.message.includes('504') ||
+            error.message.includes('timeout') ||
+            error.message.includes('Failed to fetch') ||
+            error.message.includes('waking up')
+          ));
+
+        if (isColdStart) {
+          setPageState('connecting');
+        } else {
+          setPageState('error');
+          setErrorMessage(error?.message || 'Unable to load opportunities right now.');
+        }
+      }
+    } catch (err: any) {
+      isRequestActive = false;
+      unsubscribe();
+      console.error('[OpportunitiesPage] Error loading opportunities:', err);
+      setPageState('error');
+      setErrorMessage(err?.message || 'Unable to load opportunities right now.');
     }
   };
 
@@ -261,40 +316,106 @@ export const OpportunitiesPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Opportunities Grid */}
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-white/60 border border-timberwolf/40 rounded-xl p-6 h-48 animate-pulse" />
+      {/* Opportunities Content Area based on explicit state */}
+      {pageState === 'loading' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="bg-white/60 border border-timberwolf/40 rounded-2xl p-6 h-52 animate-pulse space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="h-5 w-24 bg-timberwolf/30 rounded-full" />
+                <div className="h-4 w-16 bg-timberwolf/20 rounded-md" />
+              </div>
+              <div className="h-6 w-3/4 bg-timberwolf/30 rounded-md" />
+              <div className="h-4 w-full bg-timberwolf/20 rounded-md" />
+              <div className="h-4 w-2/3 bg-timberwolf/20 rounded-md" />
+            </div>
           ))}
         </div>
-      ) : fetchError && opportunities.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-timberwolf/70 p-10 text-center shadow-subtle space-y-3 max-w-md mx-auto">
-          <Clock className="w-10 h-10 text-amber-600 animate-pulse mx-auto" />
-          <h3 className="text-base font-bold text-midnight">Backend Server Connecting</h3>
-          <p className="text-xs text-midnight/70 max-w-sm mx-auto leading-relaxed">
-            The backend server on Render is waking up from idle mode (~30s). Click below to retry.
-          </p>
+      )}
+
+      {pageState === 'connecting' && (
+        <div className="bg-white rounded-2xl border border-amber-200/80 bg-amber-50/20 p-10 text-center shadow-subtle space-y-4 max-w-md mx-auto my-6">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto text-amber-600">
+            <Clock className="w-6 h-6 animate-pulse" />
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="text-base font-bold text-midnight">Backend Server Connecting</h3>
+            <p className="text-xs text-midnight/70 max-w-sm mx-auto leading-relaxed">
+              The backend server on Render is waking up from idle mode (~30s). Live opportunities will connect automatically once ready.
+            </p>
+          </div>
           <div className="pt-2">
             <button
               type="button"
-              onClick={() => loadOpps()}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-all cursor-pointer"
+              onClick={() => loadOpps(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-all cursor-pointer shadow-subtle"
             >
               <RefreshCw className="w-3.5 h-3.5 text-moonstone" />
-              <span>Retry Loading Opportunities</span>
+              <span>Retry Connecting</span>
             </button>
           </div>
         </div>
-      ) : opportunities.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-timberwolf/70 p-12 text-center shadow-subtle space-y-3">
-          <Briefcase className="w-10 h-10 text-timberwolf-dark mx-auto" />
-          <h3 className="text-base font-bold text-midnight">No open opportunities right now</h3>
-          <p className="text-xs text-midnight/60 max-w-sm mx-auto">
-            Check back soon or post a targeted opportunity for domain experts.
-          </p>
+      )}
+
+      {pageState === 'error' && (
+        <div className="bg-white rounded-2xl border border-rose-200 bg-rose-50/20 p-10 text-center shadow-subtle space-y-4 max-w-md mx-auto my-6">
+          <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center mx-auto text-rose-600">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="text-base font-bold text-midnight">Unable to load opportunities</h3>
+            <p className="text-xs text-midnight/70 max-w-sm mx-auto leading-relaxed">
+              {errorMessage || "We couldn't load opportunities right now. Please check your connection and try again."}
+            </p>
+          </div>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => loadOpps(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-all cursor-pointer shadow-subtle"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-moonstone" />
+              <span>Try Again</span>
+            </button>
+          </div>
         </div>
-      ) : (
+      )}
+
+      {pageState === 'success_empty' && (
+        <div className="bg-white rounded-2xl border border-timberwolf/70 p-10 sm:p-12 text-center shadow-subtle space-y-4 max-w-lg mx-auto my-6">
+          <div className="w-14 h-14 rounded-2xl bg-aliceblue border border-timberwolf/40 flex items-center justify-center mx-auto text-moonstone">
+            <Briefcase className="w-7 h-7 text-midnight" />
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="text-lg font-bold text-midnight tracking-tight">
+              No opportunities available right now
+            </h3>
+            <p className="text-xs sm:text-sm text-midnight/70 max-w-sm mx-auto leading-relaxed">
+              New work opportunities will appear here as clients and the HireByMinute platform post them. Check back soon.
+            </p>
+          </div>
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => loadOpps(true)}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-aliceblue text-midnight text-xs font-semibold hover:bg-timberwolf/30 border border-timberwolf/60 transition-all cursor-pointer w-full sm:w-auto"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-moonstone" />
+              <span>Refresh Opportunities</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowPostModal(true)}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-all cursor-pointer shadow-subtle w-full sm:w-auto"
+            >
+              <PlusCircle className="w-3.5 h-3.5 text-moonstone" />
+              <span>Post an Opportunity</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {pageState === 'success_with_data' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {opportunities.map((opp) => (
             <div

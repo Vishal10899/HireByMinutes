@@ -5,7 +5,7 @@
 // 1. PostgreSQL Schema & Core Integration (21 tests)
 // 2. Full-Time Jobs & Careers Marketplace (20 tests)
 // 3. Razorpay Payment Fix & INR Standardization (20 tests)
-// 4. Render Deployment & SPA Cold-Start Suite (49 tests)
+// 4. Render Deployment & SPA Cold-Start Suite (70 tests)
 // =============================================================================
 
 const { fork } = require('child_process');

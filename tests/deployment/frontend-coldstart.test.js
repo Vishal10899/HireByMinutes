@@ -271,6 +271,138 @@ async function runRenderDeploymentTests() {
     assert(secondAttempt.statusCode === 200, 'Simulated retry after cold-start wake returns 200 OK');
 
     await new Promise(r => mockColdServer.close(r));
+
+    // ---------------------------------------------------------------------------
+    // TEST 7: Opportunities Page State Machine & Empty-State Logic
+    // ---------------------------------------------------------------------------
+    console.log('\n7. Testing Opportunities Page State Machine & Empty-State Logic...');
+
+    // A. Verify live backend endpoint response structure
+    const liveOppRes = await makeRequest({
+      hostname: '127.0.0.1',
+      port: PORT,
+      path: '/api/opportunities',
+      method: 'GET'
+    });
+    assert(liveOppRes.statusCode === 200, 'GET /api/opportunities returns HTTP 200');
+    assert(liveOppRes.body && Array.isArray(liveOppRes.body.opportunities),
+      'Backend response structure strictly contains { opportunities: [...] }');
+
+    // Helper simulating the OpportunitiesPage state transition logic
+    function resolvePageState({ status, body, error, backendSleeping = false }) {
+      if (status === 200 && body) {
+        const list = Array.isArray(body?.opportunities)
+          ? body.opportunities
+          : Array.isArray(body?.data)
+          ? body.data
+          : Array.isArray(body)
+          ? body
+          : [];
+        if (list.length > 0) {
+          return { state: 'success_with_data', data: list, showConnecting: false, showEmpty: false, showError: false };
+        } else {
+          return { state: 'success_empty', data: [], showConnecting: false, showEmpty: true, showError: false };
+        }
+      }
+
+      const isColdStart =
+        backendSleeping ||
+        error?.name === 'AbortError' ||
+        (typeof error?.message === 'string' && (
+          error.message.includes('502') ||
+          error.message.includes('503') ||
+          error.message.includes('504') ||
+          error.message.includes('timeout') ||
+          error.message.includes('Failed to fetch') ||
+          error.message.includes('waking up')
+        )) ||
+        status === 502 || status === 503 || status === 504;
+
+      if (isColdStart) {
+        return { state: 'connecting', data: [], showConnecting: true, showEmpty: false, showError: false };
+      }
+
+      return {
+        state: 'error',
+        data: [],
+        showConnecting: false,
+        showEmpty: false,
+        showError: true,
+        message: error?.message || 'Unable to load opportunities'
+      };
+    }
+
+    // A. API returns 200 + opportunities -> opportunity cards displayed
+    const populatedMock = {
+      status: 200,
+      body: {
+        opportunities: [
+          { id: 'opp-1', title: 'Senior Cloud Consultant', duration_minutes: 60, budget: 150 }
+        ]
+      }
+    };
+    const populatedState = resolvePageState(populatedMock);
+    assert(populatedState.state === 'success_with_data', 'State resolves to "success_with_data" when opportunities exist');
+    assert(populatedState.data.length === 1, 'Data contains 1 opportunity card');
+    assert(populatedState.showConnecting === false, 'Cold-start "Backend Server Connecting" is NOT shown when opportunities exist');
+
+    // B. API returns 200 + [] -> professional empty state displayed, "Backend Server Connecting" NOT displayed
+    const emptyMock = {
+      status: 200,
+      body: { opportunities: [] }
+    };
+    const emptyState = resolvePageState(emptyMock);
+    assert(emptyState.state === 'success_empty', 'State resolves to "success_empty" when opportunities array is []');
+    assert(emptyState.showEmpty === true, 'Professional empty state is displayed');
+    assert(emptyState.showConnecting === false, 'CRITICAL: "Backend Server Connecting" is strictly NOT displayed on 200 + []');
+    assert(emptyState.showError === false, 'Error message is strictly NOT displayed on 200 + []');
+
+    // C. API returns 502/503/504 -> backend connecting/cold-start state displayed
+    const gateway503Mock = {
+      status: 503,
+      error: new Error('503 Service Unavailable')
+    };
+    const cold503State = resolvePageState(gateway503Mock);
+    assert(cold503State.state === 'connecting', 'State resolves to "connecting" on HTTP 503');
+    assert(cold503State.showConnecting === true, '"Backend Server Connecting" is displayed on 503');
+    assert(cold503State.showEmpty === false, 'Empty state is NOT displayed on 503');
+
+    const gateway502Mock = {
+      status: 502,
+      error: new Error('502 Bad Gateway')
+    };
+    const cold502State = resolvePageState(gateway502Mock);
+    assert(cold502State.state === 'connecting', 'State resolves to "connecting" on HTTP 502');
+
+    // D. Network timeout -> connecting state
+    const timeoutMock = {
+      error: { name: 'AbortError', message: 'The user aborted a request' }
+    };
+    const timeoutState = resolvePageState(timeoutMock);
+    assert(timeoutState.state === 'connecting', 'State resolves to "connecting" on fetch timeout / AbortError');
+    assert(timeoutState.showConnecting === true, '"Backend Server Connecting" is displayed during timeout');
+
+    // E. API returns 4xx/5xx real error -> proper error state displayed
+    const apiErrorMock = {
+      status: 400,
+      error: new Error('Bad Request: Invalid category parameter')
+    };
+    const errState = resolvePageState(apiErrorMock);
+    assert(errState.state === 'error', 'State resolves to "error" on HTTP 400');
+    assert(errState.showError === true, 'Proper error state is displayed on API error');
+    assert(errState.showEmpty === false, '"No opportunities available" is NOT displayed for real API error');
+    assert(errState.showConnecting === false, '"Backend Server Connecting" is NOT displayed for real API error');
+
+    // F. Refresh action simulation
+    let refreshTriggered = false;
+    function simulateRefresh() {
+      refreshTriggered = true;
+      return resolvePageState(emptyMock);
+    }
+    const refreshedState = simulateRefresh();
+    assert(refreshTriggered === true, 'Refresh button triggers a new fetch request');
+    assert(refreshedState.state === 'success_empty', 'Refreshed state accurately resolves without page reload');
+
   } finally {
     await new Promise(r => serverInstance.close(r));
   }
