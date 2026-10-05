@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { formatINR } from '../utils/currency';
+import { SOCKET_BASE_URL } from '../config';
 
 interface SocketNotification {
   id: string;
@@ -35,9 +36,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
-    const socketUrl = import.meta.env.VITE_API_URL 
-      ? import.meta.env.VITE_API_URL.replace(/\/api$/, '') 
-      : (window.location.origin.includes('localhost') ? 'http://localhost:5000' : window.location.origin);
+    const socketUrl = SOCKET_BASE_URL;
 
     const newSocket = io(socketUrl, {
       auth: { token },

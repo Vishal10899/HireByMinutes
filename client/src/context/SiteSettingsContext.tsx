@@ -135,7 +135,7 @@ export const SiteSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [ctaUrl, setCtaUrl] = useState<string>('/auth');
   const [footerSettings, setFooterSettings] = useState<FooterSettings>(DEFAULT_FOOTER_SETTINGS);
   const [contactSettings, setContactSettings] = useState<ContactSettings>(DEFAULT_CONTACT_SETTINGS);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
 
   const refreshSettings = useCallback(async () => {
     try {

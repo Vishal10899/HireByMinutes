@@ -15,16 +15,24 @@ yarn-error.log*
 *.db-journal
 *.db-wal
 *.db-shm
+*.bak
 server/hirebyminutes.db*
 
 # User uploaded session media & attachments
 server/uploads/*
 !server/uploads/.gitkeep
 
+# Backup archives and snapshot dumps
+server/backups/*
+!server/backups/.gitkeep
+*.dump
+*.sql
+
 # Build artifacts
 dist/
 build/
 .cache/
+client/dist/
 
 # System and editor files
 .DS_Store

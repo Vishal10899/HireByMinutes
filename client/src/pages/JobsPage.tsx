@@ -35,6 +35,7 @@ export const JobsPage: React.FC = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -65,29 +66,32 @@ export const JobsPage: React.FC = () => {
     loadCategories();
   }, []);
 
-  useEffect(() => {
-    async function fetchJobs() {
-      setLoading(true);
-      try {
-        const res = await api.getJobs({
-          search: search || undefined,
-          work_mode: workMode || undefined,
-          experience_level: experienceLevel || undefined,
-          category_id: categoryId || undefined,
-          sort,
-          page,
-          limit: 12
-        });
-        setJobs(res.jobs || []);
-        setTotal(res.pagination?.total || 0);
-        setTotalPages(res.pagination?.totalPages || 1);
-      } catch (err) {
-        console.error('Failed to fetch jobs', err);
-        setJobs([]);
-      } finally {
-        setLoading(false);
-      }
+  const fetchJobs = async () => {
+    setLoading(true);
+    setFetchError(false);
+    try {
+      const res = await api.getJobs({
+        search: search || undefined,
+        work_mode: workMode || undefined,
+        experience_level: experienceLevel || undefined,
+        category_id: categoryId || undefined,
+        sort,
+        page,
+        limit: 12
+      });
+      setJobs(res.jobs || []);
+      setTotal(res.pagination?.total || 0);
+      setTotalPages(res.pagination?.totalPages || 1);
+    } catch (err) {
+      console.error('Failed to fetch jobs', err);
+      setFetchError(true);
+      setJobs([]);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
     fetchJobs();
   }, [search, workMode, experienceLevel, categoryId, sort, page]);
 
@@ -338,36 +342,53 @@ export const JobsPage: React.FC = () => {
                 ))}
               </div>
             ) : jobs.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-timberwolf/70 p-12 text-center shadow-card space-y-4 max-w-lg mx-auto my-8">
-                <div className="w-14 h-14 rounded-2xl bg-aliceblue text-moonstone mx-auto flex items-center justify-center border border-timberwolf/60">
-                  <Briefcase className="w-7 h-7" />
+              fetchError ? (
+                <div className="bg-white rounded-2xl border border-timberwolf/70 p-10 text-center shadow-card space-y-3 max-w-md mx-auto my-8">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 mx-auto flex items-center justify-center border border-amber-200">
+                    <Clock className="w-6 h-6 text-amber-600 animate-pulse" />
+                  </div>
+                  <h3 className="text-base font-bold text-midnight">Backend Server Connecting</h3>
+                  <p className="text-xs text-midnight/70 leading-relaxed">
+                    The backend service on Render is waking up from idle mode (~30s). Click below to retry.
+                  </p>
+                  <div className="pt-2">
+                    <Button onClick={() => fetchJobs()} variant="primary" size="sm">
+                      Retry Loading Jobs
+                    </Button>
+                  </div>
                 </div>
-                {hasActiveFilters ? (
-                  <>
-                    <h3 className="text-lg font-bold text-midnight">No matching positions found</h3>
-                    <p className="text-xs sm:text-sm text-midnight/70 leading-relaxed">
-                      We couldn't find any job openings matching your current filter criteria. Try adjusting keywords or clearing specific constraints.
-                    </p>
-                    <div className="pt-2">
-                      <Button onClick={clearAllFilters} variant="primary" size="sm">
-                        Clear Filter Constraints
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <h3 className="text-lg font-bold text-midnight">No full-time opportunities available right now.</h3>
-                    <p className="text-xs sm:text-sm text-midnight/70 leading-relaxed">
-                      Check back soon for new opportunities, or connect with verified specialists for on-demand consultations.
-                    </p>
-                    <div className="pt-2">
-                      <Button to="/services" variant="primary" size="sm" iconRight={<ArrowRight className="w-4 h-4" />}>
-                        Explore Per-Minute Consultations
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
+              ) : (
+                <div className="bg-white rounded-2xl border border-timberwolf/70 p-12 text-center shadow-card space-y-4 max-w-lg mx-auto my-8">
+                  <div className="w-14 h-14 rounded-2xl bg-aliceblue text-moonstone mx-auto flex items-center justify-center border border-timberwolf/60">
+                    <Briefcase className="w-7 h-7" />
+                  </div>
+                  {hasActiveFilters ? (
+                    <>
+                      <h3 className="text-lg font-bold text-midnight">No matching positions found</h3>
+                      <p className="text-xs sm:text-sm text-midnight/70 leading-relaxed">
+                        We couldn't find any job openings matching your current filter criteria. Try adjusting keywords or clearing specific constraints.
+                      </p>
+                      <div className="pt-2">
+                        <Button onClick={clearAllFilters} variant="primary" size="sm">
+                          Clear Filter Constraints
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-lg font-bold text-midnight">No full-time opportunities available right now.</h3>
+                      <p className="text-xs sm:text-sm text-midnight/70 leading-relaxed">
+                        Check back soon for new opportunities, or connect with verified specialists for on-demand consultations.
+                      </p>
+                      <div className="pt-2">
+                        <Button to="/services" variant="primary" size="sm" iconRight={<ArrowRight className="w-4 h-4" />}>
+                          Explore Per-Minute Consultations
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )
             ) : (
               <div className="space-y-4">
                 {jobs.map((job) => {

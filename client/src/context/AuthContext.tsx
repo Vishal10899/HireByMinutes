@@ -31,13 +31,14 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const initialToken = typeof window !== 'undefined' ? localStorage.getItem('hbm_token') : null;
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('hbm_token'));
-  const [loading, setLoading] = useState<boolean>(true);
-  const [authInitialized, setAuthInitialized] = useState<boolean>(false);
+  const [token, setToken] = useState<string | null>(initialToken);
+  const [loading, setLoading] = useState<boolean>(Boolean(initialToken));
+  const [authInitialized, setAuthInitialized] = useState<boolean>(!initialToken);
 
   const refreshUser = useCallback(async () => {
-    const currentToken = localStorage.getItem('hbm_token');
+    const currentToken = typeof window !== 'undefined' ? localStorage.getItem('hbm_token') : null;
     if (!currentToken) {
       setUser(null);
       setToken(null);
@@ -64,10 +65,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
         setToken(null);
       }
-    } catch {
-      localStorage.removeItem('hbm_token');
-      setUser(null);
-      setToken(null);
+    } catch (err: any) {
+      // Only clear token if server definitively rejected the session (401 / 403)
+      // Do NOT clear token on Render cold start or network timeout
+      if (err?.status === 401 || err?.status === 403 || err?.message?.includes('401') || err?.message?.includes('403')) {
+        localStorage.removeItem('hbm_token');
+        setUser(null);
+        setToken(null);
+      }
     } finally {
       setLoading(false);
       setAuthInitialized(true);

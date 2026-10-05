@@ -857,21 +857,33 @@ export const ServiceDetailPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-16 text-center">
-        <div className="w-10 h-10 border-2 border-moonstone border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-sm text-midnight/60">Loading expert profile...</p>
+      <div className="max-w-6xl mx-auto px-4 py-20 text-center space-y-4">
+        <div className="w-10 h-10 border-2 border-moonstone border-t-transparent rounded-full animate-spin mx-auto" />
+        <p className="text-sm font-medium text-midnight">Loading expert profile...</p>
+        <p className="text-xs text-midnight/60 max-w-xs mx-auto">
+          If the backend server is waking up from idle mode, this may take a few moments.
+        </p>
       </div>
     );
   }
 
   if (error || !service) {
     return (
-      <div className="max-w-xl mx-auto px-4 py-16 text-center">
-        <h2 className="text-xl font-bold text-midnight mb-2">Expert profile not found</h2>
-        <p className="text-sm text-midnight/70 mb-6">{error || 'This service may have been removed or paused.'}</p>
-        <Link to="/services" className="px-4 py-2 rounded-lg bg-midnight text-aliceblue text-sm font-semibold">
-          Return to Marketplace
-        </Link>
+      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-4">
+        <h2 className="text-xl font-bold text-midnight mb-1">Expert profile not loaded</h2>
+        <p className="text-sm text-midnight/70 max-w-sm mx-auto">{error || 'This service may have been paused or the server is still waking up.'}</p>
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 rounded-lg bg-midnight text-aliceblue text-sm font-semibold hover:bg-midnight-hover transition-all cursor-pointer"
+          >
+            Retry Loading
+          </button>
+          <Link to="/services" className="px-4 py-2 rounded-lg border border-timberwolf text-midnight text-sm font-semibold hover:bg-aliceblue">
+            Return to Marketplace
+          </Link>
+        </div>
       </div>
     );
   }

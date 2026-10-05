@@ -282,10 +282,13 @@ export const JobDetailPage: React.FC = () => {
         </div>
         <h2 className="text-2xl font-bold text-midnight">Job Position Unavailable</h2>
         <p className="text-sm text-midnight/70 leading-relaxed">
-          {error || 'This job opening does not exist or has been removed from the platform.'}
+          {error || 'This job opening could not be loaded or the server is waking up.'}
         </p>
-        <div className="pt-2">
-          <Button to="/jobs" variant="primary" size="sm" icon={<ArrowLeft className="w-4 h-4" />}>
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <Button onClick={() => window.location.reload()} variant="primary" size="sm">
+            Retry Connection
+          </Button>
+          <Button to="/jobs" variant="outline" size="sm" icon={<ArrowLeft className="w-4 h-4" />}>
             Back to All Openings
           </Button>
         </div>

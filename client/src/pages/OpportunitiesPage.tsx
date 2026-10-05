@@ -12,7 +12,8 @@ import {
   CheckCircle2,
   Sparkles,
   ArrowRight,
-  UserCheck
+  UserCheck,
+  RefreshCw
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
@@ -30,6 +31,7 @@ export const OpportunitiesPage: React.FC = () => {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
 
   // Apply Modal state
   const [selectedOpp, setSelectedOpp] = useState<Opportunity | null>(null);
@@ -49,19 +51,28 @@ export const OpportunitiesPage: React.FC = () => {
   const [postLoading, setPostLoading] = useState(false);
 
   const loadOpps = async () => {
+    setLoading(true);
+    setFetchError(false);
     try {
-      setLoading(true);
-      const [oppRes, catRes] = await Promise.all([
+      const results = await Promise.allSettled([
         api.getOpportunities(),
         api.getCategories()
       ]);
-      setOpportunities(oppRes.opportunities || []);
-      setCategories(catRes.categories || []);
-      if (catRes.categories && catRes.categories.length > 0) {
-        setPostCategoryId(catRes.categories[0].id);
+      const [oppRes, catRes] = results;
+      if (oppRes.status === 'fulfilled' && oppRes.value?.opportunities) {
+        setOpportunities(oppRes.value.opportunities);
+      } else if (oppRes.status === 'rejected') {
+        setFetchError(true);
+      }
+      if (catRes.status === 'fulfilled' && catRes.value?.categories) {
+        setCategories(catRes.value.categories);
+        if (catRes.value.categories.length > 0) {
+          setPostCategoryId(catRes.value.categories[0].id);
+        }
       }
     } catch (err) {
       console.error(err);
+      setFetchError(true);
     } finally {
       setLoading(false);
     }
@@ -256,6 +267,24 @@ export const OpportunitiesPage: React.FC = () => {
           {[1, 2, 3].map((i) => (
             <div key={i} className="bg-white/60 border border-timberwolf/40 rounded-xl p-6 h-48 animate-pulse" />
           ))}
+        </div>
+      ) : fetchError && opportunities.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-timberwolf/70 p-10 text-center shadow-subtle space-y-3 max-w-md mx-auto">
+          <Clock className="w-10 h-10 text-amber-600 animate-pulse mx-auto" />
+          <h3 className="text-base font-bold text-midnight">Backend Server Connecting</h3>
+          <p className="text-xs text-midnight/70 max-w-sm mx-auto leading-relaxed">
+            The backend server on Render is waking up from idle mode (~30s). Click below to retry.
+          </p>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => loadOpps()}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-all cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-moonstone" />
+              <span>Retry Loading Opportunities</span>
+            </button>
+          </div>
         </div>
       ) : opportunities.length === 0 ? (
         <div className="bg-white rounded-2xl border border-timberwolf/70 p-12 text-center shadow-subtle space-y-3">

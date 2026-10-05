@@ -1,11 +1,11 @@
 // HireByMinutes — Comprehensive PostgreSQL Integration Test Suite
-// Verifies end-to-end functionality of all 20 operational points against PostgreSQL
+// Verifies end-to-end functionality of all 21 operational points against PostgreSQL
 
 const { newDb } = require('pg-mem');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const { initPostgres } = require('./server/scripts/initPostgres');
-const { createPostgresDb } = require('./server/pgDriver');
+const { initPostgres } = require('../../server/scripts/initPostgres');
+const { createPostgresDb } = require('../../server/pgDriver');
 
 async function runPostgresIntegrationTests() {
   console.log('\n======================================================================');

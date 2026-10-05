@@ -38,15 +38,10 @@ import { ContactPage } from './pages/ContactPage';
 import { FaqPage } from './pages/FaqPage';
 import { DynamicCmsPage } from './pages/DynamicCmsPage';
 import { BannerAnnouncement } from './components/common/BannerAnnouncement';
+import { ServerStatusBanner } from './components/common/ServerStatusBanner';
 
 const AppRoutes: React.FC = () => {
-  const { authInitialized, loading } = useAuth();
   const location = useLocation();
-
-  // While auth state is restoring from stored credentials, show minimal branded loader
-  if (!authInitialized || loading) {
-    return <BrandedLoadingScreen />;
-  }
 
   const isAuthRoute =
     location.pathname.startsWith('/auth') ||
@@ -64,6 +59,8 @@ const AppRoutes: React.FC = () => {
   return (
     <div className="flex flex-col min-h-screen relative overflow-x-hidden selection:bg-lightblue selection:text-midnight bg-aliceblue text-midnight font-sans">
       <CustomCursor />
+      {/* Non-blocking Cold-Start Server Status Notification */}
+      <ServerStatusBanner />
       {/* Universal Global Header: Suppressed on dedicated minimal authentication pages */}
       {!isAuthRoute && <Header />}
       {!isAuthRoute && <BannerAnnouncement placement="global" />}

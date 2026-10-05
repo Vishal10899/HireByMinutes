@@ -23,10 +23,25 @@ import {
   Zap,
   ArrowUpRight,
   X,
-  MapPin
+  MapPin,
+  RefreshCw
 } from 'lucide-react';
 
 import { usePageSEO } from '../hooks/usePageSEO';
+
+const DEFAULT_CATEGORIES: Category[] = [
+  { id: 'cat-tech', slug: 'technology', name: 'Technology', icon: 'Code2', description: 'Software engineering & system design', sort_order: 1, active: 1, service_count: 0 },
+  { id: 'cat-ai', slug: 'ai-data', name: 'AI & Data', icon: 'Cpu', description: 'LLM fine-tuning, prompt engineering & ML', sort_order: 2, active: 1, service_count: 0 },
+  { id: 'cat-design', slug: 'design', name: 'Design', icon: 'Palette', description: 'UI/UX design, visual identity & Figma review', sort_order: 3, active: 1, service_count: 0 },
+  { id: 'cat-marketing', slug: 'marketing', name: 'Marketing', icon: 'Megaphone', description: 'B2B growth, paid acquisition & SEO', sort_order: 4, active: 1, service_count: 0 },
+  { id: 'cat-business', slug: 'business', name: 'Business', icon: 'Briefcase', description: 'Startup fundraising & pitch deck reviews', sort_order: 5, active: 1, service_count: 0 },
+  { id: 'cat-finance', slug: 'finance', name: 'Finance & Tax', icon: 'IndianRupee', description: 'Tax advisory & financial modeling', sort_order: 6, active: 1, service_count: 0 },
+  { id: 'cat-legal', slug: 'legal', name: 'Legal', icon: 'Scale', description: 'Contract review, trademarking & compliance', sort_order: 7, active: 1, service_count: 0 },
+  { id: 'cat-career', slug: 'career', name: 'Career & Resume', icon: 'GraduationCap', description: 'Resume teardowns & mock interviews', sort_order: 8, active: 1, service_count: 0 },
+  { id: 'cat-writing', slug: 'writing', name: 'Writing & Copy', icon: 'Sparkles', description: 'Technical documentation & editorial strategy', sort_order: 9, active: 1, service_count: 0 },
+  { id: 'cat-video', slug: 'video-audio', name: 'Video & Audio', icon: 'Sparkles', description: 'Post-production & sound engineering', sort_order: 10, active: 1, service_count: 0 },
+  { id: 'cat-productivity', slug: 'productivity', name: 'Productivity', icon: 'Zap', description: 'Workspace architecture & workflow automation', sort_order: 11, active: 1, service_count: 0 }
+];
 
 export const HomePage: React.FC = () => {
   const [seoData, setSeoData] = useState<{ site_title?: string; meta_description?: string } | null>(null);
@@ -42,35 +57,55 @@ export const HomePage: React.FC = () => {
   const [searchTab, setSearchTab] = useState<'services' | 'experts' | 'jobs'>('services');
   const [featuredServices, setFeaturedServices] = useState<Service[]>([]);
   const [featuredJobs, setFeaturedJobs] = useState<Job[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [cmsSettings, setCmsSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
+
+  async function loadHomeData() {
+    setLoading(true);
+    setFetchError(false);
+    try {
+      const results = await Promise.allSettled([
+        api.getFeaturedServices(),
+        api.getCategories(),
+        api.getHomepageSettings(),
+        api.getSeoSettings(),
+        api.getFeaturedJobs()
+      ]);
+
+      const [servicesRes, categoriesRes, homepageRes, seoRes, jobsRes] = results;
+
+      if (servicesRes.status === 'fulfilled' && servicesRes.value?.services) {
+        setFeaturedServices(servicesRes.value.services);
+      } else if (servicesRes.status === 'rejected') {
+        setFetchError(true);
+      }
+
+      if (categoriesRes.status === 'fulfilled' && categoriesRes.value?.categories?.length > 0) {
+        setCategories(categoriesRes.value.categories);
+      }
+
+      if (homepageRes.status === 'fulfilled' && homepageRes.value?.homepage) {
+        setCmsSettings(homepageRes.value.homepage);
+      }
+
+      if (seoRes.status === 'fulfilled' && seoRes.value?.seo) {
+        setSeoData(seoRes.value.seo);
+      }
+
+      if (jobsRes.status === 'fulfilled' && jobsRes.value?.jobs) {
+        setFeaturedJobs(jobsRes.value.jobs);
+      }
+    } catch (err) {
+      console.error('Failed to load homepage data', err);
+      setFetchError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    async function loadHomeData() {
-      try {
-        const [servicesRes, categoriesRes, homepageRes, seoRes, jobsRes] = await Promise.all([
-          api.getFeaturedServices(),
-          api.getCategories(),
-          api.getHomepageSettings().catch(() => null),
-          api.getSeoSettings().catch(() => null),
-          api.getFeaturedJobs().catch(() => ({ jobs: [] }))
-        ]);
-        setFeaturedServices(servicesRes?.services || []);
-        setCategories(categoriesRes?.categories || []);
-        setFeaturedJobs(jobsRes?.jobs || []);
-        if (homepageRes && homepageRes.homepage) {
-          setCmsSettings(homepageRes.homepage);
-        }
-        if (seoRes && seoRes.seo) {
-          setSeoData(seoRes.seo);
-        }
-      } catch (err) {
-        console.error('Failed to load homepage data', err);
-      } finally {
-        setLoading(false);
-      }
-    }
     loadHomeData();
   }, []);
 
@@ -360,6 +395,26 @@ export const HomePage: React.FC = () => {
               {[1, 2, 3].map((i) => (
                 <div key={i} className="bg-white/60 border border-timberwolf/40 rounded-xl p-6 h-64 animate-pulse" />
               ))}
+            </div>
+          ) : fetchError && featuredServices.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-timberwolf/70 p-8 text-center shadow-card space-y-3 max-w-md mx-auto">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 mx-auto flex items-center justify-center border border-amber-200">
+                <Clock className="w-5 h-5 text-amber-600 animate-pulse" />
+              </div>
+              <h3 className="text-sm font-bold text-midnight">Backend Server Connecting</h3>
+              <p className="text-xs text-midnight/70 leading-relaxed">
+                The backend service is waking up from idle mode. Click below to load experts once ready.
+              </p>
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => loadHomeData()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-all cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-moonstone" />
+                  <span>Retry Loading Experts</span>
+                </button>
+              </div>
             </div>
           ) : featuredServices.length === 0 ? (
             <div className="bg-white rounded-2xl border border-timberwolf/70 p-10 text-center shadow-card space-y-4 max-w-xl mx-auto">

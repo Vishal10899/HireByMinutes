@@ -72,22 +72,36 @@ const devDefaultOrigins = [
 
 function isOriginAllowed(origin) {
   if (!origin) return true; // Allow non-browser, server-to-server, or mobile requests without Origin header
-  const cleanOrigin = origin.replace(/\/$/, '');
+  const cleanOrigin = origin.replace(/\/+$/, '');
+
+  // 1. Allow if wildcard '*' is present
+  if (configuredOrigins.includes('*')) return true;
+
+  // 2. Exact match in CLIENT_ORIGIN / ALLOWED_ORIGINS or canonical production domain
+  const canonicalOrigins = ['https://hirebyminute.com', 'https://www.hirebyminute.com'];
+  if (canonicalOrigins.includes(cleanOrigin)) return true;
+  if (configuredOrigins.includes(cleanOrigin)) return true;
+
+  // 3. Wildcard domain pattern match (e.g. https://*.vercel.app or https://*.netlify.app)
+  for (const pattern of configuredOrigins) {
+    if (pattern.includes('*')) {
+      const regex = new RegExp('^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '[a-zA-Z0-9_-]+') + '$');
+      if (regex.test(cleanOrigin)) return true;
+    }
+  }
 
   if (isProduction) {
-    // IN PRODUCTION:
-    // 1. If no custom origin configured, allow same-origin requests
+    // If no custom origins configured in production, allow same-origin requests
     if (configuredOrigins.length === 0) return true;
-    // 2. Otherwise ONLY allow explicitly configured origins in CLIENT_ORIGIN / ALLOWED_ORIGINS
-    return configuredOrigins.includes(cleanOrigin);
+    return false;
   } else {
     // IN DEVELOPMENT:
-    // Allow explicitly configured origins OR standard dev ports OR any localhost/127.0.0.1 port
-    if (configuredOrigins.includes(cleanOrigin) || devDefaultOrigins.includes(cleanOrigin)) {
-      return true;
-    }
-    const localhostRegex = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
-    return localhostRegex.test(cleanOrigin);
+    // Allow standard dev ports, any localhost/127.0.0.1 port, or Vercel/Netlify preview testing
+    if (devDefaultOrigins.includes(cleanOrigin)) return true;
+    const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+    if (localhostRegex.test(cleanOrigin)) return true;
+    if (/^https:\/\/[a-zA-Z0-9_.-]+\.(vercel\.app|netlify\.app)$/.test(cleanOrigin)) return true;
+    return false;
   }
 }
 

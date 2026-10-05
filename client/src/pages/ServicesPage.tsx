@@ -29,6 +29,7 @@ export const ServicesPage: React.FC = () => {
   const [services, setServices] = useState<Service[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   // Filter states
@@ -86,37 +87,48 @@ export const ServicesPage: React.FC = () => {
     setSortBy(searchParams.get('sort') || 'best_match');
   }, [searchParams]);
 
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      try {
-        const [catsRes, servRes] = await Promise.all([
-          api.getCategories(),
-          api.getServices({
-            category: selectedCategory !== 'all' ? selectedCategory : '',
-            subcategory: selectedSubcategory !== 'all' ? selectedSubcategory : '',
-            search: searchQuery,
-            skill: skillQuery,
-            language: selectedLanguage !== 'all' ? selectedLanguage : '',
-            country: selectedCountry !== 'all' ? selectedCountry : '',
-            city: cityQuery,
-            maxPrice,
-            rating: minRating > 0 ? minRating : '',
-            experience: minExperience > 0 ? minExperience : '',
-            minCompletedSessions: minSessions > 0 ? minSessions : '',
-            verified: verifiedOnly ? 'true' : '',
-            availableNow: availableNowOnly ? 'true' : '',
-            sort: sortBy
-          })
-        ]);
-        setCategories(catsRes.categories || []);
-        setServices(servRes.services || []);
-      } catch (err) {
-        console.error('Error fetching marketplace services', err);
-      } finally {
-        setLoading(false);
+  const loadData = async () => {
+    setLoading(true);
+    setFetchError(false);
+    try {
+      const results = await Promise.allSettled([
+        api.getCategories(),
+        api.getServices({
+          category: selectedCategory !== 'all' ? selectedCategory : '',
+          subcategory: selectedSubcategory !== 'all' ? selectedSubcategory : '',
+          search: searchQuery,
+          skill: skillQuery,
+          language: selectedLanguage !== 'all' ? selectedLanguage : '',
+          country: selectedCountry !== 'all' ? selectedCountry : '',
+          city: cityQuery,
+          maxPrice,
+          rating: minRating > 0 ? minRating : '',
+          experience: minExperience > 0 ? minExperience : '',
+          minCompletedSessions: minSessions > 0 ? minSessions : '',
+          verified: verifiedOnly ? 'true' : '',
+          availableNow: availableNowOnly ? 'true' : '',
+          sort: sortBy
+        })
+      ]);
+
+      const [catsRes, servRes] = results;
+      if (catsRes.status === 'fulfilled' && catsRes.value?.categories) {
+        setCategories(catsRes.value.categories);
       }
+      if (servRes.status === 'fulfilled' && servRes.value?.services) {
+        setServices(servRes.value.services);
+      } else if (servRes.status === 'rejected') {
+        setFetchError(true);
+      }
+    } catch (err) {
+      console.error('Error fetching marketplace services', err);
+      setFetchError(true);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
     loadData();
   }, [
     selectedCategory,
@@ -681,7 +693,27 @@ export const ServicesPage: React.FC = () => {
               ))}
             </div>
           ) : services.length === 0 ? (
-            activeFilterCount > 0 ? (
+            fetchError ? (
+              <div className="w-full water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-8 sm:p-12 text-center shadow-card space-y-4">
+                <div className="w-14 h-14 rounded-full bg-amber-50 text-amber-600 mx-auto flex items-center justify-center border border-amber-200">
+                  <RotateCcw className="w-6 h-6 text-amber-600" />
+                </div>
+                <h3 className="text-lg font-bold text-midnight">Backend Server Connecting</h3>
+                <p className="text-xs text-midnight/70 max-w-md mx-auto leading-relaxed">
+                  The backend service on Render is waking up from idle mode (~30s). Click below to retry loading active experts.
+                </p>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => loadData()}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover transition-all shadow-subtle cursor-pointer"
+                  >
+                    <RotateCcw className="w-4 h-4 text-moonstone" />
+                    <span>Retry Loading Experts</span>
+                  </button>
+                </div>
+              </div>
+            ) : activeFilterCount > 0 ? (
               <div className="w-full water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-8 sm:p-12 text-center shadow-card space-y-4">
                 <div className="w-14 h-14 rounded-full bg-aliceblue text-midnight mx-auto flex items-center justify-center">
                   <Globe className="w-6 h-6 text-moonstone" />

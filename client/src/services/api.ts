@@ -1,35 +1,75 @@
-const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? '/api' : 'http://localhost:5000/api');
+import { API_BASE_URL } from '../config';
+import { backendStatus } from './backendStatus';
+
+const API_BASE = API_BASE_URL;
 
 const nativeFetch = typeof window !== 'undefined' ? window.fetch.bind(window) : globalThis.fetch;
 
-// Bounded retry wrapper for Render Free cold starts (502, 503, 504) on idempotent requests
-const fetch = async (input: RequestInfo | URL, init?: RequestInit & { retry?: boolean; maxRetries?: number }): Promise<Response> => {
+// Hardened retry wrapper for Render Free cold starts (502, 503, 504, connection timeouts)
+const fetch = async (
+  input: RequestInfo | URL,
+  init?: RequestInit & { retry?: boolean; maxRetries?: number; timeoutMs?: number }
+): Promise<Response> => {
   const method = (init?.method || 'GET').toUpperCase();
   const isIdempotent = method === 'GET' || method === 'HEAD';
   const shouldRetry = init?.retry !== false && (isIdempotent || init?.retry === true);
-  const maxRetries = shouldRetry ? (init?.maxRetries ?? 2) : 0;
+  const maxRetries = shouldRetry ? (init?.maxRetries ?? 3) : 0;
+  const timeoutMs = init?.timeoutMs ?? (isIdempotent ? 20000 : 35000);
+
+  const endRequest = backendStatus.onRequestStart();
 
   let attempt = 0;
   while (true) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    let combinedSignal = controller.signal;
+    if (init?.signal) {
+      init.signal.addEventListener('abort', () => controller.abort());
+    }
+
     try {
-      const response = await nativeFetch(input, init);
+      const response = await nativeFetch(input, {
+        ...init,
+        signal: combinedSignal
+      });
+      clearTimeout(timeoutId);
+
       const isTransient = response.status === 502 || response.status === 503 || response.status === 504;
 
-      if (isTransient && attempt < maxRetries) {
+      if (isTransient) {
+        backendStatus.onColdStartDetected();
+        if (attempt < maxRetries) {
+          attempt++;
+          const backoffMs = attempt * 1500;
+          await new Promise(r => setTimeout(r, backoffMs));
+          continue;
+        }
+      }
+
+      if (response.ok) {
+        backendStatus.onConnectionSuccess();
+      }
+
+      endRequest();
+      return response;
+    } catch (networkErr: any) {
+      clearTimeout(timeoutId);
+      const isAbort = networkErr.name === 'AbortError';
+
+      if (isAbort) {
+        backendStatus.onColdStartDetected('Backend is waking up from sleep. Still connecting...');
+      }
+
+      if (shouldRetry && attempt < maxRetries) {
         attempt++;
-        const backoffMs = attempt * 1000;
+        const backoffMs = attempt * 1500;
         await new Promise(r => setTimeout(r, backoffMs));
         continue;
       }
 
-      return response;
-    } catch (networkErr: any) {
-      if (shouldRetry && attempt < maxRetries) {
-        attempt++;
-        const backoffMs = attempt * 1000;
-        await new Promise(r => setTimeout(r, backoffMs));
-        continue;
-      }
+      endRequest();
+      backendStatus.onConnectionError('Unable to connect to backend server. Render service may be spinning up.');
       throw networkErr;
     }
   }
@@ -47,6 +87,13 @@ function getAuthHeaders(): HeadersInit {
 }
 
 export const api = {
+  // Health & Observability
+  getHealth: async () => {
+    const res = await fetch(`${API_BASE}/health`, { retry: true, maxRetries: 2 });
+    if (!res.ok) throw new Error('Health check failed');
+    return res.json();
+  },
+
   // Auth
   getMe: async () => {
     const res = await fetch(`${API_BASE}/auth/me`, { headers: getAuthHeaders() });

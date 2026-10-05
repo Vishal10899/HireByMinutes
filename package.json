@@ -9,7 +9,7 @@
     "dev": "concurrently -k --kill-others-on-fail \"npm run dev:server\" \"npm run dev:client\"",
     "build": "npm --prefix client run build",
     "start": "node server/index.js",
-    "test": "node test-postgres-integration.js"
+    "test": "node tests/run-all.js"
   },
   "keywords": [
     "marketplace",
