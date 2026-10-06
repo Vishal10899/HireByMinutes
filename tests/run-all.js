@@ -15,7 +15,8 @@ const suites = [
   { name: 'PostgreSQL Integration Suite', file: path.join('integrations', 'postgres.test.js') },
   { name: 'Full-Time Jobs Marketplace Suite', file: path.join('jobs', 'marketplace.test.js') },
   { name: 'Razorpay INR Currency Suite', file: path.join('payments', 'razorpay-currency.test.js') },
-  { name: 'Render Deployment & Cold-Start Suite', file: path.join('deployment', 'frontend-coldstart.test.js') }
+  { name: 'Render Deployment & Cold-Start Suite', file: path.join('deployment', 'frontend-coldstart.test.js') },
+  { name: 'Admin Panel Persistence & Data Integrity Suite', file: path.join('admin', 'admin-persistence.test.js') }
 ];
 
 async function runSuite(suite) {

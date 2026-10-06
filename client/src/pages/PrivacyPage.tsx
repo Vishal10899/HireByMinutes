@@ -12,8 +12,19 @@ import {
   Server
 } from 'lucide-react';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { DynamicCmsPage } from './DynamicCmsPage';
 
 export const PrivacyPage: React.FC = () => {
+  return (
+    <DynamicCmsPage
+      fixedSlug="privacy"
+      fallbackTitle="Privacy Policy"
+      fallbackContent={<StaticPrivacyPageContent />}
+    />
+  );
+};
+
+const StaticPrivacyPageContent: React.FC = () => {
   usePageSEO({
     title: 'Privacy Policy — HireByMinute',
     description: 'Learn how HireByMinute protects your personal data, consultations, credentials, and payment details.',

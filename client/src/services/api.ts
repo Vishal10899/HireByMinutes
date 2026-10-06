@@ -86,6 +86,14 @@ function getAuthHeaders(): HeadersInit {
   return headers;
 }
 
+async function parseResponseOrThrow(res: Response, fallbackError: string) {
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.message || fallbackError);
+  }
+  return res.json();
+}
+
 export const api = {
   // Health & Observability
   getHealth: async () => {
@@ -1327,10 +1335,9 @@ export const api = {
     const res = await fetch(`${API_BASE}/admin/categories/reorder`, {
       method: 'PUT',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ categories })
+      body: JSON.stringify({ categories, order: categories })
     });
-    if (!res.ok) throw new Error('Failed to reorder categories');
-    return res.json();
+    return parseResponseOrThrow(res, 'Failed to reorder categories');
   },
 
   // Footer CMS
@@ -1350,13 +1357,9 @@ export const api = {
     const res = await fetch(`${API_BASE}/admin/footer`, {
       method: 'PUT',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ footer })
+      body: JSON.stringify({ ...footer, footer })
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update footer settings');
-    }
-    return res.json();
+    return parseResponseOrThrow(res, 'Failed to update footer settings');
   },
 
   // Contact Settings
@@ -1370,13 +1373,9 @@ export const api = {
     const res = await fetch(`${API_BASE}/admin/contact`, {
       method: 'PUT',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ contact })
+      body: JSON.stringify({ ...contact, contact })
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update contact settings');
-    }
-    return res.json();
+    return parseResponseOrThrow(res, 'Failed to update contact settings');
   },
 
   // Banners & Announcements

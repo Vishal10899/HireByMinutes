@@ -11,8 +11,19 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { DynamicCmsPage } from './DynamicCmsPage';
 
 export const AcceptableUsePage: React.FC = () => {
+  return (
+    <DynamicCmsPage
+      fixedSlug="acceptable-use"
+      fallbackTitle="Acceptable Use Policy"
+      fallbackContent={<StaticAcceptableUsePageContent />}
+    />
+  );
+};
+
+const StaticAcceptableUsePageContent: React.FC = () => {
   usePageSEO({
     title: 'Acceptable Use Policy — HireByMinute',
     description: 'Platform rules and acceptable use guidelines prohibiting harmful, illegal, or abusive conduct across the HireByMinute network.',

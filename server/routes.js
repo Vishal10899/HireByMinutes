@@ -61,6 +61,20 @@ function logAuditAction(adminUser, action, targetType, targetId, details = {}) {
   }
 }
 
+// Authoritative Platform Commission helper: dynamically retrieves commission percent from database
+function getPlatformCommissionPercent() {
+  try {
+    const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'platform_fee_percent'").get();
+    if (setting && setting.value !== undefined && setting.value !== null) {
+      const val = parseFloat(setting.value);
+      if (!isNaN(val) && val >= 0 && val <= 100) return val;
+    }
+  } catch (e) {
+    // Database query fallback
+  }
+  return 15;
+}
+
 // Helper to strip sensitive password data from user records and parse structured fields
 function sanitizeUser(user) {
   if (!user) return null;
@@ -3965,12 +3979,15 @@ module.exports = function(timerEngine, io) {
     `).get(userId);
 
     const grossEarnings = Number(earningsCalc.total_earnings || 0);
-    const platformFee15 = Number((grossEarnings * 0.15).toFixed(2));
-    const netEarnings = Number((grossEarnings * 0.85).toFixed(2));
+    const commPct = getPlatformCommissionPercent();
+    const commRate = commPct / 100;
+    const providerRate = (100 - commPct) / 100;
+    const platformFee15 = Number((grossEarnings * commRate).toFixed(2));
+    const netEarnings = Number((grossEarnings * providerRate).toFixed(2));
     const todayGross = Number(todayEarningsCalc.today_earnings || 0);
-    const todayNet = Number((todayGross * 0.85).toFixed(2));
+    const todayNet = Number((todayGross * providerRate).toFixed(2));
 
-    // Completed sessions breakdown showing transparent 15% platform fee
+    // Completed sessions breakdown showing dynamic platform fee from settings
     const completedSessionsBreakdown = db.prepare(`
       SELECT s.id, s.actual_end, s.duration_minutes,
              srv.title as service_title,
@@ -3986,8 +4003,8 @@ module.exports = function(timerEngine, io) {
       LIMIT 20
     `).all(userId).map(item => {
       const gross = Number(item.gross_amount || 0);
-      const fee = Number((gross * 0.15).toFixed(2));
-      const net = Number((gross * 0.85).toFixed(2));
+      const fee = Number((gross * commRate).toFixed(2));
+      const net = Number((gross * providerRate).toFixed(2));
       return {
         ...item,
         gross_amount: gross,
@@ -4332,7 +4349,7 @@ module.exports = function(timerEngine, io) {
     const totalCompanies = db.prepare("SELECT COUNT(*) as count FROM companies WHERE status = 'active'").get().count;
     const totalJobApplications = db.prepare('SELECT COUNT(*) as count FROM job_applications').get().count;
 
-    const platformTakePercent = 15;
+    const platformTakePercent = getPlatformCommissionPercent();
     const platformRevenue = Number((listingRevenue + (sessionRevenue * (platformTakePercent / 100)) - totalRefunds).toFixed(2));
     const expertPayouts = Number((sessionRevenue * ((100 - platformTakePercent) / 100)).toFixed(2));
     const grossRevenue = Number((listingRevenue + sessionRevenue).toFixed(2));
@@ -4823,7 +4840,7 @@ module.exports = function(timerEngine, io) {
       user_name: targetUser.full_name
     });
 
-    res.json({ success: true, is_suspended: suspended ? 1 : 0 });
+    res.json({ success: true, is_suspended: suspended ? 1 : 0, suspended: suspended ? 1 : 0 });
   });
 
   router.patch('/admin/users/:id/role', adminAuthMiddleware, (req, res) => {
@@ -4875,6 +4892,7 @@ module.exports = function(timerEngine, io) {
       price_per_minute: Number(s.price_per_minute) || 0,
       bookings_count: Number(s.bookings_count) || 0,
       views_count: Number(s.views_count) || 0,
+      is_featured: Number(s.is_featured) === 1 ? 1 : 0,
       skills: JSON.parse(s.skills_json || '[]'),
       languages: JSON.parse(s.languages_json || '[]')
     }));
@@ -4964,7 +4982,25 @@ module.exports = function(timerEngine, io) {
     res.status(201).json({ success: true, id, category: created });
   });
 
+  router.put('/admin/categories/reorder', adminAuthMiddleware, (req, res) => {
+    const order = req.body.order || req.body.categories;
+    if (!Array.isArray(order)) {
+      return res.status(400).json({ error: 'Order must be an array of { id, sort_order }.' });
+    }
+
+    const updateStmt = db.prepare('UPDATE categories SET sort_order = ? WHERE id = ?');
+    for (const item of order) {
+      if (item.id && typeof item.sort_order === 'number') {
+        updateStmt.run(item.sort_order, item.id);
+      }
+    }
+
+    logAuditAction(req.user, 'CATEGORIES_REORDERED', 'category', 'all', { count: order.length });
+    res.json({ success: true, message: 'Categories order updated successfully.' });
+  });
+
   router.put('/admin/categories/:id', adminAuthMiddleware, (req, res) => {
+    if (req.params.id === 'reorder') return res.status(400).json({ error: 'Invalid category ID' });
     const { name, slug, icon, description, sort_order, subcategories, image_url, active } = req.body;
     const cat = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
     if (!cat) return res.status(404).json({ error: 'Category not found' });
@@ -5033,23 +5069,6 @@ module.exports = function(timerEngine, io) {
     db.prepare('DELETE FROM categories WHERE id = ?').run(cat.id);
     logAuditAction(req.user, 'CATEGORY_DELETED', 'category', cat.id, { name: cat.name });
     res.json({ success: true, message: `Category "${cat.name}" deleted successfully.` });
-  });
-
-  router.put('/admin/categories/reorder', adminAuthMiddleware, (req, res) => {
-    const { order } = req.body;
-    if (!Array.isArray(order)) {
-      return res.status(400).json({ error: 'Order must be an array of { id, sort_order }.' });
-    }
-
-    const updateStmt = db.prepare('UPDATE categories SET sort_order = ? WHERE id = ?');
-    for (const item of order) {
-      if (item.id && typeof item.sort_order === 'number') {
-        updateStmt.run(item.sort_order, item.id);
-      }
-    }
-
-    logAuditAction(req.user, 'CATEGORIES_REORDERED', 'category', 'all', { count: order.length });
-    res.json({ success: true, message: 'Categories order updated successfully.' });
   });
 
   router.patch('/admin/categories/:id/toggle', adminAuthMiddleware, (req, res) => {
@@ -5253,7 +5272,7 @@ module.exports = function(timerEngine, io) {
     query += ' ORDER BY p.created_at DESC';
     const rawPayments = db.prepare(query).all(...params);
 
-    const platformTakePercent = 15;
+    const platformTakePercent = getPlatformCommissionPercent();
     const payments = rawPayments.map(p => {
       const numAmount = Number(p.amount) || 0;
       let platform_fee = 0;
@@ -5301,8 +5320,10 @@ module.exports = function(timerEngine, io) {
         ...o,
         budget: Number(o.budget) || 0,
         entry_fee_usd: Number(o.entry_fee_usd) || 0,
+        entry_fee_inr: Number(o.entry_fee_inr || o.entry_fee_usd) || 0,
         duration_minutes: Number(o.duration_minutes) || 0,
         applications_count: Number(o.applications_count) || 0,
+        applicant_count: Number(o.applications_count) || 0,
         is_featured: Number(o.is_featured) || 0,
         pricing_type: o.pricing_type || (Number(o.entry_fee_usd) > 0 ? 'paid' : 'free'),
         skills: Array.isArray(skills) ? skills : [],
@@ -5385,7 +5406,7 @@ module.exports = function(timerEngine, io) {
   router.patch('/admin/opportunities/:id', adminAuthMiddleware, (req, res) => {
     const { 
       status, title, description, short_description, budget, duration_minutes, 
-      subcategory, location, pricing_type, entry_fee_usd, is_featured, 
+      category_id, subcategory, location, pricing_type, entry_fee_usd, entry_fee_inr, is_featured, 
       skills, requirements, attachment_url, visibility, deadline, start_date, end_date 
     } = req.body;
     
@@ -5393,13 +5414,14 @@ module.exports = function(timerEngine, io) {
     if (!opp) return res.status(404).json({ error: 'Opportunity not found' });
 
     const cleanPricingType = pricing_type !== undefined ? (pricing_type === 'paid' ? 'paid' : 'free') : opp.pricing_type;
-    const cleanFee = entry_fee_usd !== undefined ? Number(entry_fee_usd) : opp.entry_fee_usd;
+    const cleanFee = entry_fee_usd !== undefined ? Number(entry_fee_usd) : (entry_fee_inr !== undefined ? Number(entry_fee_inr) : opp.entry_fee_usd);
     const skillsJson = skills !== undefined ? JSON.stringify(Array.isArray(skills) ? skills : []) : opp.skills_json;
 
     db.prepare(`
       UPDATE opportunities SET
         status = COALESCE(?, status),
         title = COALESCE(?, title),
+        category_id = COALESCE(?, category_id),
         description = COALESCE(?, description),
         short_description = COALESCE(?, short_description),
         budget = COALESCE(?, budget),
@@ -5420,6 +5442,7 @@ module.exports = function(timerEngine, io) {
     `).run(
       status || null,
       title ? title.trim() : null,
+      category_id || null,
       description ? description.trim() : null,
       short_description ? short_description.trim() : null,
       budget !== undefined ? Number(budget) : null,
@@ -5700,8 +5723,97 @@ module.exports = function(timerEngine, io) {
     res.json({ success: true, message: 'Settings updated successfully.' });
   });
 
+  router.get('/admin/footer', adminAuthMiddleware, (req, res) => {
+    try {
+      const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'footer_settings'").get();
+      const defaultFooter = {
+        company_description: 'The precision marketplace for on-demand consultations. Hire verified experts for exactly the minutes you need, or monetize specialized knowledge with zero retainers.',
+        contact_email: 'support@hirebyminute.com',
+        contact_phone: '+1 (800) 555-0199',
+        address: 'San Francisco, CA, United States',
+        copyright_text: '© {year} HireByMinute. All rights reserved.',
+        designer_credit: 'Designed & Developed by Vishal Chaudhary',
+        social_links: [
+          { platform: 'twitter', url: 'https://twitter.com/hirebyminute', is_visible: true },
+          { platform: 'linkedin', url: 'https://linkedin.com/company/hirebyminute', is_visible: true },
+          { platform: 'github', url: 'https://github.com/hirebyminute', is_visible: true }
+        ],
+        sections: {
+          platform: [
+            { id: 'about', label: 'About Us', url: '/about', order: 1, is_visible: true },
+            { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 2, is_visible: true },
+            { id: 'services', label: 'Browse Services', url: '/services', order: 3, is_visible: true },
+            { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 4, is_visible: true, is_new: true }
+          ],
+          policies: [
+            { id: 'terms', label: 'Terms of Service', url: '/terms', order: 1, is_visible: true },
+            { id: 'privacy', label: 'Privacy Policy', url: '/privacy', order: 2, is_visible: true },
+            { id: 'refund', label: 'Refund & Cancellation', url: '/refund-policy', order: 3, is_visible: true },
+            { id: 'expert-policy', label: 'Expert Policy', url: '/expert-policy', order: 4, is_visible: true },
+            { id: 'acceptable-use', label: 'Acceptable Use', url: '/acceptable-use', order: 5, is_visible: true }
+          ],
+          support: [
+            { id: 'contact', label: 'Contact / Support', url: '/contact', order: 1, is_visible: true, icon: 'mail' },
+            { id: 'become-provider', label: 'Become a Provider', url: '/provider/onboard', order: 2, is_visible: true },
+            { id: 'provider-dashboard', label: 'Provider Dashboard', url: '/provider', order: 3, is_visible: true }
+          ]
+        }
+      };
+
+      let footerData = defaultFooter;
+      if (setting && setting.value) {
+        try {
+          const parsed = JSON.parse(setting.value);
+          if (parsed && typeof parsed === 'object') {
+            footerData = { ...defaultFooter, ...parsed };
+          }
+        } catch (e) {
+          footerData = defaultFooter;
+        }
+      }
+
+      res.json({ footer: footerData });
+    } catch (err) {
+      console.error('[Admin Footer Settings] Error:', err.message);
+      res.status(500).json({ error: 'Failed to retrieve footer settings' });
+    }
+  });
+
+  router.get('/admin/contact', adminAuthMiddleware, (req, res) => {
+    try {
+      const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'contact_settings'").get();
+      const defaultContact = {
+        support_email: 'support@hirebyminute.com',
+        business_email: 'business@hirebyminute.com',
+        phone: '+1 (800) 555-0199',
+        support_hours: 'Monday – Friday: 9:00 AM – 6:00 PM EST (24/7 Escalation Desk)',
+        address: 'San Francisco, CA, United States',
+        whatsapp_url: '',
+        contact_form_enabled: true
+      };
+
+      let contactData = defaultContact;
+      if (setting && setting.value) {
+        try {
+          const parsed = JSON.parse(setting.value);
+          if (parsed && typeof parsed === 'object') {
+            contactData = { ...defaultContact, ...parsed };
+          }
+        } catch (e) {
+          contactData = defaultContact;
+        }
+      }
+
+      res.json({ contact: contactData });
+    } catch (err) {
+      console.error('[Admin Contact Settings] Error:', err.message);
+      res.status(500).json({ error: 'Failed to retrieve contact settings' });
+    }
+  });
+
   router.put('/admin/footer', adminAuthMiddleware, (req, res) => {
-    const { company_description, contact_email, contact_phone, address, copyright_text, designer_credit, social_links, sections } = req.body;
+    const data = (req.body && req.body.footer) ? req.body.footer : req.body;
+    const { company_description, contact_email, contact_phone, address, copyright_text, designer_credit, social_links, sections } = data || {};
 
     // Security Audit: Explicitly reject any attempts to expose /admin in footer links
     if (sections && typeof sections === 'object') {
@@ -5741,7 +5853,8 @@ module.exports = function(timerEngine, io) {
   });
 
   router.put('/admin/contact', adminAuthMiddleware, (req, res) => {
-    const { support_email, business_email, phone, support_hours, address, whatsapp_url, contact_form_enabled } = req.body;
+    const data = (req.body && req.body.contact) ? req.body.contact : req.body;
+    const { support_email, business_email, phone, support_hours, address, whatsapp_url, contact_form_enabled } = data || {};
 
     const cleanContact = {
       support_email: support_email !== undefined ? String(support_email).trim() : 'support@hirebyminute.com',
@@ -5765,6 +5878,7 @@ module.exports = function(timerEngine, io) {
   // Admin Homepage CMS Control
   router.put('/admin/homepage', adminAuthMiddleware, (req, res) => {
     try {
+      const data = (req.body && req.body.homepage) ? req.body.homepage : req.body;
       const {
         hero_headline,
         hero_subheadline,
@@ -5789,7 +5903,7 @@ module.exports = function(timerEngine, io) {
         cta_button_label,
         cta_button_url,
         visibility
-      } = req.body;
+      } = data || {};
 
       const cleanHomepage = {
         hero_headline: hero_headline !== undefined ? String(hero_headline).trim() : 'What brings you here?',
@@ -5841,7 +5955,8 @@ module.exports = function(timerEngine, io) {
   // Admin SEO Meta Settings Control
   router.put('/admin/seo', adminAuthMiddleware, (req, res) => {
     try {
-      const { site_title, meta_description, canonical_url, og_title, og_description, og_image, twitter_card, twitter_site } = req.body;
+      const data = (req.body && req.body.seo) ? req.body.seo : req.body;
+      const { site_title, meta_description, canonical_url, og_title, og_description, og_image, twitter_card, twitter_site } = data || {};
 
       const cleanSeo = {
         site_title: site_title !== undefined ? String(site_title).trim() : 'HireByMinute — Instant 1-on-1 Consultations by the Minute',
@@ -5986,8 +6101,11 @@ module.exports = function(timerEngine, io) {
     try {
       const banners = db.prepare(`SELECT * FROM banners_announcements ORDER BY priority DESC, created_at DESC`).all().map(b => ({
         ...b,
+        cta_label: b.link_text || '',
+        cta_url: b.link_url || '',
+        type: (['info', 'announcement', 'warning', 'success', 'promo'].includes(b.bg_color) ? b.bg_color : 'announcement'),
         priority: Number(b.priority) || 0,
-        is_active: Number(b.is_active) === 1
+        is_active: Number(b.is_active) === 1 ? 1 : 0
       }));
       res.json({ banners, count: banners.length });
     } catch (err) {
@@ -5996,11 +6114,30 @@ module.exports = function(timerEngine, io) {
   });
 
   router.post('/admin/banners', adminAuthMiddleware, (req, res) => {
-    const { title, message, link_url = '', link_text = '', placement = 'global', priority = 0, bg_color = 'moonstone', text_color = 'white', start_date = null, end_date = null, is_active = 1 } = req.body;
+    const {
+      title,
+      message,
+      link_url = '',
+      link_text = '',
+      cta_url,
+      cta_label,
+      type,
+      placement = 'global',
+      priority = 0,
+      bg_color = 'moonstone',
+      text_color = 'white',
+      start_date = null,
+      end_date = null,
+      is_active = 1
+    } = req.body;
 
     if (!title || !message) {
       return res.status(400).json({ error: 'Banner title and message are required.' });
     }
+
+    const resolvedLinkUrl = String(cta_url !== undefined ? cta_url : link_url || '').trim();
+    const resolvedLinkText = String(cta_label !== undefined ? cta_label : link_text || '').trim();
+    const resolvedBgColor = String(type || bg_color || 'moonstone').trim();
 
     const id = `banner-${uuidv4().slice(0, 8)}`;
     db.prepare(`
@@ -6011,11 +6148,11 @@ module.exports = function(timerEngine, io) {
       id,
       String(title).trim(),
       String(message).trim(),
-      String(link_url || '').trim(),
-      String(link_text || '').trim(),
+      resolvedLinkUrl,
+      resolvedLinkText,
       String(placement || 'global').trim(),
       Number(priority) || 0,
-      String(bg_color || 'moonstone').trim(),
+      resolvedBgColor,
       String(text_color || 'white').trim(),
       start_date ? new Date(start_date).toISOString() : null,
       end_date ? new Date(end_date).toISOString() : null,
@@ -6025,14 +6162,40 @@ module.exports = function(timerEngine, io) {
 
     logAuditAction(req.user, 'BANNER_CREATED', 'banner', id, { title, placement });
     const created = db.prepare('SELECT * FROM banners_announcements WHERE id = ?').get(id);
-    res.status(201).json({ success: true, banner: created });
+    const normalized = {
+      ...created,
+      cta_label: created.link_text || '',
+      cta_url: created.link_url || '',
+      type: (['info', 'announcement', 'warning', 'success', 'promo'].includes(created.bg_color) ? created.bg_color : 'announcement'),
+      is_active: Number(created.is_active) === 1 ? 1 : 0
+    };
+    res.status(201).json({ success: true, banner: normalized });
   });
 
   router.put('/admin/banners/:id', adminAuthMiddleware, (req, res) => {
     const banner = db.prepare('SELECT * FROM banners_announcements WHERE id = ?').get(req.params.id);
     if (!banner) return res.status(404).json({ error: 'Banner not found' });
 
-    const { title, message, link_url, link_text, placement, priority, bg_color, text_color, start_date, end_date, is_active } = req.body;
+    const {
+      title,
+      message,
+      link_url,
+      link_text,
+      cta_url,
+      cta_label,
+      type,
+      placement,
+      priority,
+      bg_color,
+      text_color,
+      start_date,
+      end_date,
+      is_active
+    } = req.body;
+
+    const resolvedLinkUrl = cta_url !== undefined ? cta_url : link_url;
+    const resolvedLinkText = cta_label !== undefined ? cta_label : link_text;
+    const resolvedBgColor = type !== undefined ? type : bg_color;
 
     db.prepare(`
       UPDATE banners_announcements SET
@@ -6052,11 +6215,11 @@ module.exports = function(timerEngine, io) {
     `).run(
       title ? String(title).trim() : null,
       message ? String(message).trim() : null,
-      link_url !== undefined ? String(link_url).trim() : null,
-      link_text !== undefined ? String(link_text).trim() : null,
+      resolvedLinkUrl !== undefined ? String(resolvedLinkUrl).trim() : null,
+      resolvedLinkText !== undefined ? String(resolvedLinkText).trim() : null,
       placement || null,
       priority !== undefined ? Number(priority) : null,
-      bg_color || null,
+      resolvedBgColor || null,
       text_color || null,
       start_date ? new Date(start_date).toISOString() : null,
       end_date ? new Date(end_date).toISOString() : null,
@@ -6066,17 +6229,25 @@ module.exports = function(timerEngine, io) {
 
     logAuditAction(req.user, 'BANNER_UPDATED', 'banner', banner.id, req.body);
     const updated = db.prepare('SELECT * FROM banners_announcements WHERE id = ?').get(banner.id);
-    res.json({ success: true, banner: updated });
+    const normalized = {
+      ...updated,
+      cta_label: updated.link_text || '',
+      cta_url: updated.link_url || '',
+      type: (['info', 'announcement', 'warning', 'success', 'promo'].includes(updated.bg_color) ? updated.bg_color : 'announcement'),
+      is_active: Number(updated.is_active) === 1 ? 1 : 0
+    };
+    res.json({ success: true, banner: normalized });
   });
 
   router.patch('/admin/banners/:id/toggle', adminAuthMiddleware, (req, res) => {
     const banner = db.prepare('SELECT * FROM banners_announcements WHERE id = ?').get(req.params.id);
     if (!banner) return res.status(404).json({ error: 'Banner not found' });
 
-    const newActive = banner.is_active ? 0 : 1;
+    const { is_active } = req.body || {};
+    const newActive = is_active !== undefined ? (is_active ? 1 : 0) : (banner.is_active ? 0 : 1);
     db.prepare('UPDATE banners_announcements SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newActive, banner.id);
     logAuditAction(req.user, newActive ? 'BANNER_ACTIVATED' : 'BANNER_DEACTIVATED', 'banner', banner.id, { title: banner.title });
-    res.json({ success: true, is_active: newActive === 1 });
+    res.json({ success: true, is_active: newActive });
   });
 
   router.delete('/admin/banners/:id', adminAuthMiddleware, (req, res) => {
@@ -6105,7 +6276,11 @@ module.exports = function(timerEngine, io) {
 
   router.get('/admin/cms/pages', adminAuthMiddleware, (req, res) => {
     try {
-      const pages = db.prepare(`SELECT id, slug, title, meta_title, meta_description, status, updated_by, created_at, updated_at FROM cms_pages ORDER BY slug ASC`).all();
+      const PROTECTED_SYSTEM_PAGES = ['about', 'how-it-works', 'terms', 'privacy', 'refund-policy', 'expert-policy', 'acceptable-use', 'contact', 'faq'];
+      const pages = db.prepare(`SELECT id, slug, title, meta_title, meta_description, status, updated_by, created_at, updated_at FROM cms_pages ORDER BY slug ASC`).all().map(p => ({
+        ...p,
+        is_system: PROTECTED_SYSTEM_PAGES.includes(p.slug) ? 1 : 0
+      }));
       res.json({ pages, count: pages.length });
     } catch (err) {
       res.status(500).json({ error: 'Failed to retrieve CMS pages' });
@@ -6114,9 +6289,10 @@ module.exports = function(timerEngine, io) {
 
   router.get('/admin/cms/pages/:id', adminAuthMiddleware, (req, res) => {
     try {
+      const PROTECTED_SYSTEM_PAGES = ['about', 'how-it-works', 'terms', 'privacy', 'refund-policy', 'expert-policy', 'acceptable-use', 'contact', 'faq'];
       const page = db.prepare(`SELECT * FROM cms_pages WHERE id = ? OR slug = ?`).get(req.params.id, req.params.id);
       if (!page) return res.status(404).json({ error: 'Page not found' });
-      res.json({ page });
+      res.json({ page: { ...page, is_system: PROTECTED_SYSTEM_PAGES.includes(page.slug) ? 1 : 0 } });
     } catch (err) {
       res.status(500).json({ error: 'Failed to retrieve page' });
     }
@@ -6212,7 +6388,7 @@ module.exports = function(timerEngine, io) {
     try {
       const reviews = db.prepare(`
         SELECT r.*, 
-               c.full_name as client_name, c.email as client_email, c.avatar_url as client_avatar,
+               c.full_name as client_name, c.full_name as reviewer_name, c.email as client_email, c.avatar_url as client_avatar, c.avatar_url as reviewer_avatar,
                p.full_name as provider_name, p.email as provider_email, p.avatar_url as provider_avatar,
                srv.title as service_title
         FROM reviews r
@@ -6223,7 +6399,7 @@ module.exports = function(timerEngine, io) {
       `).all().map(r => ({
         ...r,
         rating: Number(r.rating) || 5,
-        is_hidden: Number(r.is_hidden) === 1
+        is_hidden: Number(r.is_hidden) === 1 ? 1 : 0
       }));
 
       res.json({ reviews, count: reviews.length });
@@ -6254,7 +6430,7 @@ module.exports = function(timerEngine, io) {
       provider_id: review.provider_id
     });
 
-    res.json({ success: true, is_hidden: hiddenVal === 1, moderation_note: note });
+    res.json({ success: true, is_hidden: hiddenVal, moderation_note: note });
   });
 
   // Service Moderation: Toggle Featured
@@ -6262,12 +6438,8 @@ module.exports = function(timerEngine, io) {
     const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
     if (!service) return res.status(404).json({ error: 'Service not found' });
 
-    const newFeatured = service.is_featured ? 0 : 1;
-    try {
-      db.prepare('UPDATE services SET is_featured = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newFeatured, service.id);
-    } catch (e) {
-      // Column might need safe fallback
-    }
+    const newFeatured = (service.is_featured && Number(service.is_featured) === 1) ? 0 : 1;
+    db.prepare('UPDATE services SET is_featured = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newFeatured, service.id);
 
     logAuditAction(req.user, newFeatured ? 'SERVICE_FEATURED' : 'SERVICE_UNFEATURED', 'service', service.id, { title: service.title });
     res.json({ success: true, is_featured: newFeatured });
@@ -6291,9 +6463,16 @@ module.exports = function(timerEngine, io) {
   });
 
   router.post('/admin/change-password', adminAuthMiddleware, (req, res) => {
-    const { new_password } = req.body;
+    const { current_password, new_password } = req.body;
     if (!new_password || new_password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+    }
+
+    if (current_password) {
+      const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+      if (user && !bcrypt.compareSync(current_password, user.password_hash)) {
+        return res.status(400).json({ error: 'Current password does not match.' });
+      }
     }
 
     const hashed = bcrypt.hashSync(new_password, 10);

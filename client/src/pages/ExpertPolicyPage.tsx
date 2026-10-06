@@ -12,8 +12,19 @@ import {
   Scale
 } from 'lucide-react';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { DynamicCmsPage } from './DynamicCmsPage';
 
 export const ExpertPolicyPage: React.FC = () => {
+  return (
+    <DynamicCmsPage
+      fixedSlug="expert-policy"
+      fallbackTitle="Expert Quality Standards & Policy"
+      fallbackContent={<StaticExpertPolicyPageContent />}
+    />
+  );
+};
+
+const StaticExpertPolicyPageContent: React.FC = () => {
   usePageSEO({
     title: 'Expert Quality Standards & Policy — HireByMinute',
     description: 'Quality standards, conduct requirements, and verification guidelines for verified experts on HireByMinute.',

@@ -96,8 +96,9 @@ export const AdminReviewsControl: React.FC = () => {
   };
 
   const filteredReviews = reviews.filter((r) => {
-    if (filterHidden === 'visible') return r.is_hidden !== 1;
-    if (filterHidden === 'hidden') return r.is_hidden === 1;
+    const isHidden = Number(r.is_hidden) === 1 || (r.is_hidden as any) === true;
+    if (filterHidden === 'visible') return !isHidden;
+    if (filterHidden === 'hidden') return isHidden;
     return true;
   });
 
@@ -202,7 +203,7 @@ export const AdminReviewsControl: React.FC = () => {
                     </td>
 
                     <td className="py-3.5 px-4 font-medium text-midnight">
-                      {r.reviewer_name || 'Client'}
+                      {r.reviewer_name || (r as any).client_name || 'Client'}
                     </td>
 
                     <td className="py-3.5 px-4 font-medium text-midnight">
@@ -232,7 +233,7 @@ export const AdminReviewsControl: React.FC = () => {
                     </td>
 
                     <td className="py-3.5 px-4">
-                      {r.is_hidden === 1 ? (
+                      {Number(r.is_hidden) === 1 || (r.is_hidden as any) === true ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
                           <EyeOff className="w-3 h-3" />
                           <span>HIDDEN</span>
@@ -246,7 +247,7 @@ export const AdminReviewsControl: React.FC = () => {
                     </td>
 
                     <td className="py-3.5 px-4 text-right">
-                      {r.is_hidden === 1 ? (
+                      {Number(r.is_hidden) === 1 || (r.is_hidden as any) === true ? (
                         <button
                           onClick={() =>
                             setModerationModal({

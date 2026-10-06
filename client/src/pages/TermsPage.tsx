@@ -11,8 +11,19 @@ import {
   Scale
 } from 'lucide-react';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { DynamicCmsPage } from './DynamicCmsPage';
 
 export const TermsPage: React.FC = () => {
+  return (
+    <DynamicCmsPage
+      fixedSlug="terms"
+      fallbackTitle="Terms of Service"
+      fallbackContent={<StaticTermsPageContent />}
+    />
+  );
+};
+
+const StaticTermsPageContent: React.FC = () => {
   usePageSEO({
     title: 'Terms of Service — HireByMinute',
     description: 'Read the Terms of Service governing your use of the HireByMinute consultation marketplace and per-minute billing platform.',

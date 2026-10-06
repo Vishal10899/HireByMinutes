@@ -11,8 +11,19 @@ import {
   IndianRupee
 } from 'lucide-react';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { DynamicCmsPage } from './DynamicCmsPage';
 
 export const RefundPolicyPage: React.FC = () => {
+  return (
+    <DynamicCmsPage
+      fixedSlug="refund-policy"
+      fallbackTitle="Refund & Cancellation Policy"
+      fallbackContent={<StaticRefundPolicyPageContent />}
+    />
+  );
+};
+
+const StaticRefundPolicyPageContent: React.FC = () => {
   usePageSEO({
     title: 'Refund & Cancellation Policy — HireByMinute',
     description: 'Clear rules and procedures for consultation refunds, cancellations, and technical session disputes.',

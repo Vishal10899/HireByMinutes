@@ -342,6 +342,8 @@ export const AdminPage: React.FC = () => {
   // Opportunity Modal
   const [opportunityModal, setOpportunityModal] = useState<{
     isOpen: boolean;
+    isEdit?: boolean;
+    id?: string;
     title: string;
     category_id: string;
     subcategory: string;
@@ -357,6 +359,7 @@ export const AdminPage: React.FC = () => {
     is_featured: boolean;
   }>({
     isOpen: false,
+    isEdit: false,
     title: '',
     category_id: 'cat-tech',
     subcategory: '',
@@ -401,8 +404,8 @@ export const AdminPage: React.FC = () => {
         api.getAdminStats().catch(() => ({ stats: null })),
         api.getAdminUsers().catch(() => ({ users: [] })),
         api.getAdminServices().catch(() => ({ services: [] })),
-        api.getCategories().catch(() => ({ categories: [] })),
-        api.getOpportunities().catch(() => ({ opportunities: [] })),
+        api.getAdminCategories().catch(() => ({ categories: [] })),
+        api.getAdminOpportunities().catch(() => ({ opportunities: [] })),
         api.getAdminConsultationRequests().catch(() => ({ requests: [] })),
         api.getAdminSessions().catch(() => ({ sessions: [] })),
         api.getAdminPayments().catch(() => ({ payments: [] })),
@@ -775,7 +778,7 @@ export const AdminPage: React.FC = () => {
     }
   };
 
-  // Post Opportunity
+  // Post / Edit Opportunity
   const handlePostOpportunity = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -784,7 +787,7 @@ export const AdminPage: React.FC = () => {
         ? opportunityModal.skills.split(',').map((s) => s.trim()).filter(Boolean)
         : [];
 
-      await api.createAdminOpportunity({
+      const oppPayload = {
         title: opportunityModal.title.trim(),
         category_id: opportunityModal.category_id,
         subcategory: opportunityModal.subcategory.trim(),
@@ -795,13 +798,21 @@ export const AdminPage: React.FC = () => {
         deadline: opportunityModal.deadline || undefined,
         pricing_type: opportunityModal.pricing_type,
         entry_fee_usd: opportunityModal.pricing_type === 'paid' ? Number(opportunityModal.entry_fee_usd) || 0 : 0,
+        entry_fee_inr: opportunityModal.pricing_type === 'paid' ? Number(opportunityModal.entry_fee_usd) || 0 : 0,
         skills: skillsArr,
         requirements: opportunityModal.requirements.trim() || undefined,
         is_featured: opportunityModal.is_featured ? 1 : 0
-      });
+      };
+
+      if (opportunityModal.isEdit && opportunityModal.id) {
+        await api.updateAdminOpportunity(opportunityModal.id, oppPayload);
+      } else {
+        await api.createAdminOpportunity(oppPayload);
+      }
 
       setOpportunityModal({
         isOpen: false,
+        isEdit: false,
         title: '',
         category_id: 'cat-tech',
         subcategory: '',
@@ -819,7 +830,7 @@ export const AdminPage: React.FC = () => {
       confetti({ particleCount: 70, spread: 60 });
       await loadAdminData();
     } catch (err: any) {
-      alert(err.message || 'Failed to post opportunity.');
+      alert(err.message || 'Failed to save opportunity.');
     } finally {
       setActionLoading(null);
     }
@@ -2196,7 +2207,7 @@ export const AdminPage: React.FC = () => {
                             </span>
                           </td>
                           <td className="py-3.5 px-4 font-mono font-semibold text-midnight">
-                            {opp.applicant_count || 0} bids
+                            {opp.applicant_count ?? opp.applications_count ?? 0} bids
                           </td>
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
@@ -2217,6 +2228,32 @@ export const AdminPage: React.FC = () => {
                                   Reopen
                                 </button>
                               )}
+                              <button
+                                onClick={() =>
+                                  setOpportunityModal({
+                                    isOpen: true,
+                                    isEdit: true,
+                                    id: opp.id,
+                                    title: opp.title,
+                                    category_id: opp.category_id,
+                                    subcategory: opp.subcategory || '',
+                                    description: opp.description,
+                                    duration_minutes: opp.duration_minutes,
+                                    budget: opp.budget,
+                                    location: opp.location || 'Worldwide · Remote',
+                                    deadline: opp.deadline ? opp.deadline.slice(0, 16) : '',
+                                    pricing_type: (opp.pricing_type as any) || 'free',
+                                    entry_fee_usd: opp.entry_fee_inr || opp.entry_fee_usd || 0,
+                                    skills: Array.isArray(opp.skills) ? opp.skills.join(', ') : '',
+                                    requirements: opp.requirements || '',
+                                    is_featured: Boolean(opp.is_featured)
+                                  })
+                                }
+                                title="Edit opportunity details"
+                                className="p-1.5 rounded-lg bg-aliceblue text-midnight/70 hover:text-midnight transition-colors cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 onClick={() => handleDuplicateOpportunity(opp.id)}
                                 disabled={actionLoading === `dup-opp-${opp.id}`}
@@ -2689,6 +2726,29 @@ export const AdminPage: React.FC = () => {
                   <p className="text-xs text-midnight/70 mt-1">
                     Sanitized audit records of all outbound emails (OTPs and authentication secrets are scrubbed).
                   </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={async () => {
+                      const to = window.prompt('Enter recipient email for test dispatch (leave blank for your admin email):');
+                      if (to === null) return;
+                      try {
+                        setActionLoading('send-test-email');
+                        const res = await api.testEmailDispatch(to.trim() || undefined);
+                        alert(res.message || 'Test email dispatched successfully.');
+                        await loadAdminData();
+                      } catch (err: any) {
+                        alert(err.message || 'Failed to dispatch test email.');
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    }}
+                    disabled={actionLoading === 'send-test-email'}
+                    className="btn-shine inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Mail className="w-4 h-4 text-moonstone" />
+                    <span>{actionLoading === 'send-test-email' ? 'Dispatching...' : 'Send Test Email'}</span>
+                  </button>
                 </div>
               </div>
 
@@ -4070,7 +4130,7 @@ export const AdminPage: React.FC = () => {
       {opportunityModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-midnight/40 backdrop-blur-xs flex items-center justify-center p-4">
           <form onSubmit={handlePostOpportunity} className="bg-white rounded-2xl border border-timberwolf/60 shadow-modal max-w-lg w-full p-6 text-midnight animate-fade-in space-y-4 max-h-[90vh] overflow-y-auto">
-            <h3 className="font-extrabold text-base text-midnight">Post Platform Opportunity</h3>
+            <h3 className="font-extrabold text-base text-midnight">{opportunityModal.isEdit ? 'Edit Platform Opportunity' : 'Post Platform Opportunity'}</h3>
             <div>
               <label className="block text-xs font-semibold text-midnight mb-1">Title *</label>
               <input
@@ -4210,7 +4270,7 @@ export const AdminPage: React.FC = () => {
                 type="submit"
                 className="btn-shine px-4 py-1.5 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover cursor-pointer"
               >
-                Publish Opportunity
+                {opportunityModal.isEdit ? 'Save Changes' : 'Publish Opportunity'}
               </button>
             </div>
           </form>

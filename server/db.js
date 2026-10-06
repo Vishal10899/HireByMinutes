@@ -159,6 +159,7 @@ function initPostgresSchema(db) {
       country VARCHAR(128) DEFAULT 'United States',
       city VARCHAR(128),
       views_count INTEGER DEFAULT 0,
+      is_featured INTEGER DEFAULT 0,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
@@ -555,6 +556,7 @@ function initPostgresSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
     CREATE INDEX IF NOT EXISTS idx_bookings_client ON bookings(client_id);
     CREATE INDEX IF NOT EXISTS idx_bookings_provider ON bookings(provider_id);
+    ALTER TABLE services ADD COLUMN IF NOT EXISTS is_featured INTEGER DEFAULT 0;
   `;
 
   db.exec(schemaSql);
@@ -632,6 +634,7 @@ function initSqliteSchema(db) {
       country TEXT DEFAULT 'United States',
       city TEXT,
       views_count INTEGER DEFAULT 0,
+      is_featured INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (provider_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -1099,6 +1102,7 @@ function initSqliteSchema(db) {
   safeAddColumn('reviews', 'moderation_note TEXT');
   safeAddColumn('reviews', 'moderated_by TEXT');
   safeAddColumn('reviews', 'moderated_at DATETIME');
+  safeAddColumn('services', 'is_featured INTEGER DEFAULT 0');
 
   try {
     const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='payments'").get();
