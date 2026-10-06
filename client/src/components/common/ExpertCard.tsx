@@ -1,14 +1,30 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Service } from '../../types';
 import { Star, CheckCircle, ArrowRight } from 'lucide-react';
 import { formatINR } from '../../utils/currency';
+import { useAuth } from '../../context/AuthContext';
+import { saveIntendedService } from '../../utils/navigation';
 
 interface ExpertCardProps {
   service: Service;
 }
 
 export const ExpertCard: React.FC<ExpertCardProps> = ({ service }) => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const handleHireClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!user) {
+      saveIntendedService(service.id);
+      navigate(`/login?returnTo=${encodeURIComponent(`/services/${service.id}`)}&reason=hire`);
+      return;
+    }
+    navigate(`/services/${service.id}?action=hire`);
+  };
+
   const availabilityStatus = service.availability_status || (service.available_now ? 'AVAILABLE NOW' : 'OFFLINE');
 
   const getAvailabilityIndicator = () => {
@@ -44,13 +60,17 @@ export const ExpertCard: React.FC<ExpertCardProps> = ({ service }) => {
   return (
     <div className="w-full max-w-full min-w-0 water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 sm:p-6 flex flex-col justify-between hover:border-moonstone/70 transition-all duration-150 shadow-subtle hover:shadow-card group active:scale-[0.995]">
       <div className="w-full min-w-0">
-        {/* Top: 1. Profile Image, 2. Expert Name, 3. Professional Title */}
-        <div className="flex items-start gap-3.5 mb-3.5 w-full min-w-0">
+        {/* Top: 1. Profile Image, 2. Expert Name, 3. Professional Title (Public Profile Link) */}
+        <Link
+          to={`/services/${service.id}`}
+          className="flex items-start gap-3.5 mb-3.5 w-full min-w-0 group/link block"
+          title={`View ${service.provider_name}'s profile`}
+        >
           <div className="relative shrink-0">
             <img
               src={service.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${service.provider_name}`}
               alt={service.provider_name}
-              className="w-13 h-13 rounded-full object-cover border-2 border-lightblue bg-aliceblue shrink-0"
+              className="w-13 h-13 rounded-full object-cover border-2 border-lightblue bg-aliceblue shrink-0 group-hover/link:border-moonstone transition-colors"
               loading="lazy"
             />
             {availabilityStatus === 'AVAILABLE NOW' && (
@@ -63,7 +83,7 @@ export const ExpertCard: React.FC<ExpertCardProps> = ({ service }) => {
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 min-w-0">
-              <h3 className="font-bold text-base text-midnight truncate group-hover:text-moonstone transition-colors min-w-0">
+              <h3 className="font-bold text-base text-midnight truncate group-hover/link:text-moonstone transition-colors min-w-0">
                 {service.provider_name}
               </h3>
               {service.provider_verified && (
@@ -76,7 +96,7 @@ export const ExpertCard: React.FC<ExpertCardProps> = ({ service }) => {
               {service.provider_headline || service.title}
             </p>
           </div>
-        </div>
+        </Link>
 
         {/* 4. Availability & 5. Rating & Sessions */}
         <div className="flex flex-wrap items-center justify-between gap-2 py-2.5 border-t border-b border-timberwolf/30 text-xs w-full min-w-0">
@@ -126,13 +146,14 @@ export const ExpertCard: React.FC<ExpertCardProps> = ({ service }) => {
           </span>
         </div>
 
-        <Link
-          to={`/services/${service.id}`}
+        <button
+          type="button"
+          onClick={handleHireClick}
           className="btn-shine inline-flex items-center justify-center gap-1.5 px-5 py-2.5 min-h-[44px] rounded-xl bg-midnight text-aliceblue text-xs sm:text-sm font-bold hover:bg-midnight-hover transition-all shadow-subtle group-hover:bg-moonstone group-hover:text-white active:scale-95 cursor-pointer select-none shrink-0"
         >
           <span>Hire</span>
           <ArrowRight className="w-4 h-4 shrink-0" />
-        </Link>
+        </button>
       </div>
     </div>
   );

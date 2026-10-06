@@ -34,6 +34,7 @@ import confetti from 'canvas-confetti';
 import { Button } from '../components/common/Button';
 import { usePageSEO } from '../hooks/usePageSEO';
 import { formatINR, CURRENCY, CURRENCY_SYMBOL } from '../utils/currency';
+import { saveIntendedService } from '../utils/navigation';
 
 export const ServiceDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -83,12 +84,18 @@ export const ServiceDetailPage: React.FC = () => {
       if (!id) return;
       try {
         setLoading(true);
+        setError(null);
         const data = await api.getServiceById(id);
         setService(data.service);
         setReviews(data.reviews || []);
         setAvailability(data.availability || []);
       } catch (err: any) {
-        setError(err.message || 'Service not found');
+        console.error('[ServiceDetailPage] Failed to fetch service detail:', {
+          serviceId: id,
+          status: err.status,
+          message: err.message
+        });
+        setError(err.message || 'Unable to load this expert profile.');
       } finally {
         setLoading(false);
       }
@@ -185,7 +192,8 @@ export const ServiceDetailPage: React.FC = () => {
     if (!service) return;
 
     if (!user) {
-      navigate('/auth');
+      saveIntendedService(service.id);
+      navigate(`/login?returnTo=${encodeURIComponent(`/services/${service.id}`)}&reason=hire`);
       return;
     }
 
@@ -417,25 +425,42 @@ export const ServiceDetailPage: React.FC = () => {
               </div>
             </div>
 
-            <Button
-              variant="primary"
-              size="lg"
-              fullWidth
-              fullWidthOnMobile
-              disabled={!problemDescription.trim()}
-              onClick={() => {
-                if (!problemDescription.trim()) {
-                  setFormError('Please enter a brief description of what you want to solve.');
-                  return;
-                }
-                setFormError(null);
-                setHireStep(2);
-              }}
-              className="min-h-[48px] shadow-subtle flex items-center justify-center gap-2"
-            >
-              <span>Next: Select Duration</span>
-              <ArrowRight className="w-4 h-4" />
-            </Button>
+            {!user ? (
+              <Button
+                variant="primary"
+                size="lg"
+                fullWidth
+                fullWidthOnMobile
+                onClick={() => {
+                  saveIntendedService(service.id);
+                  navigate(`/login?returnTo=${encodeURIComponent(`/services/${service.id}`)}&reason=hire`);
+                }}
+                className="min-h-[48px] shadow-subtle flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>Sign In to Hire Expert</span>
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="lg"
+                fullWidth
+                fullWidthOnMobile
+                disabled={!problemDescription.trim()}
+                onClick={() => {
+                  if (!problemDescription.trim()) {
+                    setFormError('Please enter a brief description of what you want to solve.');
+                    return;
+                  }
+                  setFormError(null);
+                  setHireStep(2);
+                }}
+                className="min-h-[48px] shadow-subtle flex items-center justify-center gap-2"
+              >
+                <span>Next: Select Duration</span>
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            )}
           </div>
         )}
 
@@ -870,18 +895,18 @@ export const ServiceDetailPage: React.FC = () => {
   if (error || !service) {
     return (
       <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-4">
-        <h2 className="text-xl font-bold text-midnight mb-1">Expert profile not loaded</h2>
-        <p className="text-sm text-midnight/70 max-w-sm mx-auto">{error || 'This service may have been paused or the server is still waking up.'}</p>
+        <h2 className="text-xl font-bold text-midnight mb-1">Unable to load this expert profile.</h2>
+        <p className="text-sm text-midnight/70 max-w-sm mx-auto">{error || 'This service may have been paused or is currently unavailable.'}</p>
         <div className="flex items-center justify-center gap-3 pt-2">
           <button
             type="button"
             onClick={() => window.location.reload()}
             className="px-4 py-2 rounded-lg bg-midnight text-aliceblue text-sm font-semibold hover:bg-midnight-hover transition-all cursor-pointer"
           >
-            Retry Loading
+            Retry
           </button>
           <Link to="/services" className="px-4 py-2 rounded-lg border border-timberwolf text-midnight text-sm font-semibold hover:bg-aliceblue">
-            Return to Marketplace
+            Back to Marketplace
           </Link>
         </div>
       </div>

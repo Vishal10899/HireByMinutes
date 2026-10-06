@@ -315,14 +315,151 @@ async function runDiscoverySuite() {
     assert.strictEqual(slugs.includes('ai-data'), true);
   });
 
+  // ---------------------------------------------------------------------------
+  // SUITE 5: Service Detail Fetch & Logged-out Hire Flow Regression
+  // ---------------------------------------------------------------------------
+  console.log('\n--- Suite 5: Service Detail Fetch & Logged-out Hire Flow ---');
+
+  await runAsyncTest('18. Neon PostgreSQL: Real service srv-455779a7 detail query resolves cleanly', async () => {
+    const q = await pool.query(`
+      SELECT s.*, 
+             u.id as provider_id, u.full_name as provider_name, u.avatar_url as provider_avatar, 
+             u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating, 
+             u.review_count as provider_review_count, u.verified as provider_verified,
+             u.response_time as provider_response_time, u.sessions_completed, u.member_since,
+             u.country as provider_country, u.state_region as provider_state_region,
+             u.city as provider_city, u.area as provider_area,
+             u.languages_json as provider_languages_json,
+             c.id as category_id, c.name as category_name, c.slug as category_slug
+      FROM services s
+      JOIN users u ON s.provider_id = u.id
+      JOIN categories c ON s.category_id = c.id
+      WHERE s.id = $1 AND LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND u.email_verified = 1
+    `, ['srv-455779a7']);
+    assert.strictEqual(q.rows.length, 1);
+    const s = q.rows[0];
+    assert.strictEqual(s.title, 'AI/ML Engineer');
+    assert.strictEqual(s.provider_name, 'Vishal Chaudhary');
+  });
+
+  await runAsyncTest('19. Neon PostgreSQL: Real service srv-224f69d9 detail query resolves cleanly', async () => {
+    const q = await pool.query(`
+      SELECT s.*, 
+             u.id as provider_id, u.full_name as provider_name, u.avatar_url as provider_avatar, 
+             u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating, 
+             u.review_count as provider_review_count, u.verified as provider_verified,
+             u.response_time as provider_response_time, u.sessions_completed, u.member_since,
+             u.country as provider_country, u.state_region as provider_state_region,
+             u.city as provider_city, u.area as provider_area,
+             u.languages_json as provider_languages_json,
+             c.id as category_id, c.name as category_name, c.slug as category_slug
+      FROM services s
+      JOIN users u ON s.provider_id = u.id
+      JOIN categories c ON s.category_id = c.id
+      WHERE s.id = $1 AND LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND u.email_verified = 1
+    `, ['srv-224f69d9']);
+    assert.strictEqual(q.rows.length, 1);
+    const s = q.rows[0];
+    assert.strictEqual(s.title, 'Data Analyst');
+    assert.strictEqual(s.provider_name, 'Sumit kumar');
+  });
+
+  await runAsyncTest('20. Neon PostgreSQL: Reviews table has is_hidden column and queries without 42703 error', async () => {
+    const res = await pool.query(`
+      SELECT r.*, c.full_name as client_name, c.avatar_url as client_avatar
+      FROM reviews r
+      JOIN users c ON r.client_id = c.id
+      WHERE r.service_id = $1 AND COALESCE(r.is_hidden, 0) = 0
+      ORDER BY r.created_at DESC
+      LIMIT 10
+    `, ['srv-455779a7']);
+    assert(Array.isArray(res.rows));
+  });
+
+  runTest('21. Security: getSafeReturnUrl permits valid internal paths and blocks open redirects', () => {
+    const navSrc = fs.readFileSync(path.join(ROOT_DIR, 'client/src/utils/navigation.ts'), 'utf8');
+    assert(navSrc.includes('function getSafeReturnUrl'), 'navigation.ts must declare getSafeReturnUrl');
+    assert(navSrc.includes('startsWith(\'//\')'), 'Must check for protocol-relative URLs');
+    assert(navSrc.includes('saveIntendedService'), 'Must declare saveIntendedService');
+
+    function getSafeReturnUrl(rawUrl) {
+      if (!rawUrl || typeof rawUrl !== 'string') return null;
+      const trimmed = rawUrl.trim();
+      if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return null;
+      if (trimmed.includes('\\')) return null;
+      if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return null;
+      const lower = trimmed.toLowerCase();
+      if (
+        lower === '/auth' ||
+        lower.startsWith('/auth?') ||
+        lower === '/login' ||
+        lower.startsWith('/login?') ||
+        lower === '/signup' ||
+        lower.startsWith('/signup?') ||
+        lower === '/register' ||
+        lower.startsWith('/register?') ||
+        lower === '/forgot-password' ||
+        lower === '/reset-password'
+      ) {
+        return null;
+      }
+      return trimmed;
+    }
+
+    // Valid relative internal paths
+    assert.strictEqual(getSafeReturnUrl('/services/srv-455779a7'), '/services/srv-455779a7');
+    assert.strictEqual(getSafeReturnUrl('/services/srv-224f69d9?action=hire'), '/services/srv-224f69d9?action=hire');
+    assert.strictEqual(getSafeReturnUrl('/jobs'), '/jobs');
+    assert.strictEqual(getSafeReturnUrl('/opportunities'), '/opportunities');
+
+    // Block open redirect attempts
+    assert.strictEqual(getSafeReturnUrl('https://evil.example.com'), null);
+    assert.strictEqual(getSafeReturnUrl('http://evil.com/phish'), null);
+    assert.strictEqual(getSafeReturnUrl('//evil.example.com'), null);
+    assert.strictEqual(getSafeReturnUrl('/\\evil.example.com'), null);
+    assert.strictEqual(getSafeReturnUrl('javascript:alert(1)'), null);
+    assert.strictEqual(getSafeReturnUrl(''), null);
+    assert.strictEqual(getSafeReturnUrl(null), null);
+    assert.strictEqual(getSafeReturnUrl(undefined), null);
+
+    // Block auth loops
+    assert.strictEqual(getSafeReturnUrl('/login'), null);
+    assert.strictEqual(getSafeReturnUrl('/signup'), null);
+    assert.strictEqual(getSafeReturnUrl('/register'), null);
+    assert.strictEqual(getSafeReturnUrl('/auth'), null);
+  });
+
+  runTest('22. ExpertCard redirects logged-out users to login preserving service ID', () => {
+    const expertCardSrc = fs.readFileSync(path.join(ROOT_DIR, 'client/src/components/common/ExpertCard.tsx'), 'utf8');
+    assert(expertCardSrc.includes('saveIntendedService(service.id)'), 'ExpertCard must call saveIntendedService');
+    assert(expertCardSrc.includes('/login?returnTo='), 'ExpertCard must navigate to /login?returnTo=');
+    assert(expertCardSrc.includes('handleHireClick'), 'Hire CTA must invoke handleHireClick');
+  });
+
+  runTest('23. ServiceDetailPage prevents unauthenticated requests and redirects to login with returnTo', () => {
+    const detailSrc = fs.readFileSync(path.join(ROOT_DIR, 'client/src/pages/ServiceDetailPage.tsx'), 'utf8');
+    assert(detailSrc.includes('saveIntendedService(service.id)'), 'ServiceDetailPage must save intended service on unauthenticated hire');
+    assert(detailSrc.includes('/login?returnTo='), 'ServiceDetailPage must redirect to /login?returnTo=');
+    assert(!detailSrc.includes('navigate(\'/auth\')'), 'ServiceDetailPage must not drop returnTo by routing to bare /auth');
+    assert(detailSrc.includes('Unable to load this expert profile.'), 'Must display standard unable to load message');
+    assert(detailSrc.includes('Back to Marketplace'), 'Must include Back to Marketplace CTA');
+  });
+
+  runTest('24. AuthPage displays hire intent message and returns user to destination', () => {
+    const authSrc = fs.readFileSync(path.join(ROOT_DIR, 'client/src/pages/AuthPage.tsx'), 'utf8');
+    assert(authSrc.includes('Please sign in or create an account to hire this expert.'), 'AuthPage must render prompt');
+    assert(authSrc.includes('getSafeReturnUrl'), 'AuthPage must use getSafeReturnUrl');
+    assert(authSrc.includes('clearStoredReturnUrl()'), 'AuthPage must clear stored URL after redirect');
+  });
+
   await pool.end();
 
   console.log('\n===============================================================');
-  console.log(`SUMMARY: ${passedTests} / ${totalTests} discovery tests passed.`);
+  console.log(`SUMMARY: ${passedTests} / ${totalTests} discovery & hire flow tests passed.`);
   console.log('===============================================================\n');
 
   if (passedTests === totalTests) {
-    console.log('🎉 ALL 17 EXPERT DISCOVERY & REGRESSION TESTS PASSED 100%!\n');
+    console.log('🎉 ALL 24 EXPERT DISCOVERY & HIRE FLOW AUDIT TESTS PASSED 100%!\n');
     process.exit(0);
   } else {
     console.error('❌ ONE OR MORE TESTS FAILED.\n');

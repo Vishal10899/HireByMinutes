@@ -339,7 +339,16 @@ export const api = {
 
   getServiceById: async (id: string) => {
     const res = await fetch(`${API_BASE}/services/${id}`);
-    if (!res.ok) throw new Error('Failed to fetch service detail');
+    if (!res.ok) {
+      let errorMsg = 'Failed to fetch service detail';
+      try {
+        const body = await res.json();
+        if (body.error) errorMsg = body.error;
+      } catch {}
+      const err: any = new Error(errorMsg);
+      err.status = res.status;
+      throw err;
+    }
     return res.json();
   },
 

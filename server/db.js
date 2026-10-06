@@ -555,8 +555,11 @@ function initPostgresSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
     CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
     CREATE INDEX IF NOT EXISTS idx_bookings_client ON bookings(client_id);
-    CREATE INDEX IF NOT EXISTS idx_bookings_provider ON bookings(provider_id);
     ALTER TABLE services ADD COLUMN IF NOT EXISTS is_featured INTEGER DEFAULT 0;
+    ALTER TABLE reviews ADD COLUMN IF NOT EXISTS is_hidden INTEGER DEFAULT 0;
+    ALTER TABLE reviews ADD COLUMN IF NOT EXISTS moderation_note TEXT;
+    ALTER TABLE reviews ADD COLUMN IF NOT EXISTS moderated_by VARCHAR(64);
+    ALTER TABLE reviews ADD COLUMN IF NOT EXISTS moderated_at TIMESTAMP WITH TIME ZONE;
   `;
 
   db.exec(schemaSql);

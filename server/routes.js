@@ -1804,86 +1804,123 @@ module.exports = function(timerEngine, io) {
   });
 
   router.get('/services/:id', (req, res) => {
-    const service = db.prepare(`
-      SELECT s.*, 
-             u.id as provider_id, u.full_name as provider_name, u.avatar_url as provider_avatar, 
-             u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating, 
-             u.review_count as provider_review_count, u.verified as provider_verified,
-             u.response_time as provider_response_time, u.sessions_completed, u.member_since,
-             u.country as provider_country, u.state_region as provider_state_region,
-             u.city as provider_city, u.area as provider_area,
-             u.languages_json as provider_languages_json,
-             c.id as category_id, c.name as category_name, c.slug as category_slug
-      FROM services s
-      JOIN users u ON s.provider_id = u.id
-      JOIN categories c ON s.category_id = c.id
-      WHERE s.id = ? AND LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND u.email_verified = 1
-    `).get(req.params.id);
-
-    if (!service) {
-      return res.status(404).json({ error: 'Service listing not found.' });
-    }
-
-    let parsedLangs = [];
     try {
-      parsedLangs = JSON.parse(service.languages_json || service.provider_languages_json || '["English"]');
-    } catch {
-      parsedLangs = ['English'];
+      const service = db.prepare(`
+        SELECT s.*, 
+               u.id as provider_id, u.full_name as provider_name, u.avatar_url as provider_avatar, 
+               u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating, 
+               u.review_count as provider_review_count, u.verified as provider_verified,
+               u.response_time as provider_response_time, u.sessions_completed, u.member_since,
+               u.country as provider_country, u.state_region as provider_state_region,
+               u.city as provider_city, u.area as provider_area,
+               u.languages_json as provider_languages_json,
+               c.id as category_id, c.name as category_name, c.slug as category_slug
+        FROM services s
+        JOIN users u ON s.provider_id = u.id
+        JOIN categories c ON s.category_id = c.id
+        WHERE s.id = ? AND LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND u.email_verified = 1
+      `).get(req.params.id);
+
+      if (!service) {
+        return res.status(404).json({ error: 'Service listing not found.' });
+      }
+
+      let parsedLangs = [];
+      try {
+        parsedLangs = JSON.parse(service.languages_json || service.provider_languages_json || '["English"]');
+      } catch {
+        parsedLangs = ['English'];
+      }
+
+      let total_session_minutes = 0;
+      try {
+        const totalMinutesRow = db.prepare(`
+          SELECT COALESCE(SUM(duration_minutes), 0) as total_minutes 
+          FROM sessions 
+          WHERE provider_id = ? AND status = 'COMPLETED'
+        `).get(service.provider_id);
+        total_session_minutes = totalMinutesRow ? (parseInt(totalMinutesRow.total_minutes, 10) || 0) : 0;
+      } catch (err) {
+        console.warn('[GET /services/:id] total_session_minutes query notice:', err.message);
+      }
+
+      let isBusy = false;
+      try {
+        const activeSessionRow = db.prepare(`
+          SELECT COUNT(*) as count 
+          FROM sessions 
+          WHERE provider_id = ? AND status = 'ACTIVE'
+        `).get(service.provider_id);
+        isBusy = (parseInt(activeSessionRow?.count, 10) || 0) > 0;
+      } catch (err) {
+        console.warn('[GET /services/:id] activeSessionRow query notice:', err.message);
+      }
+
+      let availability_status = 'OFFLINE';
+      if (service.available_now === 1) {
+        availability_status = isBusy ? 'BUSY' : 'AVAILABLE NOW';
+      }
+
+      const formattedService = {
+        ...service,
+        provider_rating: service.provider_rating != null ? Number(service.provider_rating) : 5.0,
+        price_per_minute: Number(service.price_per_minute) || 0,
+        country: service.country || service.provider_country || 'United States',
+        city: service.city || service.provider_city || '',
+        state_region: service.provider_state_region || '',
+        area: service.provider_area || '',
+        skills: JSON.parse(service.skills_json || '[]'),
+        languages: parsedLangs,
+        total_session_minutes,
+        availability_status
+      };
+
+      // Availability
+      let availability = [];
+      try {
+        availability = db.prepare(`
+          SELECT * FROM provider_availability WHERE provider_id = ? AND is_active = 1 ORDER BY day_of_week ASC
+        `).all(service.provider_id);
+      } catch (err) {
+        console.warn('[GET /services/:id] availability query notice:', err.message);
+        availability = [];
+      }
+
+      // Reviews with fallback
+      let reviews = [];
+      try {
+        reviews = db.prepare(`
+          SELECT r.*, c.full_name as client_name, c.avatar_url as client_avatar
+          FROM reviews r
+          JOIN users c ON r.client_id = c.id
+          WHERE r.service_id = ? AND COALESCE(r.is_hidden, 0) = 0
+          ORDER BY r.created_at DESC
+          LIMIT 10
+        `).all(service.id);
+      } catch (err) {
+        try {
+          reviews = db.prepare(`
+            SELECT r.*, c.full_name as client_name, c.avatar_url as client_avatar
+            FROM reviews r
+            JOIN users c ON r.client_id = c.id
+            WHERE r.service_id = ?
+            ORDER BY r.created_at DESC
+            LIMIT 10
+          `).all(service.id);
+        } catch {
+          reviews = [];
+        }
+      }
+
+      res.json({
+        service: formattedService,
+        availability: availability || [],
+        reviews: reviews || []
+      });
+    } catch (err) {
+      console.error('[GET /services/:id Error]', req.params.id, err);
+      res.status(500).json({ error: 'Failed to fetch service detail: ' + err.message });
     }
-
-    const totalMinutesRow = db.prepare(`
-      SELECT COALESCE(SUM(duration_minutes), 0) as total_minutes 
-      FROM sessions 
-      WHERE provider_id = ? AND status = 'COMPLETED'
-    `).get(service.provider_id);
-    const total_session_minutes = totalMinutesRow ? totalMinutesRow.total_minutes : 0;
-
-    const activeSessionRow = db.prepare(`
-      SELECT COUNT(*) as count 
-      FROM sessions 
-      WHERE provider_id = ? AND status = 'ACTIVE'
-    `).get(service.provider_id);
-    const isBusy = (activeSessionRow?.count || 0) > 0;
-
-    let availability_status = 'OFFLINE';
-    if (service.available_now === 1) {
-      availability_status = isBusy ? 'BUSY' : 'AVAILABLE NOW';
-    }
-
-    const formattedService = {
-      ...service,
-      provider_rating: service.provider_rating != null ? Number(service.provider_rating) : 5.0,
-      price_per_minute: Number(service.price_per_minute) || 0,
-      country: service.country || service.provider_country || 'United States',
-      city: service.city || service.provider_city || '',
-      state_region: service.provider_state_region || '',
-      area: service.provider_area || '',
-      skills: JSON.parse(service.skills_json || '[]'),
-      languages: parsedLangs,
-      total_session_minutes,
-      availability_status
-    };
-
-    // Availability
-    const availability = db.prepare(`
-      SELECT * FROM provider_availability WHERE provider_id = ? AND is_active = 1 ORDER BY day_of_week ASC
-    `).all(service.provider_id);
-
-    // Reviews
-    const reviews = db.prepare(`
-      SELECT r.*, c.full_name as client_name, c.avatar_url as client_avatar
-      FROM reviews r
-      JOIN users c ON r.client_id = c.id
-      WHERE r.service_id = ? AND COALESCE(r.is_hidden, 0) = 0
-      ORDER BY r.created_at DESC
-      LIMIT 10
-    `).all(service.id);
-
-    res.json({
-      service: formattedService,
-      availability,
-      reviews
-    });
   });
 
   // Create Service Listing (Provider Service Creation — 100% Free on HireByMinute)

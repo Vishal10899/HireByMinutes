@@ -22,6 +22,7 @@ import {
 import { BrandLogo } from '../components/common/BrandLogo';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { getSafeReturnUrl, getStoredReturnUrl, clearStoredReturnUrl } from '../utils/navigation';
 
 interface AuthPageProps {
   initialMode?: 'login' | 'register';
@@ -38,6 +39,20 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
+
+  // Resolve safe destination URL across returnTo query param, redirect param, router location state, and persistent session storage
+  const destination = useMemo(() => {
+    const rawParam = searchParams.get('returnTo') || searchParams.get('redirect');
+    const stateUrl = (location.state as any)?.returnTo || (location.state as any)?.from;
+    const stored = getStoredReturnUrl();
+    return getSafeReturnUrl(rawParam) || getSafeReturnUrl(stateUrl) || stored;
+  }, [searchParams, location.state]);
+
+  const isHireIntent = Boolean(
+    destination?.includes('/services/') ||
+    searchParams.get('reason') === 'hire' ||
+    Boolean(getStoredReturnUrl()?.includes('/services/'))
+  );
 
   usePageSEO({
     title: location.pathname.includes('signup') || location.pathname.includes('register')
@@ -88,9 +103,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
   // Auto-redirect only if user is fully authenticated & email-verified, and not in the middle of OTP verification
   useEffect(() => {
     if (user && tab !== 'verify_otp' && (user.email_verified === 1 || user.email_verified === true || user.role === 'admin')) {
-      const redirectParam = searchParams.get('redirect');
-      if (redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('/auth') && !redirectParam.startsWith('/login') && !redirectParam.startsWith('/signup')) {
-        navigate(redirectParam, { replace: true });
+      const target = destination;
+      clearStoredReturnUrl();
+      if (target) {
+        navigate(target, { replace: true });
       } else if (user.role === 'admin') {
         navigate('/admin', { replace: true });
       } else if (user.role === 'provider') {
@@ -99,7 +115,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
         navigate('/services', { replace: true });
       }
     }
-  }, [user, tab, searchParams, navigate]);
+  }, [user, tab, destination, navigate]);
 
   // Countdown timer for resend code
   useEffect(() => {
@@ -114,18 +130,22 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
     };
   }, [resendCooldown]);
 
-  // Smooth Tab Switcher
+  // Smooth Tab Switcher (preserves returnTo and hire reason context)
   const handleTabSwitch = (newTab: 'login' | 'register') => {
     setIsVerifyingOtp(false);
     setError(null);
     setFieldErrors({});
     setSuccessMessage(null);
-    const redirectParam = searchParams.get('redirect');
-    const redirectQuery = redirectParam ? `?redirect=${encodeURIComponent(redirectParam)}` : '';
+    const returnParam = searchParams.get('returnTo') || searchParams.get('redirect');
+    const reasonParam = searchParams.get('reason');
+    const params = new URLSearchParams();
+    if (returnParam) params.set('returnTo', returnParam);
+    if (reasonParam) params.set('reason', reasonParam);
+    const q = params.toString() ? `?${params.toString()}` : '';
     if (newTab === 'register') {
-      navigate(`/signup${redirectQuery}`, { replace: true });
+      navigate(`/signup${q}`, { replace: true });
     } else {
-      navigate(`/login${redirectQuery}`, { replace: true });
+      navigate(`/login${q}`, { replace: true });
     }
   };
 
@@ -211,9 +231,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
         }
       }
 
-      const redirectParam = searchParams.get('redirect');
-      if (redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('/auth') && !redirectParam.startsWith('/login') && !redirectParam.startsWith('/signup')) {
-        navigate(redirectParam, { replace: true });
+      const target = destination;
+      clearStoredReturnUrl();
+      if (target) {
+        navigate(target, { replace: true });
       } else if (loggedInUser.role === 'admin') {
         navigate('/admin', { replace: true });
       } else if (loggedInUser.role === 'provider') {
@@ -391,9 +412,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
       confetti({ particleCount: 70, spread: 60 });
       setSuccessMessage('Email verified successfully! Redirecting to your dashboard...');
       setTimeout(() => {
-        const redirectParam = searchParams.get('redirect');
-        if (redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('/auth') && !redirectParam.startsWith('/login') && !redirectParam.startsWith('/signup')) {
-          navigate(redirectParam, { replace: true });
+        const target = destination;
+        clearStoredReturnUrl();
+        if (target) {
+          navigate(target, { replace: true });
         } else if (role === 'provider' || res.user?.role === 'provider') {
           navigate('/provider');
         } else {
@@ -643,6 +665,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
                       : 'Join HireByMinute to hire experts or monetize your expertise'}
                   </p>
                 </div>
+
+                {/* Hire Intent Notice */}
+                {isHireIntent && (
+                  <div className="bg-amber-50 border border-amber-200/90 text-amber-950 text-xs p-3.5 rounded-xl flex items-center gap-2.5 mb-5 shadow-xs animate-fade-in" role="alert">
+                    <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="font-medium">Please sign in or create an account to hire this expert.</span>
+                  </div>
+                )}
 
                 {/* Global Status Notifications */}
                 {successMessage && (
