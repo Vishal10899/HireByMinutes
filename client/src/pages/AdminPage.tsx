@@ -124,53 +124,6 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
-// Live Countdown Timer for Active Registration Campaign in Admin Panel
-const AdminCampaignCountdown: React.FC<{ endTime: string; onExpire?: () => void }> = ({ endTime, onExpire }) => {
-  const [timeLeft, setTimeLeft] = useState<{ hours: number; mins: number; secs: number; isExpired: boolean }>({
-    hours: 0,
-    mins: 0,
-    secs: 0,
-    isExpired: false
-  });
-
-  useEffect(() => {
-    const calculateTime = () => {
-      const now = new Date().getTime();
-      const target = new Date(endTime).getTime();
-      const diff = target - now;
-
-      if (diff <= 0) {
-        setTimeLeft({ hours: 0, mins: 0, secs: 0, isExpired: true });
-        if (onExpire) onExpire();
-      } else {
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        const secs = Math.floor((diff % (1000 * 60)) / 1000);
-        setTimeLeft({ hours, mins, secs, isExpired: false });
-      }
-    };
-
-    calculateTime();
-    const timer = setInterval(calculateTime, 1000);
-    return () => clearInterval(timer);
-  }, [endTime]);
-
-  if (timeLeft.isExpired) {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-zinc-100 text-zinc-700 border border-zinc-300">
-        <Clock className="w-3.5 h-3.5" /> Promotion Expired
-      </span>
-    );
-  }
-
-  return (
-    <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 font-mono font-bold text-sm shadow-inner">
-      <Clock className="w-4 h-4 text-emerald-400 animate-pulse" />
-      <span>Ends in: {String(timeLeft.hours).padStart(2, '0')}h {String(timeLeft.mins).padStart(2, '0')}m {String(timeLeft.secs).padStart(2, '0')}s</span>
-    </div>
-  );
-};
-
 // Real-time SLA Timer Component for Consultation Requests in Admin Panel
 const AdminRequestTimer: React.FC<{ deadline: string; status: string }> = ({ deadline, status }) => {
   const [timeLeft, setTimeLeft] = useState<{ mins: number; secs: number; isExpired: boolean }>({
@@ -262,16 +215,6 @@ export const AdminPage: React.FC = () => {
   const [platformSettings, setPlatformSettings] = useState<Record<string, string>>({});
   const [campaignsList, setCampaignsList] = useState<any[]>([]);
   const [effectiveFeeData, setEffectiveFeeData] = useState<any>(null);
-
-  // Campaign State
-  const [campaignModalOpen, setCampaignModalOpen] = useState(false);
-  const [newCampaignName, setNewCampaignName] = useState('Weekend Promotion — ₹0 Listing Fee');
-  const [newCampaignDesc, setNewCampaignDesc] = useState('Temporary promotional waiver for 100% free expert registration');
-  const [newCampaignFee, setNewCampaignFee] = useState<number>(0);
-  const [newCampaignDurationHours, setNewCampaignDurationHours] = useState<number>(24);
-  const [newCampaignStartTime, setNewCampaignStartTime] = useState<string>(() => new Date().toISOString().slice(0, 16));
-  const [editBaseFeeModalOpen, setEditBaseFeeModalOpen] = useState(false);
-  const [newBaseFeeInput, setNewBaseFeeInput] = useState<number>(2.00);
 
   // Loading & Action states
   const [loading, setLoading] = useState(true);
@@ -437,75 +380,6 @@ export const AdminPage: React.FC = () => {
     } finally {
       setLoading(false);
       setRefreshing(false);
-    }
-  };
-
-  const handleLaunchFree24h = async () => {
-    if (!confirm('Activate 24-Hour Free Registration promotion (₹0.00 listing fee) now?')) return;
-    try {
-      setActionLoading('launch-24h');
-      const res = await api.launchFree24hCampaign();
-      confetti({ particleCount: 100, spread: 80 });
-      alert(res.message || '24-hour Free Registration promotion activated successfully!');
-      await loadAdminData();
-    } catch (err: any) {
-      alert(err.message || 'Failed to activate promotion.');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleCreateCampaign = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      setActionLoading('create-campaign');
-      const startIso = new Date(newCampaignStartTime).toISOString();
-      const endIso = new Date(new Date(newCampaignStartTime).getTime() + newCampaignDurationHours * 60 * 60 * 1000).toISOString();
-      await api.createAdminCampaign({
-        name: newCampaignName,
-        description: newCampaignDesc,
-        fee_usd: Number(newCampaignFee) || 0,
-        start_time: startIso,
-        end_time: endIso,
-        is_active: 1
-      });
-      setCampaignModalOpen(false);
-      confetti({ particleCount: 70, spread: 60 });
-      alert('Registration campaign created successfully!');
-      await loadAdminData();
-    } catch (err: any) {
-      alert(err.message || 'Failed to create campaign.');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleEndCampaignEarly = async (id: string) => {
-    if (!confirm('Are you sure you want to end/cancel this campaign early? The normal base listing fee will immediately become active.')) return;
-    try {
-      setActionLoading(`cancel-camp-${id}`);
-      await api.updateAdminCampaign(id, { status: 'cancelled', is_active: 0 });
-      alert('Campaign cancelled. Normal listing fee restored.');
-      await loadAdminData();
-    } catch (err: any) {
-      alert(err.message || 'Failed to cancel campaign.');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleSaveBaseFee = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      setActionLoading('save-base-fee');
-      await api.updateAdminListingFee(Number(newBaseFeeInput) || 2.00);
-      setEditBaseFeeModalOpen(false);
-      alert(`Base listing fee updated to ₹${formatCurrency(newBaseFeeInput)}`);
-      await loadAdminData();
-    } catch (err: any) {
-      alert(err.message || 'Failed to update base fee.');
-    } finally {
-      setActionLoading(null);
     }
   };
 
@@ -1056,7 +930,7 @@ export const AdminPage: React.FC = () => {
         { id: 'finance', label: 'Financial Overview', icon: IndianRupee, count: null },
         { id: 'transactions', label: 'Transactions Ledger', icon: FileText, count: paymentsList.length },
         { id: 'refunds', label: 'Refunds Audit', icon: RefreshCw, count: paymentsList.filter((p) => p.type === 'refund').length },
-        { id: 'registration_offers', label: 'Registration Offers', icon: Tag, count: campaignsList.filter((c) => c.status === 'active').length || null }
+        { id: 'registration_offers', label: 'Service Listings', icon: Tag, count: null }
       ]
     },
     {
@@ -2527,20 +2401,20 @@ export const AdminPage: React.FC = () => {
           )}
 
           {/* ===================================================================== */}
-          {/* TAB 9: SPECIAL ADMIN FLOW — ADD USER (₹0 LISTING FEE WAIVER) */}
+          {/* TAB 9: SPECIAL ADMIN FLOW — ADD USER */}
           {/* ===================================================================== */}
           {activeTab === 'add_user' && (
             <div className="max-w-3xl mx-auto space-y-6">
               <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-moonstone/10 text-moonstone-dark text-[11px] font-bold border border-moonstone/30 mb-2">
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Administrative Exception</span>
+                  <span>Administrative Provisioning</span>
                 </div>
                 <h1 className="text-2xl font-extrabold text-midnight tracking-tight">
-                  Direct User Provisioning (₹0 Fee Waiver)
+                  Direct User Provisioning
                 </h1>
                 <p className="text-xs text-midnight/70 mt-1">
-                  Create expert or client profiles directly. Experts provisioned by Admin receive an automatic ₹0 listing fee waiver with audit tracking.
+                  Create expert or client profiles directly with administrative credentials and audit logging. Service listing is 100% free for all experts.
                 </p>
               </div>
 
@@ -2794,156 +2668,71 @@ export const AdminPage: React.FC = () => {
           )}
 
           {/* ===================================================================== */}
-          {/* TAB: REGISTRATION OFFERS & PROMOTIONAL CAMPAIGNS */}
+          {/* TAB: SERVICE LISTING POLICY & ARCHIVED CAMPAIGNS */}
           {/* ===================================================================== */}
           {activeTab === 'registration_offers' && (
             <div className="space-y-6 animate-fade-in">
               {/* Header Banner */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-moonstone">Campaign Engine</span>
-                    {effectiveFeeData?.isPromotionActive && (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-300">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                        LIVE PROMOTION ACTIVE
-                      </span>
-                    )}
-                  </div>
-                  <h1 className="text-2xl font-extrabold text-midnight tracking-tight mt-1">
-                    Registration & Listing Offers
-                  </h1>
-                  <p className="text-xs text-midnight/70 mt-1">
-                    Manage temporary ₹0 listing fee promotions, scheduled platform offers, and base expert registration fees.
-                  </p>
+              <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-moonstone">Marketplace Economics</span>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    PERMANENT POLICY ACTIVE
+                  </span>
                 </div>
+                <h1 className="text-2xl font-extrabold text-midnight tracking-tight mt-1">
+                  Service Listing Policy
+                </h1>
+                <p className="text-xs text-midnight/70 mt-1">
+                  Permanent platform policy: Service listing and publishing is completely free for all providers.
+                </p>
+              </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    onClick={handleLaunchFree24h}
-                    disabled={actionLoading === 'launch-24h'}
-                    className="btn-shine px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-subtle flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    <Sparkles className="w-4 h-4 text-emerald-200" />
-                    <span>Launch 24-Hour Free Promotion (₹0.00)</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setNewCampaignStartTime(new Date().toISOString().slice(0, 16));
-                      setCampaignModalOpen(true);
-                    }}
-                    className="px-4 py-2.5 rounded-xl bg-midnight hover:bg-midnight-hover text-aliceblue font-bold text-xs shadow-subtle flex items-center gap-2 cursor-pointer"
-                  >
-                    <PlusCircle className="w-4 h-4 text-moonstone" />
-                    <span>Schedule Campaign</span>
-                  </button>
+              {/* Authoritative Policy Card */}
+              <div className="relative overflow-hidden bg-gradient-to-br from-midnight via-midnight to-teal-950 text-aliceblue rounded-3xl p-6 sm:p-8 border border-emerald-500/30 shadow-card">
+                <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+                <div className="relative z-10 space-y-4 max-w-3xl">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-extrabold uppercase tracking-wider">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>AUTHORITATIVE RULE — 100% FREE LISTINGS</span>
+                  </div>
+
+                  <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                    Service Listings: Free for experts/providers
+                  </h2>
+                  <p className="text-xs text-aliceblue/80 leading-relaxed">
+                    HireByMinute charges zero upfront registration, listing, publishing, or activation fees. Experts create services, define scope, and set per-minute rates completely free of charge. The platform generates revenue exclusively through the 15% platform fee on completed client consultation sessions.
+                  </p>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2">
+                    <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+                      <span className="text-white/60 block text-[10px] uppercase font-bold">Listing Creation Fee</span>
+                      <span className="font-mono font-extrabold text-emerald-400 text-lg">₹0.00 (Free)</span>
+                    </div>
+                    <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+                      <span className="text-white/60 block text-[10px] uppercase font-bold">Registration Fee</span>
+                      <span className="font-mono font-extrabold text-emerald-400 text-lg">₹0.00 (Free)</span>
+                    </div>
+                    <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+                      <span className="text-white/60 block text-[10px] uppercase font-bold">Client Session Fee</span>
+                      <span className="font-mono font-extrabold text-moonstone text-lg">15% Take Rate</span>
+                    </div>
+                    <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+                      <span className="text-white/60 block text-[10px] uppercase font-bold">Expert Payout</span>
+                      <span className="font-mono font-extrabold text-white text-lg">85% Net Split</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Real-time Status Card */}
-              {effectiveFeeData?.isPromotionActive && effectiveFeeData?.activeCampaign ? (
-                <div className="relative overflow-hidden bg-gradient-to-br from-emerald-900 via-midnight to-midnight text-aliceblue rounded-3xl p-6 sm:p-8 border border-emerald-500/40 shadow-card">
-                  <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-                  
-                  <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                    <div className="space-y-3 max-w-xl">
-                      <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-extrabold uppercase tracking-wider">
-                        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>FREE REGISTRATION ACTIVE</span>
-                      </div>
-                      
-                      <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                        {effectiveFeeData.activeCampaign.name}
-                      </h2>
-                      <p className="text-xs text-aliceblue/80 leading-relaxed">
-                        {effectiveFeeData.activeCampaign.description || 'Experts can register and publish new service listings with ₹0.00 listing fee.'}
-                      </p>
-
-                      <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-aliceblue/70">
-                        <div>
-                          <span className="text-white/50 block text-[10px] uppercase font-bold">Active Fee</span>
-                          <span className="font-mono font-extrabold text-emerald-400 text-lg">₹0.00</span>
-                        </div>
-                        <div className="h-8 w-[1px] bg-white/10" />
-                        <div>
-                          <span className="text-white/50 block text-[10px] uppercase font-bold">Standard Fee</span>
-                          <span className="font-mono font-bold text-white/80 line-through">₹{formatCurrency(effectiveFeeData.baseFee)}</span>
-                        </div>
-                        <div className="h-8 w-[1px] bg-white/10" />
-                        <div>
-                          <span className="text-white/50 block text-[10px] uppercase font-bold">Started At</span>
-                          <span className="font-mono text-white/90 text-[11px]">{new Date(effectiveFeeData.activeCampaign.start_time).toLocaleString()}</span>
-                        </div>
-                        <div className="h-8 w-[1px] bg-white/10" />
-                        <div>
-                          <span className="text-white/50 block text-[10px] uppercase font-bold">Expires At</span>
-                          <span className="font-mono text-white/90 text-[11px]">{new Date(effectiveFeeData.activeCampaign.end_time).toLocaleString()}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col sm:items-end gap-4 shrink-0">
-                      <div className="text-right">
-                        <span className="text-xs font-bold text-emerald-300 block mb-1.5 uppercase tracking-wider">Live Time Remaining</span>
-                        <AdminCampaignCountdown
-                          endTime={effectiveFeeData.activeCampaign.end_time}
-                          onExpire={loadAdminData}
-                        />
-                      </div>
-
-                      <button
-                        onClick={() => handleEndCampaignEarly(effectiveFeeData.activeCampaign.id)}
-                        disabled={actionLoading?.startsWith('cancel-camp')}
-                        className="px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                      >
-                        End Promotion Early
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card flex flex-col md:flex-row md:items-center justify-between gap-6">
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-midnight/60">
-                      <span className="w-2 h-2 rounded-full bg-zinc-400" />
-                      <span>Standard Fee Active (No Active Promotional Campaign)</span>
-                    </div>
-                    <h2 className="text-xl font-bold text-midnight">
-                      Standard Registration Fee: <span className="font-mono text-moonstone">₹{formatCurrency(effectiveFeeData?.baseFee || 2.00)}</span>
-                    </h2>
-                    <p className="text-xs text-midnight/70 max-w-xl">
-                      When no promotional campaign is active, experts pay the base listing fee configured in platform settings to activate and publish new services.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => {
-                        setNewBaseFeeInput(Number(effectiveFeeData?.baseFee || 2.00));
-                        setEditBaseFeeModalOpen(true);
-                      }}
-                      className="px-4 py-2.5 rounded-xl bg-aliceblue text-midnight border border-timberwolf/70 text-xs font-bold hover:bg-lightblue/30 transition-all cursor-pointer"
-                    >
-                      Change Base Fee
-                    </button>
-                    <button
-                      onClick={handleLaunchFree24h}
-                      disabled={actionLoading === 'launch-24h'}
-                      className="btn-shine px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-subtle flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                      <Sparkles className="w-4 h-4 text-emerald-200" />
-                      <span>Activate 24h Free Launch Offer</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Campaigns Ledger & History Table */}
+              {/* Historical Campaigns Ledger & History Table */}
               <div className="bg-white rounded-2xl border border-timberwolf/60 overflow-hidden shadow-card">
                 <div className="p-5 border-b border-timberwolf/40 flex items-center justify-between">
                   <div>
-                    <h3 className="font-extrabold text-sm text-midnight">Campaign Ledger & History</h3>
-                    <p className="text-xs text-midnight/60 mt-0.5">Authoritative history of all promotional registration campaigns.</p>
+                    <h3 className="font-extrabold text-sm text-midnight">Promotional & Listing History (Archived)</h3>
+                    <p className="text-xs text-midnight/60 mt-0.5">Authoritative history of all promotional registration campaigns and listing fee events.</p>
                   </div>
                   <span className="text-xs font-mono font-bold text-midnight/70">{campaignsList.length} total records</span>
                 </div>
@@ -2958,13 +2747,12 @@ export const AdminPage: React.FC = () => {
                         <th className="py-3 px-4 font-semibold">End Time (UTC/Local)</th>
                         <th className="py-3 px-4 font-semibold">Status</th>
                         <th className="py-3 px-4 font-semibold">Created By</th>
-                        <th className="py-3 px-4 font-semibold text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-timberwolf/30">
                       {campaignsList.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-8 text-center text-midnight/50 font-medium">
+                          <td colSpan={6} className="py-8 text-center text-midnight/50 font-medium">
                             No promotional campaigns recorded yet.
                           </td>
                         </tr>
@@ -3008,17 +2796,6 @@ export const AdminPage: React.FC = () => {
                             <td className="py-3.5 px-4 text-midnight/70">
                               <div className="font-semibold text-midnight">{c.created_by_name || 'Admin'}</div>
                               <div className="text-[10px] text-midnight/50">{c.created_by}</div>
-                            </td>
-                            <td className="py-3.5 px-4 text-right">
-                              {(c.status === 'active' || c.status === 'scheduled') && (
-                                <button
-                                  onClick={() => handleEndCampaignEarly(c.id)}
-                                  disabled={actionLoading === `cancel-camp-${c.id}`}
-                                  className="px-3 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  Cancel
-                                </button>
-                              )}
                             </td>
                           </tr>
                         ))
@@ -3197,8 +2974,8 @@ export const AdminPage: React.FC = () => {
                     <span className="font-bold text-midnight font-mono">85% Expert / 15% Platform</span>
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-timberwolf/30">
-                    <span className="text-midnight/70">Standard Listing Fee</span>
-                    <span className="font-bold text-midnight font-mono">₹2.00 (Waived for Admin-created)</span>
+                    <span className="text-midnight/70">Service Listing Fee</span>
+                    <span className="font-bold text-emerald-600 font-mono">Free (₹0.00 for all experts)</span>
                   </div>
                   <div className="flex items-center justify-between py-1.5">
                     <span className="text-midnight/70">Consultation Response SLA</span>
@@ -4461,168 +4238,6 @@ export const AdminPage: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* 9. CREATE / SCHEDULE CAMPAIGN MODAL */}
-      {campaignModalOpen && (
-        <div className="fixed inset-0 z-50 bg-midnight/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <form onSubmit={handleCreateCampaign} className="bg-white rounded-2xl border border-timberwolf/60 shadow-modal max-w-lg w-full p-6 text-midnight animate-fade-in space-y-4">
-            <div className="flex items-center justify-between border-b border-timberwolf/30 pb-3">
-              <div>
-                <h3 className="font-extrabold text-base text-midnight">Schedule Registration Campaign</h3>
-                <p className="text-[11px] text-midnight/60">Configure temporary promotion fee and server-authoritative time boundaries.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCampaignModalOpen(false)}
-                className="w-8 h-8 rounded-lg bg-aliceblue text-midnight/70 hover:text-midnight flex items-center justify-center cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3.5 text-xs">
-              <div>
-                <label className="block text-xs font-semibold text-midnight mb-1">Campaign Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={newCampaignName}
-                  onChange={(e) => setNewCampaignName(e.target.value)}
-                  placeholder="e.g. Launch Promotion — Free Expert Registration"
-                  className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-midnight mb-1">Description</label>
-                <textarea
-                  rows={2}
-                  value={newCampaignDesc}
-                  onChange={(e) => setNewCampaignDesc(e.target.value)}
-                  placeholder="e.g. 100% free expert registration and service listing for 24 hours (₹0.00 fee)."
-                  className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-midnight mb-1">Promotional Fee (INR ₹) *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    required
-                    value={newCampaignFee}
-                    onChange={(e) => setNewCampaignFee(parseFloat(e.target.value) || 0)}
-                    className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight font-mono focus:border-moonstone"
-                  />
-                  <span className="text-[10px] text-midnight/50 mt-0.5 block">Set ₹0.00 for 100% free waiver</span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-midnight mb-1">Duration Preset</label>
-                  <select
-                    value={newCampaignDurationHours}
-                    onChange={(e) => setNewCampaignDurationHours(parseInt(e.target.value) || 24)}
-                    className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
-                  >
-                    <option value={12}>12 Hours</option>
-                    <option value={24}>24 Hours (1 Day)</option>
-                    <option value={48}>48 Hours (2 Days)</option>
-                    <option value={72}>72 Hours (3 Days)</option>
-                    <option value={168}>7 Days (1 Week)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-midnight mb-1">Start Date & Time (Local / Server Time) *</label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={newCampaignStartTime}
-                  onChange={(e) => setNewCampaignStartTime(e.target.value)}
-                  className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight font-mono focus:border-moonstone"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-timberwolf/30">
-              <button
-                type="button"
-                onClick={() => setCampaignModalOpen(false)}
-                className="px-3 py-1.5 rounded-xl bg-white border border-timberwolf/70 text-xs font-semibold hover:bg-aliceblue cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={actionLoading === 'create-campaign'}
-                className="btn-shine px-4 py-1.5 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover cursor-pointer disabled:opacity-50"
-              >
-                {actionLoading === 'create-campaign' ? 'Creating...' : 'Activate / Schedule Campaign'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* 10. EDIT BASE LISTING FEE MODAL */}
-      {editBaseFeeModalOpen && (
-        <div className="fixed inset-0 z-50 bg-midnight/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <form onSubmit={handleSaveBaseFee} className="bg-white rounded-2xl border border-timberwolf/60 shadow-modal max-w-sm w-full p-6 text-midnight animate-fade-in space-y-4">
-            <div className="flex items-center justify-between border-b border-timberwolf/30 pb-3">
-              <div>
-                <h3 className="font-extrabold text-base text-midnight">Standard Base Listing Fee</h3>
-                <p className="text-[11px] text-midnight/60">Configured default expert fee when no promotion is active.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditBaseFeeModalOpen(false)}
-                className="w-8 h-8 rounded-lg bg-aliceblue text-midnight/70 hover:text-midnight flex items-center justify-center cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-xs font-semibold text-midnight mb-1">Standard Listing Fee (INR ₹) *</label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-2.5 text-midnight/50 font-mono font-bold">₹</span>
-                  <input
-                    type="number"
-                    step="0.25"
-                    min="0"
-                    required
-                    value={newBaseFeeInput}
-                    onChange={(e) => setNewBaseFeeInput(parseFloat(e.target.value) || 0)}
-                    className="w-full pl-7 pr-3.5 py-2.5 bg-white border border-timberwolf/70 rounded-xl text-xs text-midnight font-mono font-bold focus:border-moonstone"
-                  />
-                </div>
-                <span className="text-[10px] text-midnight/50 mt-1 block">Default platform baseline: ₹2.00</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-timberwolf/30">
-              <button
-                type="button"
-                onClick={() => setEditBaseFeeModalOpen(false)}
-                className="px-3 py-1.5 rounded-xl bg-white border border-timberwolf/70 text-xs font-semibold hover:bg-aliceblue cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={actionLoading === 'save-base-fee'}
-                className="btn-shine px-4 py-1.5 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover cursor-pointer disabled:opacity-50"
-              >
-                {actionLoading === 'save-base-fee' ? 'Saving...' : 'Save Base Fee'}
-              </button>
-            </div>
-          </form>
         </div>
       )}
     </div>

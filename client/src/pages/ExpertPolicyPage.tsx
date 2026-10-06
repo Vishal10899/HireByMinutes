@@ -84,7 +84,7 @@ const StaticExpertPolicyPageContent: React.FC = () => {
           <section className="space-y-3">
             <h2 className="text-base sm:text-lg font-bold text-midnight flex items-center gap-2">
               <IndianRupee className="w-4 h-4 text-moonstone" />
-              <span>2. Pricing Transparency & The ₹2 Listing Fee</span>
+              <span>2. Pricing Transparency & Free Service Creation</span>
             </h2>
             <p>
               HireByMinute uses transparent, per-minute billing. Providers must adhere to transparent pricing rules:
@@ -92,7 +92,7 @@ const StaticExpertPolicyPageContent: React.FC = () => {
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
               <li><strong>Explicit Per-Minute Rates:</strong> Rates must be clearly set (e.g. ₹50/min, ₹100/min) and reflect the total cost of consultative delivery during the session.</li>
               <li><strong>No Hidden Upcharges:</strong> You may not demand off-platform payments, hidden retainers, or unauthorized follow-up fees.</li>
-              <li><strong>Listing Activation Fee (₹2.00):</strong> Each published service requires a ₹2.00 cataloging activation fee (unless waived by platform administrator exception), which is non-refundable upon activation.</li>
+              <li><strong>Free Service Listings:</strong> Service creation and listing publication are 100% free for experts. The platform does not charge any upfront listing or registration fees.</li>
               <li><strong>85% Payout Economics:</strong> Providers receive 85% of total completed session fees; the platform retains 15% for signaling infrastructure, payment processing, and dispute moderation.</li>
             </ul>
           </section>

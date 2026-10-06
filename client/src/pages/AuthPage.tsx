@@ -13,7 +13,6 @@ import {
   Mail,
   User as UserIcon,
   Check,
-  Camera,
   RotateCcw,
   ArrowRight,
   ArrowLeft,
@@ -66,9 +65,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<'client' | 'provider'>('client');
-  const [avatarUrl, setAvatarUrl] = useState('');
-  const [avatarPreview, setAvatarPreview] = useState('');
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   // Password visibility
   const [showPassword, setShowPassword] = useState(false);
@@ -264,47 +260,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
     }
   };
 
-  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Profile photo must be smaller than 5MB.');
-      return;
-    }
-
-    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
-    if (!validTypes.includes(file.type)) {
-      setError('Only JPG, PNG, and WEBP image formats are supported.');
-      return;
-    }
-
-    setUploadingAvatar(true);
-    setError(null);
-    try {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setAvatarPreview(event.target.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
-
-      const res = await api.uploadAvatar(file);
-      setAvatarUrl(res.url);
-      setAvatarPreview(res.url);
-    } catch (err: any) {
-      setError(err.message || 'Photo upload failed.');
-    } finally {
-      setUploadingAvatar(false);
-    }
-  };
-
-  const handleRemovePhoto = () => {
-    setAvatarUrl('');
-    setAvatarPreview('');
-  };
-
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loading || isSubmittingRef.current) return;
@@ -349,7 +304,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
         password,
         full_name: fullName.trim(),
         role,
-        avatar_url: avatarUrl || undefined,
         headline: ''
       });
 
@@ -867,7 +821,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
                         >
                           <div className="flex items-center justify-between w-full mb-1">
                             <span className={`text-xs sm:text-sm font-bold ${role === 'client' ? 'text-midnight' : 'text-midnight/80'}`}>
-                              Hire Experts
+                              I want to hire an expert
                             </span>
                             <div className={`w-4 h-4 rounded-full flex items-center justify-center transition-colors ${
                               role === 'client' ? 'bg-midnight text-white' : 'border border-timberwolf/70 text-transparent'
@@ -876,7 +830,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
                             </div>
                           </div>
                           <p className="text-[11px] text-midnight/65 leading-tight">
-                            Pay by the minute for on-demand consulting
+                            Find professionals for on-demand, minute-based consultations.
                           </p>
                         </button>
 
@@ -894,7 +848,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
                         >
                           <div className="flex items-center justify-between w-full mb-1">
                             <span className={`text-xs sm:text-sm font-bold ${role === 'provider' ? 'text-midnight' : 'text-midnight/80'}`}>
-                              Offer Expertise
+                              I want to offer my expertise
                             </span>
                             <div className={`w-4 h-4 rounded-full flex items-center justify-center transition-colors ${
                               role === 'provider' ? 'bg-midnight text-white' : 'border border-timberwolf/70 text-transparent'
@@ -903,64 +857,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
                             </div>
                           </div>
                           <p className="text-[11px] text-midnight/65 leading-tight">
-                            Monetize your knowledge on your own terms
+                            Create a service, set your per-minute rate, and get hired by clients.
                           </p>
                         </button>
-                      </div>
-                    </div>
-
-                    {/* Optional Profile Photo Upload */}
-                    <div className="space-y-1.5 pt-0.5">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-xs font-semibold text-midnight">Profile Photo</label>
-                        <span className="text-[11px] font-medium text-midnight/50 bg-aliceblue px-2 py-0.5 rounded-md border border-timberwolf/40">
-                          Optional
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3.5 p-2.5 rounded-xl bg-aliceblue/30 border border-timberwolf/50">
-                        <div className="relative shrink-0">
-                          {avatarPreview ? (
-                            <img
-                              src={avatarPreview}
-                              alt="Profile preview"
-                              className="w-12 h-12 rounded-full object-cover border-2 border-moonstone/50 shadow-subtle"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 rounded-full bg-white border border-timberwolf/70 flex items-center justify-center text-midnight/40 shadow-subtle">
-                              <UserIcon className="w-5 h-5 stroke-[1.6]" />
-                            </div>
-                          )}
-                          {uploadingAvatar && (
-                            <div className="absolute inset-0 bg-midnight/60 rounded-full flex items-center justify-center text-white">
-                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex-1 flex flex-wrap items-center gap-2">
-                          <label className="px-3 py-1.5 rounded-lg border border-timberwolf/80 bg-white hover:border-midnight hover:bg-aliceblue text-midnight text-xs font-semibold cursor-pointer transition-all flex items-center gap-1.5 shadow-subtle">
-                            <Camera className="w-3.5 h-3.5 text-moonstone" />
-                            <span>{avatarUrl ? 'Change Photo' : 'Upload Photo'}</span>
-                            <input
-                              type="file"
-                              accept="image/png, image/jpeg, image/webp, image/jpg"
-                              onChange={handlePhotoSelect}
-                              className="hidden"
-                            />
-                          </label>
-                          {avatarUrl && (
-                            <button
-                              type="button"
-                              onClick={handleRemovePhoto}
-                              className="text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 cursor-pointer transition-colors"
-                            >
-                              Remove
-                            </button>
-                          )}
-                          <span className="text-[11px] text-midnight/50 w-full">
-                            JPG, PNG, or WEBP under 5MB
-                          </span>
-                        </div>
                       </div>
                     </div>
 

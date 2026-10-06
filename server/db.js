@@ -1224,8 +1224,8 @@ function ensureSettingsAndAdmin(dbInstance) {
   `);
 
   insertSetting.run('platform_name', 'HireByMinute', 'The official platform brand name');
-  insertSetting.run('listing_fee_inr', '2.00', 'One-time fee in INR to publish a service listing');
-  insertSetting.run('listing_fee_usd', '2.00', 'One-time fee in USD to publish a service listing');
+  insertSetting.run('listing_fee_inr', '0.00', 'Service listing is free for experts');
+  insertSetting.run('listing_fee_usd', '0.00', 'Service listing is free for experts');
   insertSetting.run('currency', 'INR', 'Platform base currency');
   insertSetting.run('currency_symbol', '₹', 'Platform base currency symbol');
   insertSetting.run('platform_fee_percent', '15', 'Standard percentage fee taken from completed session payments');

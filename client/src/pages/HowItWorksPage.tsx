@@ -453,9 +453,9 @@ export const HowItWorksPage: React.FC = () => {
             </div>
 
             <div className="space-y-1.5">
-              <h4 className="font-bold text-midnight">Listing Activation Fee</h4>
+              <h4 className="font-bold text-midnight">Free Service Creation</h4>
               <p className="text-midnight/70 leading-relaxed">
-                A one-time ₹2.00 listing fee applies when publishing new services to protect marketplace quality and prevent spam catalog indexing.
+                Publishing service listings is 100% free for experts. The platform charges no upfront registration or cataloging fees.
               </p>
             </div>
 

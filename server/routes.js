@@ -128,112 +128,19 @@ function sanitizeUser(user) {
   return safe;
 }
 
-// Server-Authoritative Listing / Registration Fee Calculator (with Temporary Campaigns & Automatic Expiration)
+// Server-Authoritative Listing Policy: Service creation is 100% FREE on HireByMinute
 function getEffectiveListingFee() {
-  let baseFee = 2.00;
-  try {
-    const settingInr = db.prepare("SELECT value FROM platform_settings WHERE key = 'listing_fee_inr'").get();
-    if (settingInr && settingInr.value !== undefined) {
-      const parsed = parseFloat(settingInr.value);
-      if (!isNaN(parsed)) baseFee = parsed;
-    } else {
-      const settingUsd = db.prepare("SELECT value FROM platform_settings WHERE key = 'listing_fee_usd'").get();
-      if (settingUsd && settingUsd.value !== undefined) {
-        const parsed = parseFloat(settingUsd.value);
-        if (!isNaN(parsed)) baseFee = parsed;
-      }
-    }
-  } catch (e) {
-    baseFee = parseFloat(process.env.LISTING_FEE_INR) || parseFloat(process.env.LISTING_FEE_USD) || 2.00;
-  }
-
-  const now = Date.now();
-  const nowIso = new Date().toISOString();
-
-  try {
-    const campaigns = db.prepare(`
-      SELECT * FROM registration_campaigns 
-      WHERE status != 'cancelled' 
-      ORDER BY created_at DESC
-    `).all();
-
-    const updateStatus = db.prepare('UPDATE registration_campaigns SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
-
-    let activeCampaign = null;
-    const upcomingCampaigns = [];
-
-    for (const camp of campaigns) {
-      const startMs = new Date(camp.start_time).getTime();
-      const endMs = new Date(camp.end_time).getTime();
-
-      if (now > endMs) {
-        if (camp.status !== 'expired') {
-          updateStatus.run('expired', camp.id);
-          camp.status = 'expired';
-        }
-      } else if (now < startMs) {
-        if (camp.status !== 'scheduled' && camp.is_active === 1) {
-          updateStatus.run('scheduled', camp.id);
-          camp.status = 'scheduled';
-        }
-        upcomingCampaigns.push(camp);
-      } else {
-        // now >= startMs && now <= endMs
-        if (camp.is_active === 1) {
-          if (camp.status !== 'active') {
-            updateStatus.run('active', camp.id);
-            camp.status = 'active';
-          }
-          if (!activeCampaign) {
-            activeCampaign = camp;
-          }
-        }
-      }
-    }
-
-    if (activeCampaign) {
-      const endMs = new Date(activeCampaign.end_time).getTime();
-      const remainingSeconds = Math.max(0, Math.floor((endMs - now) / 1000));
-      const fee = Number(activeCampaign.fee_inr !== undefined ? activeCampaign.fee_inr : activeCampaign.fee_usd);
-      return {
-        fee,
-        baseFee,
-        currency: CURRENCY,
-        currency_symbol: CURRENCY_SYMBOL,
-        isPromotionActive: true,
-        activeCampaign: {
-          ...activeCampaign,
-          fee_inr: fee,
-          remaining_seconds: remainingSeconds
-        },
-        upcomingCampaigns,
-        serverTime: nowIso
-      };
-    }
-
-    return {
-      fee: baseFee,
-      baseFee,
-      currency: CURRENCY,
-      currency_symbol: CURRENCY_SYMBOL,
-      isPromotionActive: false,
-      activeCampaign: null,
-      upcomingCampaigns,
-      serverTime: nowIso
-    };
-  } catch (err) {
-    console.error('[getEffectiveListingFee Error]', err.message);
-    return {
-      fee: baseFee,
-      baseFee,
-      currency: CURRENCY,
-      currency_symbol: CURRENCY_SYMBOL,
-      isPromotionActive: false,
-      activeCampaign: null,
-      upcomingCampaigns: [],
-      serverTime: nowIso
-    };
-  }
+  return {
+    fee: 0,
+    baseFee: 0,
+    currency: CURRENCY,
+    currency_symbol: CURRENCY_SYMBOL,
+    isFree: true,
+    isPromotionActive: false,
+    activeCampaign: null,
+    upcomingCampaigns: [],
+    serverTime: new Date().toISOString()
+  };
 }
 
 // Server-Authoritative Razorpay Native Order Dispatch Helper (Strictly INR)
@@ -1973,7 +1880,7 @@ module.exports = function(timerEngine, io) {
     });
   });
 
-  // Create Service Listing (Provider Onboarding Flow)
+  // Create Service Listing (Provider Service Creation — 100% Free on HireByMinute)
   router.post('/services', authMiddleware, (req, res) => {
     const { title, category_id, description, price_per_minute, skills = [], languages = ['English'], experience_years = 5, available_now = 1 } = req.body;
 
@@ -1982,98 +1889,86 @@ module.exports = function(timerEngine, io) {
     }
 
     const id = `srv-${uuidv4().slice(0, 8)}`;
-    const feeData = getEffectiveListingFee();
-    const isFreePromotion = feeData.fee === 0;
 
-    if (isFreePromotion) {
-      // Free promotion active: activate service immediately (₹0 fee)
-      const paymentId = `promo-free-${uuidv4().slice(0, 8)}`;
-      db.prepare(`
-        INSERT INTO services (id, provider_id, title, category_id, description, price_per_minute, listing_status, listing_fee_paid, listing_fee_payment_id, skills_json, languages_json, experience_years, available_now)
-        VALUES (?, ?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?, ?)
-      `).run(
-        id,
-        req.user.id,
-        title.trim(),
-        category_id,
-        description.trim(),
-        Number(price_per_minute),
-        paymentId,
-        JSON.stringify(skills),
-        JSON.stringify(languages),
-        Number(experience_years),
-        available_now ? 1 : 0
-      );
+    db.prepare(`
+      INSERT INTO services (
+        id, provider_id, title, category_id, description, price_per_minute,
+        listing_status, listing_fee_paid, listing_fee_payment_id, skills_json, languages_json,
+        experience_years, available_now
+      )
+      VALUES (?, ?, ?, ?, ?, ?, 'active', 1, NULL, ?, ?, ?, ?)
+    `).run(
+      id,
+      req.user.id,
+      title.trim(),
+      category_id,
+      description.trim(),
+      Number(price_per_minute),
+      JSON.stringify(skills),
+      JSON.stringify(languages),
+      Number(experience_years),
+      available_now ? 1 : 0
+    );
 
-      // Log ₹0 promotional listing payment record
-      db.prepare(`
-        INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
-        VALUES (?, ?, 'listing_fee', 0.00, 'succeeded', ?, ?)
-      `).run(paymentId, req.user.id, id, JSON.stringify({
-        service_title: title.trim(),
-        campaign_id: feeData.activeCampaign?.id || 'launch-promo',
-        description: 'Temporary Launch Promotion: ₹0 Free Registration & Listing Fee'
-      }));
+    db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(category_id);
 
-      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(category_id);
+    db.prepare(`
+      INSERT INTO notifications (id, user_id, title, message, type, link)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      `notif-${uuidv4().slice(0, 8)}`,
+      req.user.id,
+      'Service is Live',
+      `"${title.trim()}" is now published and active on the marketplace.`,
+      'success',
+      `/services/${id}`
+    );
 
-      db.prepare(`
-        INSERT INTO notifications (id, user_id, title, message, type, link)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
-        `notif-${uuidv4().slice(0, 8)}`,
-        req.user.id,
-        'Service is Live (Free Launch Promotion)',
-        `"${title.trim()}" is active and published immediately with ₹0 listing fee!`,
-        'success',
-        `/services/${id}`
-      );
-
-      if (req.user.role !== 'admin' && req.user.role !== 'provider') {
-        db.prepare(`UPDATE users SET role = 'provider' WHERE id = ?`).run(req.user.id);
-      }
-
-      const created = db.prepare('SELECT * FROM services WHERE id = ?').get(id);
-      return res.status(201).json({
-        service: created,
-        is_free: true,
-        message: 'Free registration campaign active! Your service listing is live immediately with ₹0 listing fee.'
-      });
-    } else {
-      // Normal listing fee applies: create draft
-      db.prepare(`
-        INSERT INTO services (id, provider_id, title, category_id, description, price_per_minute, listing_status, listing_fee_paid, skills_json, languages_json, experience_years, available_now)
-        VALUES (?, ?, ?, ?, ?, ?, 'pending_payment', 0, ?, ?, ?, ?)
-      `).run(
-        id,
-        req.user.id,
-        title.trim(),
-        category_id,
-        description.trim(),
-        Number(price_per_minute),
-        JSON.stringify(skills),
-        JSON.stringify(languages),
-        Number(experience_years),
-        available_now ? 1 : 0
-      );
-
-      if (req.user.role !== 'admin' && req.user.role !== 'provider') {
-        db.prepare(`UPDATE users SET role = 'provider' WHERE id = ?`).run(req.user.id);
-      }
-
-      const created = db.prepare('SELECT * FROM services WHERE id = ?').get(id);
-      return res.status(201).json({
-        service: created,
-        is_free: false,
-        fee: feeData.fee,
-        currency: CURRENCY,
-        currency_symbol: CURRENCY_SYMBOL,
-        message: `Service draft created. Pay ${formatINR(feeData.fee)} listing fee to publish.`
-      });
+    if (req.user.role !== 'admin' && req.user.role !== 'provider') {
+      db.prepare(`UPDATE users SET role = 'provider' WHERE id = ?`).run(req.user.id);
     }
+
+    const created = db.prepare('SELECT * FROM services WHERE id = ?').get(id);
+    return res.status(201).json({
+      success: true,
+      service: created,
+      is_free: true,
+      fee: 0,
+      currency: CURRENCY,
+      currency_symbol: CURRENCY_SYMBOL,
+      message: 'Your service is now live.'
+    });
   });
 
-  // Pay Listing Fee to Activate Service (Secured: strictly allows only valid ₹0 free promotional activations)
+  // Publish / Activate Service Directly (Free on HireByMinute)
+  router.post('/services/:id/publish', authMiddleware, (req, res) => {
+    const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
+    if (!service) return res.status(404).json({ error: 'Service not found' });
+    if (service.provider_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized to publish this service.' });
+    }
+
+    const wasActive = service.listing_status === 'active';
+    db.prepare(`
+      UPDATE services 
+      SET listing_status = 'active', listing_fee_paid = 1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(service.id);
+
+    if (!wasActive) {
+      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
+    }
+
+    const updated = db.prepare('SELECT * FROM services WHERE id = ?').get(service.id);
+    res.json({
+      success: true,
+      service: updated,
+      is_free: true,
+      message: 'Your service is now live.'
+    });
+  });
+
+  // Legacy activation compatibility handlers (100% Free - Safe and immediate)
   router.post('/services/:id/pay-listing-fee', authMiddleware, (req, res) => {
     const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
     if (!service) return res.status(404).json({ error: 'Service not found' });
@@ -2081,241 +1976,82 @@ module.exports = function(timerEngine, io) {
       return res.status(403).json({ error: 'Unauthorized to publish this service.' });
     }
 
-    if (service.listing_status === 'active' && service.listing_fee_paid === 1) {
-      return res.json({ success: true, message: 'Service is already active and published.', service });
-    }
-
-    const feeData = getEffectiveListingFee();
-    const feeAmount = feeData.fee;
-
-    // If fee > 0, direct activation without verified payment gateway processing is strictly prohibited
-    if (feeAmount > 0) {
-      return res.status(400).json({
-        error: `Payment of ${formatINR(feeAmount)} is required to activate this listing. Please complete payment via Razorpay.`,
-        requires_checkout: true,
-        fee: feeAmount,
-        currency: CURRENCY
-      });
-    }
-
-    // Free activation exclusively allowed when server-authoritative effective fee is ₹0
-    const paymentId = `promo-free-${uuidv4().slice(0, 8)}`;
-
-    db.prepare(`
-      INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
-      VALUES (?, ?, 'listing_fee', 0.00, 'succeeded', ?, ?)
-    `).run(paymentId, req.user.id, service.id, JSON.stringify({
-      currency: CURRENCY,
-      service_title: service.title,
-      description: 'Temporary Launch Promotion: ₹0 Free Registration & Listing Fee'
-    }));
-
+    const wasActive = service.listing_status === 'active';
     db.prepare(`
       UPDATE services 
-      SET listing_status = 'active', listing_fee_paid = 1, listing_fee_payment_id = ?, updated_at = CURRENT_TIMESTAMP
+      SET listing_status = 'active', listing_fee_paid = 1, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(paymentId, service.id);
+    `).run(service.id);
 
-    db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
+    if (!wasActive) {
+      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
+    }
 
-    db.prepare(`
-      INSERT INTO notifications (id, user_id, title, message, type, link)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      `notif-${uuidv4().slice(0, 8)}`,
-      req.user.id,
-      'Service is Live (Free Promotion)',
-      `"${service.title}" is now active and ready for bookings.`,
-      'success',
-      `/services/${service.id}`
-    );
-
+    const updated = db.prepare('SELECT * FROM services WHERE id = ?').get(service.id);
     res.json({
       success: true,
       free_activated: true,
-      message: 'Free launch promotion applied! Service is live.',
-      paymentId,
+      service: updated,
+      is_free: true,
       fee: 0,
-      currency: CURRENCY
+      currency: CURRENCY,
+      message: 'Your service is now live.'
     });
   });
 
-  // Create Razorpay Order for Listing Fee (Server-Authoritative)
-  router.post('/services/:id/create-listing-order', authMiddleware, async (req, res) => {
+  router.post('/services/:id/create-listing-order', authMiddleware, (req, res) => {
     const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
     if (!service) return res.status(404).json({ error: 'Service not found' });
     if (service.provider_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Unauthorized to publish this service.' });
     }
 
-    if (service.listing_status === 'active' && service.listing_fee_paid === 1) {
-      return res.json({ success: true, already_active: true, message: 'Service is already active.', service });
-    }
-
-    const feeData = getEffectiveListingFee();
-    const listingFeeInr = feeData.fee;
-
-    // If promotion is active and fee is 0, activate immediately with no Razorpay order
-    if (listingFeeInr === 0) {
-      const paymentId = `promo-free-${uuidv4().slice(0, 8)}`;
-      db.prepare(`
-        INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
-        VALUES (?, ?, 'listing_fee', 0.00, 'succeeded', ?, ?)
-      `).run(paymentId, req.user.id, service.id, JSON.stringify({
-        currency: CURRENCY,
-        service_title: service.title,
-        description: 'Temporary Launch Promotion: ₹0 Free Registration & Listing Fee'
-      }));
-
-      db.prepare(`
-        UPDATE services 
-        SET listing_status = 'active', listing_fee_paid = 1, listing_fee_payment_id = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(paymentId, service.id);
-
-      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
-
-      return res.json({
-        free_activated: true,
-        amount: 0,
-        currency: CURRENCY,
-        message: 'Free registration promotion applied! Service is live.'
-      });
-    }
-
-    const amountInPaise = toPaise(listingFeeInr);
-
-    try {
-      const order = await createRazorpayNativeOrder({
-        amountPaise: amountInPaise,
-        receipt: `fee_${service.id.slice(0, 32)}`,
-        notes: {
-          service_id: service.id,
-          provider_id: service.provider_id,
-          service_title: service.title,
-          currency: CURRENCY
-        }
-      });
-
-      return res.json({
-        order_id: order.order_id,
-        amount: listingFeeInr,
-        amount_paise: amountInPaise,
-        currency: CURRENCY,
-        key_id: order.key_id,
-        service_id: service.id
-      });
-    } catch (err) {
-      console.error('[Razorpay Listing Fee Order Error]', err.message);
-      return res.status(err.statusCode || 500).json({ error: 'Payment could not be initialized. Please try again.' });
-    }
-  });
-
-  // Verify Razorpay Payment for Listing Fee (Server-Authoritative)
-  router.post('/services/:id/verify-listing-payment', authMiddleware, async (req, res) => {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-    const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
-    if (!service) return res.status(404).json({ error: 'Service not found' });
-    if (service.provider_id !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Unauthorized to publish this service.' });
-    }
-
-    if (service.listing_status === 'active' && service.listing_fee_paid === 1) {
-      return res.json({ success: true, message: 'Service is already active and published.', service });
-    }
-
-    const keySecret = (process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : '')).trim().replace(/^["']|["']$/g, '');
-    if (process.env.NODE_ENV === 'production') {
-      if (!keySecret) {
-        return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required in production.' });
-      }
-      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-        return res.status(400).json({ error: 'Missing Razorpay signature verification parameters.' });
-      }
-
-      const generatedSignature = crypto
-        .createHmac('sha256', keySecret)
-        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-        .digest('hex');
-
-      if (generatedSignature !== razorpay_signature) {
-        return res.status(400).json({ error: 'Invalid Razorpay payment signature. Verification failed.' });
-      }
-    } else {
-      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-        return res.status(400).json({ error: 'Missing Razorpay signature verification parameters.' });
-      }
-      const generatedSignature = crypto
-        .createHmac('sha256', keySecret)
-        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-        .digest('hex');
-
-      if (generatedSignature !== razorpay_signature) {
-        return res.status(400).json({ error: 'Invalid Razorpay payment signature. Verification failed.' });
-      }
-    }
-
-    // Replay Protection & Idempotency check for payment ID
-    if (razorpay_payment_id) {
-      const existingPayment = db.prepare('SELECT * FROM payments WHERE id = ?').get(razorpay_payment_id);
-      if (existingPayment) {
-        if (existingPayment.reference_id === service.id) {
-          return res.json({
-            success: true,
-            currency: CURRENCY,
-            message: 'Payment was already verified. Service is active.',
-            service: db.prepare('SELECT * FROM services WHERE id = ?').get(service.id),
-            paymentId: razorpay_payment_id
-          });
-        }
-        return res.status(409).json({ error: 'Payment ID has already been recorded for another transaction.' });
-      }
-    }
-
-    const feeData = getEffectiveListingFee();
-    const listingFeeInr = feeData.fee;
-    const paymentId = razorpay_payment_id || `pay-fee-${uuidv4().slice(0, 8)}`;
-
-    db.prepare(`
-      INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
-      VALUES (?, ?, 'listing_fee', ?, 'succeeded', ?, ?)
-    `).run(paymentId, req.user.id, listingFeeInr, service.id, JSON.stringify({
-      gateway: 'razorpay',
-      currency: CURRENCY,
-      order_id: razorpay_order_id,
-      payment_id: razorpay_payment_id,
-      service_title: service.title,
-      description: `HireByMinute ${formatINR(listingFeeInr)} Service Listing Activation Fee`
-    }));
-
+    const wasActive = service.listing_status === 'active';
     db.prepare(`
       UPDATE services 
-      SET listing_status = 'active', listing_fee_paid = 1, listing_fee_payment_id = ?, updated_at = CURRENT_TIMESTAMP
+      SET listing_status = 'active', listing_fee_paid = 1, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(paymentId, service.id);
+    `).run(service.id);
 
-    db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
+    if (!wasActive) {
+      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
+    }
 
+    const updated = db.prepare('SELECT * FROM services WHERE id = ?').get(service.id);
+    return res.json({
+      success: true,
+      free_activated: true,
+      amount: 0,
+      currency: CURRENCY,
+      service: updated,
+      message: 'Your service is now live.'
+    });
+  });
+
+  router.post('/services/:id/verify-listing-payment', authMiddleware, (req, res) => {
+    const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
+    if (!service) return res.status(404).json({ error: 'Service not found' });
+    if (service.provider_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized to publish this service.' });
+    }
+
+    const wasActive = service.listing_status === 'active';
     db.prepare(`
-      INSERT INTO notifications (id, user_id, title, message, type, link)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      `notif-${uuidv4().slice(0, 8)}`,
-      req.user.id,
-      'Service is Live (Razorpay Verified)',
-      `"${service.title}" is now active and ready for bookings.`,
-      'success',
-      `/services/${service.id}`
-    );
+      UPDATE services 
+      SET listing_status = 'active', listing_fee_paid = 1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(service.id);
 
-    const updatedService = db.prepare('SELECT * FROM services WHERE id = ?').get(service.id);
+    if (!wasActive) {
+      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
+    }
 
+    const updated = db.prepare('SELECT * FROM services WHERE id = ?').get(service.id);
     res.json({
       success: true,
-      message: 'Razorpay payment verified. Your service is now live on HireByMinute!',
-      service: updatedService,
-      paymentId,
-      fee: listingFeeUsd
+      service: updated,
+      is_free: true,
+      message: 'Your service is now live.'
     });
   });
 

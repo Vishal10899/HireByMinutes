@@ -231,12 +231,12 @@ function runRazorpayCurrencyTests() {
     assert.strictEqual(routesCode.includes('amount: amountPaise'), true);
   });
 
-  runTest('13. Service listing order creation calculates paise from listing_fee_inr', () => {
+  runTest('13. Service listings are free (₹0) and require no Razorpay listing order', () => {
     const routesCode = fs.readFileSync(path.join(ROOT_DIR, 'server', 'routes.js'), 'utf-8');
 
-    assert.strictEqual(routesCode.includes('/services/:id/create-listing-order'), true);
-    assert.strictEqual(routesCode.includes('toPaise(listingFeeInr)'), true);
-    assert.strictEqual(routesCode.includes('currency: CURRENCY'), true);
+    assert.strictEqual(routesCode.includes('getEffectiveListingFee'), true);
+    assert.strictEqual(routesCode.includes('isFree: true'), true);
+    assert.strictEqual(routesCode.includes("listing_status = 'active'"), true);
   });
 
   runTest('14. Consultation order creation calculates paise correctly and enforces INR', () => {
@@ -272,10 +272,10 @@ function runRazorpayCurrencyTests() {
   // -------------------------------------------------------------
   console.log('\n--- Suite 7: Database Schema & Configuration ---');
 
-  runTest('18. Database settings default listing_fee_inr to 2.00 and currency to INR', () => {
+  runTest('18. Database settings default listing_fee_inr to 0.00 (free) and currency to INR', () => {
     const dbCode = fs.readFileSync(path.join(ROOT_DIR, 'server', 'db.js'), 'utf-8');
 
-    assert.strictEqual(dbCode.includes("'listing_fee_inr', '2.00'"), true);
+    assert.strictEqual(dbCode.includes("'listing_fee_inr', '0.00'"), true);
     assert.strictEqual(dbCode.includes("'currency', 'INR'"), true);
     assert.strictEqual(dbCode.includes("'currency_symbol', '₹'"), true);
   });

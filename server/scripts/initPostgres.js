@@ -514,8 +514,8 @@ async function initPostgres(customPool = null) {
     const defaultSettings = [
       ['platform_name', 'HireByMinute', 'The public platform name'],
       ['platform_fee_percent', '15', 'Platform take rate percentage on consultations'],
-      ['listing_fee_inr', '2.00', 'Flat fee in INR charged to experts to activate a service listing'],
-      ['listing_fee_usd', '2.00', 'Flat fee charged to experts to activate a service listing'],
+      ['listing_fee_inr', '0.00', 'Service listing is free for experts'],
+      ['listing_fee_usd', '0.00', 'Service listing is free for experts'],
       ['currency', 'INR', 'Platform base currency'],
       ['currency_symbol', '₹', 'Platform base currency symbol'],
       ['min_session_duration', '5', 'Minimum consultation duration in minutes'],

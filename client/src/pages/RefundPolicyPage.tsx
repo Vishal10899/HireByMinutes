@@ -120,15 +120,15 @@ const StaticRefundPolicyPageContent: React.FC = () => {
           <section className="space-y-3">
             <h2 className="text-base sm:text-lg font-bold text-midnight flex items-center gap-2">
               <IndianRupee className="w-4 h-4 text-moonstone" />
-              <span>3. Service Listing Activation Fee Policy</span>
+              <span>3. Service Listing Policy</span>
             </h2>
             <p>
-              The ₹2.00 listing fee is a one-time administrative cataloging fee charged when an Expert publishes a new service.
+              Service listing creation is 100% free for all registered experts and service providers.
             </p>
             <ul className="list-disc pl-5 space-y-1.5 text-midnight/80">
-              <li>Listing fees cover catalog indexing, database hosting, and spam mitigation.</li>
-              <li>Once a service listing is activated and published to the public marketplace, the ₹2.00 listing fee is non-refundable.</li>
-              <li>Administrative exceptions (₹0 fee waivers) applied by platform administrators carry no fee balance and are non-convertible.</li>
+              <li>Experts are never charged an upfront listing, publishing, or activation fee.</li>
+              <li>Platform fees apply exclusively to completed client consultations, deducted upon settlement.</li>
+              <li>Because listing creation is completely free, there are no upfront listing fees to refund.</li>
             </ul>
           </section>
 

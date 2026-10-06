@@ -295,7 +295,7 @@ export const ProviderDashboardPage: React.FC = () => {
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-xs hover:bg-midnight-hover shadow-subtle transition-colors"
           >
             <PlusCircle className="w-4 h-4 text-moonstone" />
-            <span>Add New Service (₹2 Fee)</span>
+            <span>Add New Service</span>
           </Link>
         </div>
       </div>
