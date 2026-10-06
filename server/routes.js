@@ -191,8 +191,10 @@ async function createRazorpayNativeOrder({ amountPaise, receipt, notes = {} }) {
       console.warn('[Razorpay Credential Inversion Corrected] Using automatically corrected Key ID and Secret for gateway order.');
     }
 
+    let effectiveKeyId = keyId;
+    let effectiveKeySecret = keySecret;
     const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-    const rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
+    let rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
       method: 'POST',
       headers: {
         'Authorization': authHeader,
@@ -208,6 +210,35 @@ async function createRazorpayNativeOrder({ amountPaise, receipt, notes = {} }) {
         }
       })
     });
+
+    // If 401 Authentication failed and we haven't already swapped, attempt automatic recovery with inverted credentials
+    if (rzpRes.status === 401 && !resolved.isSwapped && keySecret && keyId) {
+      console.warn('[Razorpay Order Inverted Retry] Primary credentials rejected with 401. Testing inverted (swapped) Key ID/Secret pair...');
+      const swappedAuth = 'Basic ' + Buffer.from(`${keySecret}:${keyId}`).toString('base64');
+      const swappedRes = await fetch('https://api.razorpay.com/v1/orders', {
+        method: 'POST',
+        headers: {
+          'Authorization': swappedAuth,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          amount: amountPaise,
+          currency: CURRENCY,
+          receipt: String(receipt).slice(0, 40),
+          notes: {
+            ...notes,
+            currency: CURRENCY
+          }
+        })
+      });
+
+      if (swappedRes.ok) {
+        console.log('[Razorpay Order Inverted Recovery SUCCESS] Inverted Key ID/Secret pair authenticated successfully! Using inverted credentials.');
+        rzpRes = swappedRes;
+        effectiveKeyId = keySecret;
+        effectiveKeySecret = keyId;
+      }
+    }
 
     if (!rzpRes.ok) {
       let rzpErr = {};
@@ -245,7 +276,7 @@ async function createRazorpayNativeOrder({ amountPaise, receipt, notes = {} }) {
     return {
       order_id: rzpOrder.id,
       currency: rzpOrder.currency || CURRENCY,
-      key_id: keyId,
+      key_id: effectiveKeyId,
       amount_paise: amountPaise
     };
   } else {
@@ -2677,7 +2708,7 @@ module.exports = function(timerEngine, io) {
 
       return res.json({
         order_id: order.order_id,
-        amount: finalAmount,
+        amount: request.total_price,
         amount_paise: amountInPaise,
         currency: order.currency,
         key_id: order.key_id,
@@ -2744,12 +2775,19 @@ module.exports = function(timerEngine, io) {
         return res.status(400).json({ error: 'Missing Razorpay signature verification parameters.' });
       }
 
-      const generatedSignature = crypto
+      const generatedSignature1 = crypto
         .createHmac('sha256', keySecret)
         .update(`${razorpay_order_id}|${razorpay_payment_id}`)
         .digest('hex');
+      const fallbackKey = resolvedCredentials.keyId ? resolvedCredentials.keyId.trim().replace(/^["']|["']$/g, '') : '';
+      const generatedSignature2 = fallbackKey
+        ? crypto.createHmac('sha256', fallbackKey).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest('hex')
+        : '';
 
-      if (generatedSignature !== razorpay_signature) {
+      const match1 = generatedSignature1 === razorpay_signature;
+      const match2 = Boolean(generatedSignature2 && generatedSignature2 === razorpay_signature);
+
+      if (!match1 && !match2) {
         return res.status(400).json({ error: 'Invalid Razorpay payment signature. Verification failed.' });
       }
     } else {

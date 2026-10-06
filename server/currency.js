@@ -150,6 +150,12 @@ function getRazorpaySafeDiagnostics(customEnv = process.env, dbSettings = {}) {
     isSwapped: resolved.isSwapped,
     mode: resolved.mode,
     source: resolved.source,
+    secret_starts_with_rzp: Boolean(keySecret && keySecret.toLowerCase().startsWith('rzp')),
+    secret_contains_live: Boolean(keySecret && keySecret.toLowerCase().includes('live')),
+    secret_contains_test: Boolean(keySecret && keySecret.toLowerCase().includes('test')),
+    secret_is_hex: Boolean(keySecret && /^[0-9a-fA-F]+$/.test(keySecret)),
+    secret_prefix_safe: keySecret ? keySecret.slice(0, 3) : null,
+    key_id_prefix_safe: keyId ? keyId.slice(0, 3) : null,
     environment: customEnv.NODE_ENV || 'development',
     currency_requested: CURRENCY
   };
