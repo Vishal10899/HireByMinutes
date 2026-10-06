@@ -237,6 +237,10 @@ export const ServiceDetailPage: React.FC = () => {
       // 1. Create server-authoritative Razorpay order
       const orderRes = await api.createRazorpayOrder(activeRequest.id);
 
+      if (!orderRes || !orderRes.order_id || !orderRes.key_id) {
+        throw new Error('Payment gateway order was not properly initialized. Please try again.');
+      }
+
       // Ensure Razorpay SDK is available
       const ensureRazorpayLoaded = (): Promise<boolean> => {
         return new Promise((resolve) => {
@@ -289,7 +293,9 @@ export const ServiceDetailPage: React.FC = () => {
               navigate('/client');
             }
           } catch (verifyErr: any) {
-            alert(verifyErr.message || 'Payment verification failed. Please contact support.');
+            const verifyMsg = verifyErr.message || 'Payment verification failed. Please contact support.';
+            setFormError(verifyMsg);
+            alert(verifyMsg);
           } finally {
             setPaying(false);
           }
@@ -303,12 +309,16 @@ export const ServiceDetailPage: React.FC = () => {
 
       const rzp = new (window as any).Razorpay(options);
       rzp.on('payment.failed', (failResp: any) => {
-        alert(failResp.error?.description || 'Payment was cancelled or failed.');
+        const failMsg = failResp.error?.description || 'Payment was cancelled or failed.';
+        setFormError(failMsg);
+        alert(failMsg);
         setPaying(false);
       });
       rzp.open();
     } catch (err: any) {
-      alert(err.message || 'Failed to initialize payment gateway.');
+      const errorMsg = err.message || 'Payment could not be initialized. Please try again.';
+      setFormError(errorMsg);
+      alert(errorMsg);
       setPaying(false);
     }
   };

@@ -206,6 +206,10 @@ export const ClientDashboardPage: React.FC = () => {
       // 1. Create server-authoritative Razorpay order
       const orderRes = await api.createRazorpayOrder(requestId);
 
+      if (!orderRes || !orderRes.order_id || !orderRes.key_id) {
+        throw new Error('Payment gateway order was not properly initialized. Please try again.');
+      }
+
       // Ensure Razorpay SDK is available
       const ensureRazorpayLoaded = (): Promise<boolean> => {
         return new Promise((resolve) => {

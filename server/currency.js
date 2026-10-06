@@ -61,17 +61,65 @@ function formatINR(amount, options = {}) {
 }
 
 /**
+ * Resolves and sanitizes Razorpay credentials from environment variables or database platform_settings.
+ * Automatically detects and corrects if Key ID and Key Secret were inverted/swapped during deployment.
+ * @param {object} [customEnv=process.env]
+ * @param {object} [dbSettings={}] - Optional database platform_settings map
+ * @returns {object} Resolved credentials object
+ */
+function resolveRazorpayCredentials(customEnv = process.env, dbSettings = {}) {
+  // Check database settings first if available, then fallback to environment variables
+  const rawKeyId = (dbSettings.razorpay_key_id || customEnv.RAZORPAY_KEY_ID || '').toString();
+  const rawKeySecret = (dbSettings.razorpay_key_secret || customEnv.RAZORPAY_KEY_SECRET || '').toString();
+  const rawWebhookSecret = (dbSettings.razorpay_webhook_secret || customEnv.RAZORPAY_WEBHOOK_SECRET || '').toString();
+
+  let keyId = rawKeyId.trim().replace(/^["']|["']$/g, '');
+  let keySecret = rawKeySecret.trim().replace(/^["']|["']$/g, '');
+  const webhookSecret = rawWebhookSecret.trim().replace(/^["']|["']$/g, '');
+
+  let isSwapped = false;
+  // Detect if Key ID and Key Secret were accidentally swapped/inverted during deployment:
+  // Legitimate Razorpay Key IDs strictly start with 'rzp_live_' or 'rzp_test_'.
+  // If keySecret has 'rzp_live_' or 'rzp_test_' while keyId does NOT, they are definitely inverted.
+  const secretLooksLikeKeyId = keySecret.startsWith('rzp_live_') || keySecret.startsWith('rzp_test_');
+  const keyIdLooksLikeSecret = keyId.length > 0 && !keyId.startsWith('rzp_live_') && !keyId.startsWith('rzp_test_');
+
+  if (secretLooksLikeKeyId && keyIdLooksLikeSecret) {
+    isSwapped = true;
+    const temp = keyId;
+    keyId = keySecret;
+    keySecret = temp;
+  }
+
+  const isConfigured = Boolean(keyId && keySecret && !keyId.includes('placeholder'));
+  const mode = keyId.startsWith('rzp_live_') ? 'live' : keyId.startsWith('rzp_test_') ? 'test' : 'unknown';
+
+  return {
+    keyId,
+    keySecret,
+    webhookSecret,
+    isSwapped,
+    isConfigured,
+    mode,
+    source: dbSettings.razorpay_key_id ? 'database' : (customEnv.RAZORPAY_KEY_ID ? 'environment' : 'none')
+  };
+}
+
+/**
  * Safe diagnostics for Razorpay credentials without exposing secrets.
+ * @param {object} [customEnv=process.env]
+ * @param {object} [dbSettings={}]
  * @returns {object} Safe diagnostics object
  */
-function getRazorpaySafeDiagnostics(customEnv = process.env) {
+function getRazorpaySafeDiagnostics(customEnv = process.env, dbSettings = {}) {
   const rawKeyId = customEnv.RAZORPAY_KEY_ID || '';
   const rawKeySecret = customEnv.RAZORPAY_KEY_SECRET || '';
   const rawWebhookSecret = customEnv.RAZORPAY_WEBHOOK_SECRET || '';
 
-  const keyId = rawKeyId.trim().replace(/^["']|["']$/g, '');
-  const keySecret = rawKeySecret.trim().replace(/^["']|["']$/g, '');
-  const webhookSecret = rawWebhookSecret.trim().replace(/^["']|["']$/g, '');
+  const resolved = resolveRazorpayCredentials(customEnv, dbSettings);
+  const keyId = resolved.keyId;
+  const keySecret = resolved.keySecret;
+  const webhookSecret = resolved.webhookSecret;
 
   let keyPrefix = 'none';
   if (keyId.startsWith('rzp_live_')) keyPrefix = 'rzp_live';
@@ -83,7 +131,7 @@ function getRazorpaySafeDiagnostics(customEnv = process.env) {
     : (keyId.length > 0 ? 'configured' : 'none');
 
   return {
-    isConfigured: Boolean(keyId && keySecret),
+    isConfigured: resolved.isConfigured,
     key_exists: Boolean(keyId),
     keyIdConfigured: Boolean(keyId),
     key_prefix: keyPrefix,
@@ -96,9 +144,12 @@ function getRazorpaySafeDiagnostics(customEnv = process.env) {
     webhook_secret_exists: Boolean(webhookSecret),
     webhookSecretConfigured: Boolean(webhookSecret),
     webhook_secret_length: webhookSecret.length,
-    keyIdHasWhitespace: rawKeyId !== keyId,
-    keySecretHasWhitespace: rawKeySecret !== keySecret,
-    webhookSecretHasWhitespace: rawWebhookSecret !== webhookSecret,
+    keyIdHasWhitespace: rawKeyId !== rawKeyId.trim().replace(/^["']|["']$/g, ''),
+    keySecretHasWhitespace: rawKeySecret !== rawKeySecret.trim().replace(/^["']|["']$/g, ''),
+    webhookSecretHasWhitespace: rawWebhookSecret !== rawWebhookSecret.trim().replace(/^["']|["']$/g, ''),
+    isSwapped: resolved.isSwapped,
+    mode: resolved.mode,
+    source: resolved.source,
     environment: customEnv.NODE_ENV || 'development',
     currency_requested: CURRENCY
   };
@@ -110,5 +161,6 @@ module.exports = {
   toPaise,
   toRupees,
   formatINR,
+  resolveRazorpayCredentials,
   getRazorpaySafeDiagnostics
 };

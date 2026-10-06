@@ -10,7 +10,7 @@ const jwt = require('jsonwebtoken');
 const emailService = require('./services/emailService');
 const storageService = require('./services/storageService');
 const crypto = require('crypto');
-const { CURRENCY, CURRENCY_SYMBOL, toPaise, toRupees, formatINR, getRazorpaySafeDiagnostics } = require('./currency');
+const { CURRENCY, CURRENCY_SYMBOL, toPaise, toRupees, formatINR, resolveRazorpayCredentials, getRazorpaySafeDiagnostics } = require('./currency');
 
 const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev-jwt-secret-hirebyminutes-key' : null);
 if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
@@ -143,24 +143,52 @@ function getEffectiveListingFee() {
   };
 }
 
+// Helper to retrieve database-configured platform settings for payment gateway fallback
+function getDatabasePaymentSettings() {
+  try {
+    const rows = db.prepare(`
+      SELECT key, value FROM platform_settings 
+      WHERE key IN ('razorpay_key_id', 'razorpay_key_secret', 'razorpay_webhook_secret')
+    `).all();
+    const map = {};
+    if (rows && rows.length > 0) {
+      rows.forEach(r => { map[r.key] = r.value; });
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+// Helper to resolve authoritative Razorpay credentials across environment variables and database settings
+function getEffectiveRazorpayCredentials() {
+  const dbSettings = getDatabasePaymentSettings();
+  return resolveRazorpayCredentials(process.env, dbSettings);
+}
+
 // Server-Authoritative Razorpay Native Order Dispatch Helper (Strictly INR)
 async function createRazorpayNativeOrder({ amountPaise, receipt, notes = {} }) {
-  const keyId = (process.env.RAZORPAY_KEY_ID || '').trim().replace(/^["']|["']$/g, '');
-  const keySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim().replace(/^["']|["']$/g, '');
+  const resolved = getEffectiveRazorpayCredentials();
+  const keyId = resolved.keyId;
+  const keySecret = resolved.keySecret;
 
   const isProduction = process.env.NODE_ENV === 'production';
-  const hasRealKeys = Boolean(keySecret && keyId && !keyId.includes('placeholder'));
+  const hasRealKeys = resolved.isConfigured;
 
   if (isProduction || hasRealKeys) {
     if (!keyId || !keySecret) {
-      console.error('[Razorpay Safe Diagnostic] Missing credentials in environment.', getRazorpaySafeDiagnostics());
-      const err = new Error('Payment could not be initialized. Please try again.');
+      console.error('[Razorpay Safe Diagnostic] Missing credentials in environment/settings.', getRazorpaySafeDiagnostics(process.env, getDatabasePaymentSettings()));
+      const err = new Error('Payment could not be initialized due to missing gateway credentials. Please try again or contact support.');
       err.statusCode = 502;
       throw err;
     }
 
     if (keyId.startsWith('rzp_test_') && isProduction) {
-      console.warn('[Razorpay Warning Safe Diagnostic] Test mode key detected in production environment.', getRazorpaySafeDiagnostics());
+      console.warn('[Razorpay Warning Safe Diagnostic] Test mode key detected in production environment.', getRazorpaySafeDiagnostics(process.env, getDatabasePaymentSettings()));
+    }
+
+    if (resolved.isSwapped) {
+      console.warn('[Razorpay Credential Inversion Corrected] Using automatically corrected Key ID and Secret for gateway order.');
     }
 
     const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
@@ -186,16 +214,29 @@ async function createRazorpayNativeOrder({ amountPaise, receipt, notes = {} }) {
       try {
         rzpErr = await rzpRes.json();
       } catch {}
-      console.error('[Razorpay Order Creation Failed Safe Diagnostic]', {
+      const safeDiag = {
         status: rzpRes.status,
-        code: rzpErr.error?.code,
-        description: rzpErr.error?.description,
-        source: rzpErr.error?.source,
-        step: rzpErr.error?.step,
-        reason: rzpErr.error?.reason,
-        diagnostics: getRazorpaySafeDiagnostics()
-      });
-      const err = new Error('Payment could not be initialized. Please try again.');
+        code: rzpErr.error?.code || 'UNKNOWN_ERROR',
+        description: rzpErr.error?.description || 'Gateway rejected order creation',
+        source: rzpErr.error?.source || 'gateway',
+        step: rzpErr.error?.step || 'order_create',
+        reason: rzpErr.error?.reason || 'unspecified',
+        diagnostics: getRazorpaySafeDiagnostics(process.env, getDatabasePaymentSettings())
+      };
+      console.error('[Razorpay Order Creation Failed Safe Diagnostic]', safeDiag);
+
+      // Log failure to audit_logs for production traceability
+      try {
+        const auditId = `audit-${uuidv4().replace(/-/g, '').slice(0, 8)}`;
+        db.prepare(`
+          INSERT INTO audit_logs (id, admin_id, admin_name, action, target_type, target_id, details_json, created_at)
+          VALUES (?, 'system', 'Payment Gateway Monitor', 'PAYMENT_ORDER_CREATION_FAILED', 'payment_gateway', ?, ?, CURRENT_TIMESTAMP)
+        `).run(auditId, String(receipt).slice(0, 40), JSON.stringify(safeDiag));
+      } catch (auditErr) {
+        // Safe if audit logging fails
+      }
+
+      const err = new Error(rzpErr.error?.description || 'Payment could not be initialized. Please try again.');
       err.statusCode = 502;
       throw err;
     }
@@ -2596,7 +2637,7 @@ module.exports = function(timerEngine, io) {
     checkAndExpireRequests(io);
 
     const request = db.prepare(`
-      SELECT cr.*, s.title as service_title
+      SELECT cr.*, s.title as service_title, s.price_per_minute as service_ppm
       FROM consultation_requests cr
       JOIN services s ON cr.service_id = s.id
       WHERE cr.id = ?
@@ -2616,6 +2657,11 @@ module.exports = function(timerEngine, io) {
       });
     }
 
+    // Authoritative Server-side Price Calculation: duration_minutes * service.price_per_minute
+    const durationMinutes = Number(request.duration_minutes) || 0;
+    const ratePerMinute = Number(request.service_ppm || request.price_per_minute) || 0;
+    const calculatedAmount = Number((durationMinutes * ratePerMinute).toFixed(2));
+    request.total_price = calculatedAmount > 0 ? calculatedAmount : request.total_price;
     const amountInPaise = toPaise(request.total_price);
 
     try {
@@ -2631,7 +2677,7 @@ module.exports = function(timerEngine, io) {
 
       return res.json({
         order_id: order.order_id,
-        amount: request.total_price,
+        amount: finalAmount,
         amount_paise: amountInPaise,
         currency: order.currency,
         key_id: order.key_id,
@@ -2687,7 +2733,8 @@ module.exports = function(timerEngine, io) {
     }
 
     // Strict HMAC SHA-256 Signature Verification
-    const rawSecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    const resolvedCredentials = getEffectiveRazorpayCredentials();
+    const rawSecret = resolvedCredentials.keySecret || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
     const keySecret = rawSecret ? rawSecret.trim().replace(/^["']|["']$/g, '') : null;
     if (process.env.NODE_ENV === 'production') {
       if (!keySecret) {
@@ -2853,7 +2900,8 @@ module.exports = function(timerEngine, io) {
   // RAZORPAY PRODUCTION WEBHOOK HANDLER
   // ==========================================
   router.post('/payments/razorpay-webhook', (req, res) => {
-    const rawWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || (process.env.NODE_ENV !== 'production' ? 'whsec_test_secret_for_razorpay_98765' : null);
+    const resolvedCredentials = getEffectiveRazorpayCredentials();
+    const rawWebhookSecret = resolvedCredentials.webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET || (process.env.NODE_ENV !== 'production' ? 'whsec_test_secret_for_razorpay_98765' : null);
     const webhookSecret = rawWebhookSecret ? rawWebhookSecret.trim().replace(/^["']|["']$/g, '') : null;
     if (!webhookSecret) {
       console.warn('[Razorpay Webhook] RAZORPAY_WEBHOOK_SECRET is not configured on server.');
@@ -3496,7 +3544,8 @@ module.exports = function(timerEngine, io) {
       return res.status(400).json({ error: 'Invalid extension duration.' });
     }
 
-    const rawSecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    const resolvedCredentials = getEffectiveRazorpayCredentials();
+    const rawSecret = resolvedCredentials.keySecret || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
     const keySecret = rawSecret ? rawSecret.trim().replace(/^["']|["']$/g, '') : null;
     if (!keySecret) {
       return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required.' });
@@ -3893,7 +3942,7 @@ module.exports = function(timerEngine, io) {
         amount: 0.00,
         amount_paise: 0,
         currency: CURRENCY,
-        key_id: process.env.RAZORPAY_KEY_ID || 'rzp_live_placeholder',
+        key_id: getEffectiveRazorpayCredentials().keyId || 'rzp_live_placeholder',
         opportunity_id: opp.id
       });
     }
@@ -3948,7 +3997,8 @@ module.exports = function(timerEngine, io) {
     }
 
     // Verify HMAC SHA-256 signature
-    const rawSecret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+    const resolvedCredentials = getEffectiveRazorpayCredentials();
+    const rawSecret = resolvedCredentials.keySecret || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
     const keySecret = rawSecret ? rawSecret.trim().replace(/^["']|["']$/g, '') : null;
     if (!keySecret) {
       return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required.' });
@@ -4901,10 +4951,11 @@ module.exports = function(timerEngine, io) {
 
   // Helper for automated Razorpay refund API dispatch
   async function dispatchRazorpayRefund({ paymentId, amountPaise, reason = 'Administrative cancellation', notes = {} }) {
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const resolved = getEffectiveRazorpayCredentials();
+    const keyId = resolved.keyId;
+    const keySecret = resolved.keySecret;
 
-    if (process.env.NODE_ENV === 'production' && keySecret && keyId && !keyId.includes('placeholder')) {
+    if (process.env.NODE_ENV === 'production' && resolved.isConfigured) {
       try {
         const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
         const res = await fetch(`https://api.razorpay.com/v1/payments/${paymentId}/refund`, {
@@ -5397,7 +5448,14 @@ module.exports = function(timerEngine, io) {
     const settings = db.prepare('SELECT * FROM platform_settings').all();
     const settingsMap = {};
     settings.forEach(s => { settingsMap[s.key] = s.value; });
-    res.json({ settings: settingsMap });
+    const paymentDiag = getRazorpaySafeDiagnostics(process.env, getDatabasePaymentSettings());
+    res.json({ settings: settingsMap, payment_diagnostics: paymentDiag });
+  });
+
+  // 14b. Payment Gateway Diagnostics (Admin safe probe)
+  router.get('/admin/payments/diagnostics', adminAuthMiddleware, (req, res) => {
+    const diag = getRazorpaySafeDiagnostics(process.env, getDatabasePaymentSettings());
+    res.json({ success: true, diagnostics: diag });
   });
 
   router.put('/admin/settings', adminAuthMiddleware, (req, res) => {
@@ -5411,7 +5469,10 @@ module.exports = function(timerEngine, io) {
       logo_url,
       header_navigation,
       header_cta_label,
-      header_cta_url
+      header_cta_url,
+      razorpay_key_id,
+      razorpay_key_secret,
+      razorpay_webhook_secret
     } = req.body;
 
     const updateStmt = db.prepare(`
@@ -5496,6 +5557,26 @@ module.exports = function(timerEngine, io) {
       }
 
       updateStmt.run('header_navigation', JSON.stringify(sanitizedNav), 'header_navigation');
+    }
+
+    if (razorpay_key_id !== undefined) {
+      const cleanKeyId = String(razorpay_key_id).trim().replace(/^["']|["']$/g, '');
+      updateStmt.run('razorpay_key_id', cleanKeyId, 'Razorpay API Key ID');
+      logAuditAction(req.user, 'PAYMENT_GATEWAY_CONFIG_UPDATED', 'platform_settings', 'razorpay_key_id', {
+        key_configured: Boolean(cleanKeyId),
+        prefix: cleanKeyId.slice(0, 8)
+      });
+    }
+    if (razorpay_key_secret !== undefined) {
+      const cleanKeySecret = String(razorpay_key_secret).trim().replace(/^["']|["']$/g, '');
+      updateStmt.run('razorpay_key_secret', cleanKeySecret, 'Razorpay API Key Secret');
+      logAuditAction(req.user, 'PAYMENT_GATEWAY_CONFIG_UPDATED', 'platform_settings', 'razorpay_key_secret', {
+        secret_configured: Boolean(cleanKeySecret)
+      });
+    }
+    if (razorpay_webhook_secret !== undefined) {
+      const cleanWebhook = String(razorpay_webhook_secret).trim().replace(/^["']|["']$/g, '');
+      updateStmt.run('razorpay_webhook_secret', cleanWebhook, 'Razorpay Webhook Secret');
     }
 
     logAuditAction(req.user, 'PLATFORM_SETTINGS_UPDATED', 'system', 'platform_settings', req.body);

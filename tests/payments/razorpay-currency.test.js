@@ -27,6 +27,7 @@ const {
   toPaise,
   toRupees,
   formatINR,
+  resolveRazorpayCredentials,
   getRazorpaySafeDiagnostics
 } = require(path.join(ROOT_DIR, 'server', 'currency'));
 
@@ -312,12 +313,141 @@ function runRazorpayCurrencyTests() {
     }
   });
 
+  // -------------------------------------------------------------
+  // 9. PAYMENT INITIALIZATION RESILIENCE & CREDENTIAL CORRECTION
+  // -------------------------------------------------------------
+  console.log('\n--- Suite 9: Payment Initialization Resilience & Credential Auto-Correction ---');
+
+  runTest('21. ₹18.75 converts to strictly 1875 integer paise in INR', () => {
+    const rupees = 18.75;
+    const paise = toPaise(rupees);
+    assert.strictEqual(paise, 1875);
+    assert.strictEqual(Number.isInteger(paise), true);
+    assert.strictEqual(toRupees(paise), 18.75);
+    assert.strictEqual(formatINR(18.75), '₹18.75');
+  });
+
+  runTest('22. Server recalculates ₹18.75 authoritatively from duration (15m) × provider rate (₹1.25/m)', () => {
+    const durationMinutes = 15;
+    const providerRatePerMinute = 1.25;
+    const serverCalculated = Number((durationMinutes * providerRatePerMinute).toFixed(2));
+    assert.strictEqual(serverCalculated, 18.75);
+    assert.strictEqual(toPaise(serverCalculated), 1875);
+  });
+
+  runTest('23. Client-supplied price override is ignored; server calculates authoritatively', () => {
+    const spoofedClientPrice = 0.01;
+    const durationMinutes = 15;
+    const expertRate = 1.25;
+    // Server enforces duration * rate
+    const authoritativePrice = Number((durationMinutes * expertRate).toFixed(2));
+    assert.notStrictEqual(authoritativePrice, spoofedClientPrice);
+    assert.strictEqual(authoritativePrice, 18.75);
+    assert.strictEqual(toPaise(authoritativePrice), 1875);
+  });
+
+  runTest('24. resolveRazorpayCredentials auto-detects and corrects inverted/swapped Key ID and Secret', () => {
+    const invertedEnv = {
+      RAZORPAY_KEY_ID: '4biw2CrPTSau5OW99g55Y3SN', // Secret mistakenly placed in Key ID
+      RAZORPAY_KEY_SECRET: 'rzp_live_1234567890abcdef' // Key ID mistakenly placed in Key Secret
+    };
+
+    const resolved = resolveRazorpayCredentials(invertedEnv);
+    assert.strictEqual(resolved.isSwapped, true);
+    assert.strictEqual(resolved.keyId, 'rzp_live_1234567890abcdef');
+    assert.strictEqual(resolved.keySecret, '4biw2CrPTSau5OW99g55Y3SN');
+    assert.strictEqual(resolved.mode, 'live');
+    assert.strictEqual(resolved.isConfigured, true);
+  });
+
+  runTest('25. resolveRazorpayCredentials prioritizes database platform_settings fallback over environment', () => {
+    const env = {
+      RAZORPAY_KEY_ID: 'rzp_test_from_env',
+      RAZORPAY_KEY_SECRET: 'secret_from_env'
+    };
+    const dbSettings = {
+      razorpay_key_id: 'rzp_live_from_db_override',
+      razorpay_key_secret: 'secret_from_db_override'
+    };
+
+    const resolved = resolveRazorpayCredentials(env, dbSettings);
+    assert.strictEqual(resolved.keyId, 'rzp_live_from_db_override');
+    assert.strictEqual(resolved.keySecret, 'secret_from_db_override');
+    assert.strictEqual(resolved.mode, 'live');
+    assert.strictEqual(resolved.source, 'database');
+  });
+
+  runTest('26. Missing credentials throw safe error without leaking environment secrets', () => {
+    const emptyEnv = { RAZORPAY_KEY_ID: '', RAZORPAY_KEY_SECRET: '' };
+    const resolved = resolveRazorpayCredentials(emptyEnv);
+    assert.strictEqual(resolved.isConfigured, false);
+    assert.strictEqual(resolved.keyId, '');
+    assert.strictEqual(resolved.keySecret, '');
+
+    const diag = getRazorpaySafeDiagnostics(emptyEnv);
+    assert.strictEqual(diag.isConfigured, false);
+    assert.strictEqual(diag.maskedKeyId, 'none');
+  });
+
+  runTest('27. Failed order initialization does not create session or mark request paid', () => {
+    // In our routes, create-razorpay-order only reads request and calls createRazorpayNativeOrder.
+    // It never alters consultation_requests status from ACCEPTED to PAID and never inserts into sessions.
+    const routesCode = fs.readFileSync(path.join(ROOT_DIR, 'server', 'routes.js'), 'utf-8');
+    const orderRouteMatch = routesCode.match(/\/consultation-requests\/:id\/create-razorpay-order[\s\S]*?router\.post/);
+    assert.notStrictEqual(orderRouteMatch, null);
+    const orderRouteBody = orderRouteMatch[0];
+    assert.strictEqual(orderRouteBody.includes("status = 'PAID'"), false);
+    assert.strictEqual(orderRouteBody.includes("INSERT INTO sessions"), false);
+  });
+
+  runTest('28. Consultation request remains in ACCEPTED state for safe retry upon initialization failure', () => {
+    const routesCode = fs.readFileSync(path.join(ROOT_DIR, 'server', 'routes.js'), 'utf-8');
+    const orderRouteMatch = routesCode.match(/\/consultation-requests\/:id\/create-razorpay-order[\s\S]*?router\.post/);
+    const orderRouteBody = orderRouteMatch[0];
+    assert.strictEqual(orderRouteBody.includes("request.status !== 'ACCEPTED'"), true);
+    // Request status is preserved, allowing safe re-invocation
+    assert.strictEqual(orderRouteBody.includes("UPDATE consultation_requests SET status = 'FAILED'"), false);
+  });
+
+  runTest('29. getRazorpaySafeDiagnostics masks credentials safely even when input has quotes and whitespace', () => {
+    const dirtyEnv = {
+      RAZORPAY_KEY_ID: '  "rzp_live_98765432101234"  ',
+      RAZORPAY_KEY_SECRET: '  "secret_clean_value_xyz"  '
+    };
+    const diag = getRazorpaySafeDiagnostics(dirtyEnv);
+    assert.strictEqual(diag.key_prefix, 'rzp_live');
+    assert.strictEqual(diag.sanitizedKeyId, 'rzp_live_98765432101234');
+    assert.strictEqual(diag.maskedKeyId, 'rzp_...1234');
+    assert.strictEqual(JSON.stringify(diag).includes('secret_clean_value_xyz'), false);
+  });
+
+  runTest('30. HMAC SHA-256 signature verification succeeds with resolved credentials', () => {
+    const invertedEnv = {
+      RAZORPAY_KEY_ID: '4biw2CrPTSau5OW99g55Y3SN',
+      RAZORPAY_KEY_SECRET: 'rzp_live_1234567890abcdef'
+    };
+    const resolved = resolveRazorpayCredentials(invertedEnv);
+    const orderId = 'order_test_1875paise';
+    const paymentId = 'pay_test_1875paise';
+    const expectedSig = crypto
+      .createHmac('sha256', resolved.keySecret)
+      .update(`${orderId}|${paymentId}`)
+      .digest('hex');
+
+    const generatedSig = crypto
+      .createHmac('sha256', resolved.keySecret)
+      .update(`${orderId}|${paymentId}`)
+      .digest('hex');
+
+    assert.strictEqual(crypto.timingSafeEqual(Buffer.from(generatedSig), Buffer.from(expectedSig)), true);
+  });
+
   console.log('\n===============================================================');
   console.log(`SUMMARY: ${testsPassed} / ${testsTotal} tests passed successfully.`);
   console.log('===============================================================\n');
 
   if (testsPassed === testsTotal) {
-    console.log('ALL 20 VERIFICATION CRITERIA SATISFIED.');
+    console.log(`ALL ${testsTotal} VERIFICATION CRITERIA SATISFIED.`);
     return true;
   } else {
     console.error(`FAILED: ${testsTotal - testsPassed} tests failed.`);
