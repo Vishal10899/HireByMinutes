@@ -111,13 +111,13 @@ export const Header: React.FC = () => {
                   className="flex items-center gap-2.5 py-1.5 px-3 rounded-lg border border-timberwolf/60 bg-white/70 hover:bg-white text-midnight text-sm font-medium transition-all shadow-subtle cursor-pointer"
                 >
                   <img
-                    src={user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.full_name}`}
-                    alt={user.full_name}
+                    src={user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.full_name || user.username || user.email || 'User')}`}
+                    alt={user.full_name || user.username || 'User'}
                     className="w-7 h-7 rounded-full object-cover border border-lightblue"
                   />
                   <div className="text-left leading-tight hidden lg:block">
                     <span className="block font-semibold text-xs text-midnight">
-                      {user.full_name.replace(/\s*\(Admin\)\s*/gi, '')}{user.role === 'admin' ? ' (Admin)' : ''}
+                      {(user.full_name || user.username || user.email || 'User').replace(/\s*\(Admin\)\s*/gi, '')}{user.role === 'admin' ? ' (Admin)' : ''}
                     </span>
                     <span className="block text-[11px] text-moonstone-dark font-medium capitalize">{user.role}</span>
                   </div>
@@ -131,7 +131,7 @@ export const Header: React.FC = () => {
                   >
                     <div className="px-4 py-2 border-b border-timberwolf/30 mb-1">
                       <p className="font-semibold text-midnight text-xs">
-                        {user.full_name.replace(/\s*\(Admin\)\s*/gi, '')}{user.role === 'admin' ? ' (Admin)' : ''}
+                        {(user.full_name || user.username || user.email || 'User').replace(/\s*\(Admin\)\s*/gi, '')}{user.role === 'admin' ? ' (Admin)' : ''}
                       </p>
                       <p className="text-midnight/60 text-[11px] truncate">{user.email}</p>
                     </div>

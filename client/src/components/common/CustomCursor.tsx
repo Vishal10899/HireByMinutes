@@ -21,21 +21,24 @@ export const CustomCursor: React.FC = () => {
 
   useEffect(() => {
     // 1. Device check: Disable completely for touch/mobile/tablet devices
+    const safeMatch = (q: string) => typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(q).matches : false;
     const isTouch =
-      window.matchMedia('(hover: none)').matches ||
-      window.matchMedia('(pointer: coarse)').matches ||
-      'ontouchstart' in window ||
-      navigator.maxTouchPoints > 0;
+      safeMatch('(hover: none)') ||
+      safeMatch('(pointer: coarse)') ||
+      (typeof window !== 'undefined' && 'ontouchstart' in window) ||
+      (typeof navigator !== 'undefined' && (navigator.maxTouchPoints || 0) > 0);
 
     // 2. Accessibility: Respect prefers-reduced-motion
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const prefersReducedMotion = safeMatch('(prefers-reduced-motion: reduce)');
 
     if (isTouch || prefersReducedMotion) {
       return;
     }
 
     // Mark HTML root with custom cursor active class
-    document.documentElement.classList.add('has-custom-cursor');
+    if (document?.documentElement?.classList) {
+      document.documentElement.classList.add('has-custom-cursor');
+    }
 
     const updateRingStyle = () => {
       if (!ringElementRef.current) return;

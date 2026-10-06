@@ -58,9 +58,12 @@ export const BannerAnnouncement: React.FC<BannerAnnouncementProps> = ({
   // Read dismissed state from sessionStorage on mount
   useEffect(() => {
     try {
-      const stored = sessionStorage.getItem('hbm_dismissed_banners');
+      const stored = typeof window !== 'undefined' && window.sessionStorage ? sessionStorage.getItem('hbm_dismissed_banners') : null;
       if (stored) {
-        setDismissed(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          setDismissed(parsed);
+        }
       }
     } catch {
       // ignore
@@ -71,7 +74,9 @@ export const BannerAnnouncement: React.FC<BannerAnnouncementProps> = ({
     setDismissed((prev) => {
       const updated = { ...prev, [id]: true };
       try {
-        sessionStorage.setItem('hbm_dismissed_banners', JSON.stringify(updated));
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          sessionStorage.setItem('hbm_dismissed_banners', JSON.stringify(updated));
+        }
       } catch {
         // ignore
       }
@@ -79,7 +84,7 @@ export const BannerAnnouncement: React.FC<BannerAnnouncementProps> = ({
     });
   };
 
-  const activeBanners = banners.filter((b) => !dismissed[b.id]);
+  const activeBanners = Array.isArray(banners) ? banners.filter((b) => b && b.id && !dismissed[b.id]) : [];
   if (activeBanners.length === 0) return null;
 
   // Render the highest priority banner

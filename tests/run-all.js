@@ -18,7 +18,8 @@ const suites = [
   { name: 'Render Deployment & Cold-Start Suite', file: path.join('deployment', 'frontend-coldstart.test.js') },
   { name: 'Admin Panel Persistence & Data Integrity Suite', file: path.join('admin', 'admin-persistence.test.js') },
   { name: 'Free Service Listing & Signup Flow Suite', file: path.join('marketplace', 'free-listing-flow.test.js') },
-  { name: 'Expert & Provider Discovery Suite', file: path.join('marketplace', 'provider-discovery.test.js') }
+  { name: 'Expert & Provider Discovery Suite', file: path.join('marketplace', 'provider-discovery.test.js') },
+  { name: 'Frontend Runtime & Error Boundary Suite', file: path.join('frontend', 'error-boundary-runtime.test.js') }
 ];
 
 async function runSuite(suite) {

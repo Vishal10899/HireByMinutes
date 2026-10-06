@@ -105,7 +105,12 @@ export const api = {
   // Auth
   getMe: async () => {
     const res = await fetch(`${API_BASE}/auth/me`, { headers: getAuthHeaders() });
-    if (!res.ok) throw new Error('Failed to get user profile');
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      const err: any = new Error(errData.error || errData.message || 'Failed to get user profile');
+      err.status = res.status;
+      throw err;
+    }
     return res.json();
   },
 

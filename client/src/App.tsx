@@ -39,6 +39,7 @@ import { FaqPage } from './pages/FaqPage';
 import { DynamicCmsPage } from './pages/DynamicCmsPage';
 import { BannerAnnouncement } from './components/common/BannerAnnouncement';
 import { ServerStatusBanner } from './components/common/ServerStatusBanner';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 const AppRoutes: React.FC = () => {
   const location = useLocation();
@@ -66,7 +67,8 @@ const AppRoutes: React.FC = () => {
       {!isAuthRoute && <BannerAnnouncement placement="global" />}
       
       <main className="flex-1 relative z-10 flex flex-col w-full min-w-0 max-w-full">
-        <Routes>
+        <ErrorBoundary preserveHeader>
+          <Routes>
           {/* Core Platform Routes */}
           <Route path="/" element={<HomePage />} />
           <Route path="/services" element={<ServicesPage />} />
@@ -178,6 +180,7 @@ const AppRoutes: React.FC = () => {
           {/* Catch-all fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </ErrorBoundary>
       </main>
 
       {!isFullHeightRoute && <Footer />}

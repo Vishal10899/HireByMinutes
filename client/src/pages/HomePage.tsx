@@ -297,7 +297,7 @@ export const HomePage: React.FC = () => {
                   Popular:
                 </span>
                 <div className="flex items-center gap-2 shrink-0 pr-4 sm:pr-0">
-                  {(cmsSettings?.popular_tags && cmsSettings.popular_tags.length > 0 ? cmsSettings.popular_tags : ['Python developer', 'Figma teardown', 'RAG architect', 'B2B growth audit', 'Tax advisor', 'AI Prompt Engineer', 'Fractional CTO']).map((tag: string) => (
+                  {(Array.isArray(cmsSettings?.popular_tags) && cmsSettings.popular_tags.length > 0 ? cmsSettings.popular_tags : ['Python developer', 'Figma teardown', 'RAG architect', 'B2B growth audit', 'Tax advisor', 'AI Prompt Engineer', 'Fractional CTO']).map((tag: string) => (
                     <button
                       key={tag}
                       type="button"
@@ -466,7 +466,7 @@ export const HomePage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-              {(cmsSettings?.how_it_works_steps && cmsSettings.how_it_works_steps.length > 0
+              {(Array.isArray(cmsSettings?.how_it_works_steps) && cmsSettings.how_it_works_steps.length > 0
                 ? cmsSettings.how_it_works_steps
                 : [
                     { step: '01', title: 'Find an Expert', description: 'Find someone who knows exactly what you need without wading through bloated project agencies.' },
