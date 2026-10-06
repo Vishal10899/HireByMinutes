@@ -76,7 +76,7 @@ export const ServiceDetailPage: React.FC = () => {
   const [countdownSeconds, setCountdownSeconds] = useState<number>(600);
 
   const durationMinutes = isCustomDuration ? customDuration : selectedDuration;
-  const totalPrice = service ? (durationMinutes * service.price_per_minute).toFixed(2) : '0.00';
+  const totalPrice = service ? (durationMinutes * (Number(service.price_per_minute) || 0)).toFixed(2) : '0.00';
 
   useEffect(() => {
     async function loadServiceDetail() {
@@ -455,7 +455,7 @@ export const ServiceDetailPage: React.FC = () => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[15, 30, 45, 60].map((mins) => {
                 const isSelected = !isCustomDuration && selectedDuration === mins;
-                const cost = (mins * service.price_per_minute).toFixed(2);
+                const cost = (mins * (Number(service.price_per_minute) || 0)).toFixed(2);
                 return (
                   <button
                     key={mins}
@@ -948,7 +948,10 @@ export const ServiceDetailPage: React.FC = () => {
                 <div className="flex items-center gap-3 text-xs text-midnight/70 pt-1 flex-wrap">
                   <span className="flex items-center gap-1 font-bold text-amber-600">
                     <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                    {service.provider_rating ? service.provider_rating.toFixed(1) : '5.0'}
+                    {(() => {
+                      const r = Number(service.provider_rating);
+                      return !isNaN(r) && r > 0 ? r.toFixed(1) : '5.0';
+                    })()}
                     <span className="text-midnight/50 font-normal">({reviews.length} reviews)</span>
                   </span>
                   <span>•</span>
@@ -1090,7 +1093,7 @@ export const ServiceDetailPage: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex items-center text-amber-500">
-                        {Array.from({ length: rev.rating || 5 }).map((_, idx) => (
+                        {Array.from({ length: Math.min(5, Math.max(1, Math.round(Number(rev.rating) || 5))) }).map((_, idx) => (
                           <Star key={idx} className="w-3.5 h-3.5 fill-amber-400" />
                         ))}
                       </div>

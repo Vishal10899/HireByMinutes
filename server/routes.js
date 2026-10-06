@@ -1596,6 +1596,8 @@ module.exports = function(timerEngine, io) {
       }
       return {
         ...s,
+        provider_rating: s.provider_rating != null ? Number(s.provider_rating) : 5.0,
+        price_per_minute: Number(s.price_per_minute) || 0,
         country: s.country || s.provider_country || 'United States',
         city: s.city || s.provider_city || '',
         state_region: s.provider_state_region || '',
@@ -1779,6 +1781,8 @@ module.exports = function(timerEngine, io) {
 
       return {
         ...s,
+        provider_rating: s.provider_rating != null ? Number(s.provider_rating) : 5.0,
+        price_per_minute: Number(s.price_per_minute) || 0,
         country: s.country || s.provider_country || 'United States',
         city: s.city || s.provider_city || '',
         state_region: s.provider_state_region || '',
@@ -1848,6 +1852,8 @@ module.exports = function(timerEngine, io) {
 
     const formattedService = {
       ...service,
+      provider_rating: service.provider_rating != null ? Number(service.provider_rating) : 5.0,
+      price_per_minute: Number(service.price_per_minute) || 0,
       country: service.country || service.provider_country || 'United States',
       city: service.city || service.provider_city || '',
       state_region: service.provider_state_region || '',

@@ -17,7 +17,7 @@ export interface User {
   languages?: string[];
   skills?: string[];
   experience_years?: number;
-  rating?: number;
+  rating?: number | string;
   review_count?: number;
   sessions_completed?: number;
   verified?: number | boolean;
@@ -68,7 +68,7 @@ export interface Service {
   provider_state_region?: string;
   provider_city?: string;
   provider_area?: string;
-  provider_rating?: number;
+  provider_rating?: number | string;
   provider_review_count?: number;
   provider_verified?: number | boolean;
   provider_response_time?: string;

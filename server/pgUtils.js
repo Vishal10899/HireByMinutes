@@ -10,6 +10,12 @@ function normalizeRow(row) {
       normalized[key] = val.toISOString();
     } else if (key === 'count' && typeof val === 'string' && /^\d+$/.test(val)) {
       normalized[key] = parseInt(val, 10);
+    } else if (
+      (key === 'provider_rating' || key === 'rating' || key === 'client_rating' || key === 'price_per_minute') &&
+      typeof val === 'string' &&
+      !isNaN(Number(val))
+    ) {
+      normalized[key] = parseFloat(val);
     } else {
       normalized[key] = val;
     }

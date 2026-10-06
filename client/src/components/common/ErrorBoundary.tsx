@@ -29,10 +29,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log error details to console in development, suppressed in production UI
-    if (import.meta.env.DEV) {
-      console.error('[HireByMinute ErrorBoundary]:', error, errorInfo);
-    }
+    // Log error details to console for developer and ops observability
+    console.error('[HireByMinute ErrorBoundary]:', error, errorInfo?.componentStack);
   }
 
   private handleReload = () => {

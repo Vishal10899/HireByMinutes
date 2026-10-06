@@ -39,7 +39,7 @@ export const ExpertCard: React.FC<ExpertCardProps> = ({ service }) => {
   };
 
   // Primary skills formatted cleanly with bullet separators
-  const primarySkills = (service.skills || []).slice(0, 3);
+  const primarySkills = (Array.isArray(service.skills) ? service.skills : []).slice(0, 3);
 
   return (
     <div className="w-full max-w-full min-w-0 water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 sm:p-6 flex flex-col justify-between hover:border-moonstone/70 transition-all duration-150 shadow-subtle hover:shadow-card group active:scale-[0.995]">
@@ -85,7 +85,10 @@ export const ExpertCard: React.FC<ExpertCardProps> = ({ service }) => {
           <div className="flex items-center gap-1.5 text-midnight/80 font-medium shrink-0">
             <span className="flex items-center gap-1 font-bold text-amber-600">
               <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0" />
-              {service.provider_rating ? service.provider_rating.toFixed(1) : '5.0'}
+              {(() => {
+                const r = Number(service.provider_rating);
+                return !isNaN(r) && r > 0 ? r.toFixed(1) : '5.0';
+              })()}
             </span>
             <span className="text-timberwolf-dark">•</span>
             <span className="text-midnight/65">

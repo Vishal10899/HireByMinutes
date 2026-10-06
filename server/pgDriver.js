@@ -2,7 +2,11 @@
 // Emulates the better-sqlite3 prepared statement interface on top of worker_threads & pg.Pool
 
 const { Worker } = require('worker_threads');
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+// Ensure PostgreSQL NUMERIC (1700) and BIGINT (20) are parsed to numbers to match SQLite behavior
+types.setTypeParser(1700, (val) => (val === null ? null : parseFloat(val)));
+types.setTypeParser(20, (val) => (val === null ? null : parseInt(val, 10)));
 const path = require('path');
 const { normalizeRow, translateSql } = require('./pgUtils');
 

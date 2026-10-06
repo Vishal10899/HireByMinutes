@@ -739,7 +739,7 @@ export const ClientDashboardPage: React.FC = () => {
                         {exp.provider_rating && (
                           <span className="flex items-center gap-0.5 text-xs text-amber-600 font-bold">
                             <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                            {exp.provider_rating.toFixed(1)}
+                            {(Number(exp.provider_rating) || 5.0).toFixed(1)}
                           </span>
                         )}
                       </div>

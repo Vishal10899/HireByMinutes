@@ -648,9 +648,9 @@ export const HomePage: React.FC = () => {
                               {job.salary_type === 'undisclosed' || (!job.salary_min && !job.salary_max)
                                 ? 'Undisclosed'
                                 : job.salary_min && job.salary_max
-                                ? `₹${(job.salary_min / 1000).toFixed(0)}k - ₹${(job.salary_max / 1000).toFixed(0)}k`
+                                ? `₹${(Number(job.salary_min) / 1000).toFixed(0)}k - ₹${(Number(job.salary_max) / 1000).toFixed(0)}k`
                                 : job.salary_min
-                                ? `From ₹${(job.salary_min / 1000).toFixed(0)}k`
+                                ? `From ₹${(Number(job.salary_min) / 1000).toFixed(0)}k`
                                 : 'Competitive'}
                             </span>
                           </span>

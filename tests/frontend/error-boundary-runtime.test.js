@@ -140,6 +140,59 @@ it('11. All 7 required core public routes are declared and configured in App.tsx
   });
 });
 
+// Suite 6: PostgreSQL Type Coercion Resilience (NUMERIC string serialization)
+console.log('\n--- Suite 6: PostgreSQL Type Coercion Resilience (NUMERIC string serialization) ---');
+
+const expertCardPath = path.join(__dirname, '../../client/src/components/common/ExpertCard.tsx');
+const expertCardTsx = fs.readFileSync(expertCardPath, 'utf8');
+
+const serviceDetailPath = path.join(__dirname, '../../client/src/pages/ServiceDetailPage.tsx');
+const serviceDetailTsx = fs.readFileSync(serviceDetailPath, 'utf8');
+
+const clientDashboardPath = path.join(__dirname, '../../client/src/pages/ClientDashboardPage.tsx');
+const clientDashboardTsx = fs.readFileSync(clientDashboardPath, 'utf8');
+
+it('12. ExpertCard safely coerces provider_rating to number before calling toFixed', () => {
+  assert(expertCardTsx.includes('Number(service.provider_rating)'), 'ExpertCard must wrap provider_rating in Number()');
+  assert(!expertCardTsx.includes('service.provider_rating.toFixed('), 'ExpertCard must never call .toFixed directly on service.provider_rating');
+});
+
+it('13. ExpertCard safely guards skills with Array.isArray', () => {
+  assert(expertCardTsx.includes('Array.isArray(service.skills)'), 'ExpertCard must guard service.skills with Array.isArray');
+});
+
+it('14. ServiceDetailPage safely coerces provider_rating and price_per_minute to number', () => {
+  assert(serviceDetailTsx.includes('Number(service.provider_rating)'), 'ServiceDetailPage must wrap provider_rating in Number()');
+  assert(!serviceDetailTsx.includes('service.provider_rating.toFixed('), 'ServiceDetailPage must never call .toFixed directly on service.provider_rating');
+  assert(serviceDetailTsx.includes('Number(service.price_per_minute)'), 'ServiceDetailPage must wrap price_per_minute in Number()');
+});
+
+it('15. ClientDashboardPage safely coerces provider_rating to number', () => {
+  assert(clientDashboardTsx.includes('Number(exp.provider_rating)'), 'ClientDashboardPage must wrap provider_rating in Number()');
+  assert(!clientDashboardTsx.includes('exp.provider_rating.toFixed('), 'ClientDashboardPage must never call .toFixed directly on exp.provider_rating');
+});
+
+it('16. ErrorBoundary logs error and componentStack to console unconditionally', () => {
+  assert(!errorBoundaryTsx.includes('if (import.meta.env.DEV)'), 'ErrorBoundary must not suppress error logs in production');
+  assert(errorBoundaryTsx.includes('console.error(\'[HireByMinute ErrorBoundary]:\''), 'ErrorBoundary must log with tag');
+});
+
+it('17. Runtime verification: simulated Postgres NUMERIC string payload formats safely', () => {
+  // Test formatting logic exactly as implemented in ExpertCard
+  const formatRating = (rating) => {
+    const r = Number(rating);
+    return !isNaN(r) && r > 0 ? r.toFixed(1) : '5.0';
+  };
+
+  assert.strictEqual(formatRating("5.00"), "5.0", 'String "5.00" should format to "5.0"');
+  assert.strictEqual(formatRating("4.85"), "4.8", 'String "4.85" should format to "4.8"');
+  assert.strictEqual(formatRating(4.9), "4.9", 'Number 4.9 should format to "4.9"');
+  assert.strictEqual(formatRating(null), "5.0", 'null should fall back to "5.0"');
+  assert.strictEqual(formatRating(undefined), "5.0", 'undefined should fall back to "5.0"');
+  assert.strictEqual(formatRating(""), "5.0", 'empty string should fall back to "5.0"');
+  assert.strictEqual(formatRating("invalid"), "5.0", 'invalid string should fall back to "5.0"');
+});
+
 console.log('\n===============================================================');
 console.log(`SUMMARY: ${passed} / ${passed + failed} runtime tests passed.`);
 console.log('===============================================================\n');

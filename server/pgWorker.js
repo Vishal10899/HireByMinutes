@@ -2,7 +2,11 @@
 // Handles persistent connection pooling and executes queries synchronously for the main thread
 
 const { parentPort, workerData } = require('worker_threads');
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+// Ensure PostgreSQL NUMERIC (1700) and BIGINT (20) are parsed to numbers to match SQLite behavior
+types.setTypeParser(1700, (val) => (val === null ? null : parseFloat(val)));
+types.setTypeParser(20, (val) => (val === null ? null : parseInt(val, 10)));
 
 const connectionString = workerData.connectionString;
 const sab = workerData.sab;
