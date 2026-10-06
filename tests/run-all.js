@@ -17,7 +17,8 @@ const suites = [
   { name: 'Razorpay INR Currency Suite', file: path.join('payments', 'razorpay-currency.test.js') },
   { name: 'Render Deployment & Cold-Start Suite', file: path.join('deployment', 'frontend-coldstart.test.js') },
   { name: 'Admin Panel Persistence & Data Integrity Suite', file: path.join('admin', 'admin-persistence.test.js') },
-  { name: 'Free Service Listing & Signup Flow Suite', file: path.join('marketplace', 'free-listing-flow.test.js') }
+  { name: 'Free Service Listing & Signup Flow Suite', file: path.join('marketplace', 'free-listing-flow.test.js') },
+  { name: 'Expert & Provider Discovery Suite', file: path.join('marketplace', 'provider-discovery.test.js') }
 ];
 
 async function runSuite(suite) {

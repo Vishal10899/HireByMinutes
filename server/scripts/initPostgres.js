@@ -714,6 +714,30 @@ async function initPostgres(customPool = null) {
       }
     }
 
+    // Safely migrate any legacy services stranded in pending_payment solely due to obsolete listing fees
+    await client.query(`
+      UPDATE services 
+      SET listing_status = 'active', listing_fee_paid = 1, updated_at = CURRENT_TIMESTAMP
+      WHERE listing_status = 'pending_payment'
+    `);
+
+    // Recalculate category service counts to accurately reflect real active services
+    try {
+      const catRows = await client.query('SELECT id FROM categories');
+      for (const cat of catRows.rows) {
+        await client.query(`
+          UPDATE categories 
+          SET service_count = (
+            SELECT COUNT(*) FROM services 
+            WHERE category_id = $1 AND LOWER(listing_status) IN ('active', 'published')
+          )
+          WHERE id = $1
+        `, [cat.id]);
+      }
+    } catch (catCountErr) {
+      console.warn('[PostgreSQL] Category service count recalculation notice:', catCountErr.message);
+    }
+
     await client.query('COMMIT');
     console.log('✅ [PostgreSQL] Schema, categories, and settings initialized successfully!');
   } catch (err) {

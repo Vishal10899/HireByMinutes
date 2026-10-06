@@ -698,7 +698,7 @@ export const ServicesPage: React.FC = () => {
                 <div className="w-14 h-14 rounded-full bg-amber-50 text-amber-600 mx-auto flex items-center justify-center border border-amber-200">
                   <RotateCcw className="w-6 h-6 text-amber-600" />
                 </div>
-                <h3 className="text-lg font-bold text-midnight">Backend Server Connecting</h3>
+                <h3 className="text-lg font-bold text-midnight">Connecting to the marketplace...</h3>
                 <p className="text-xs text-midnight/70 max-w-md mx-auto leading-relaxed">
                   The backend service on Render is waking up from idle mode (~30s). Click below to retry loading active experts.
                 </p>
@@ -718,7 +718,7 @@ export const ServicesPage: React.FC = () => {
                 <div className="w-14 h-14 rounded-full bg-aliceblue text-midnight mx-auto flex items-center justify-center">
                   <Globe className="w-6 h-6 text-moonstone" />
                 </div>
-                <h3 className="text-lg font-bold text-midnight">No experts match your filters</h3>
+                <h3 className="text-lg font-bold text-midnight">No matching experts found</h3>
                 <p className="text-xs text-midnight/70 max-w-md mx-auto leading-relaxed">
                   Try selecting "All Languages" or "All Countries", adjusting your price range, or searching for broader skills. All online experts remain globally hireable.
                 </p>
@@ -734,9 +734,9 @@ export const ServicesPage: React.FC = () => {
                 <div className="w-14 h-14 rounded-full bg-aliceblue text-midnight mx-auto flex items-center justify-center">
                   <Sparkles className="w-6 h-6 text-moonstone" />
                 </div>
-                <h3 className="text-lg font-bold text-midnight">Expert Marketplace Opening Soon</h3>
+                <h3 className="text-lg font-bold text-midnight">No experts are available yet.</h3>
                 <p className="text-xs text-midnight/70 max-w-md mx-auto leading-relaxed">
-                  Verified domain experts will appear here as they complete onboarding and listing verification. Are you an expert ready to offer pay-per-minute consultations?
+                  Verified domain experts will appear here as they publish their service listings. Are you an expert ready to offer pay-per-minute consultations?
                 </p>
                 <div className="pt-2">
                   <Link

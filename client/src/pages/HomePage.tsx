@@ -421,9 +421,9 @@ export const HomePage: React.FC = () => {
               <div className="w-12 h-12 rounded-xl bg-aliceblue text-midnight mx-auto flex items-center justify-center border border-timberwolf/60">
                 <Clock className="w-6 h-6 text-moonstone" />
               </div>
-              <h3 className="text-base font-bold text-midnight">Expert Marketplace Opening</h3>
+              <h3 className="text-base font-bold text-midnight">No experts are available yet.</h3>
               <p className="text-xs text-midnight/70 leading-relaxed">
-                New verified service providers are being onboarded across technology, design, and business strategy.
+                New verified service providers will appear here as they publish their services.
               </p>
               <div className="pt-1">
                 <Link

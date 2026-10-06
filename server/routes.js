@@ -1558,7 +1558,7 @@ module.exports = function(timerEngine, io) {
       SELECT c.*, 
              COUNT(s.id) as active_services_count
       FROM categories c
-      LEFT JOIN services s ON c.id = s.category_id AND s.listing_status = 'active'
+      LEFT JOIN services s ON c.id = s.category_id AND LOWER(s.listing_status) IN ('active', 'published')
       WHERE c.active = 1
       GROUP BY c.id
       ORDER BY c.sort_order ASC
@@ -1582,7 +1582,7 @@ module.exports = function(timerEngine, io) {
       FROM services s
       JOIN users u ON s.provider_id = u.id
       JOIN categories c ON s.category_id = c.id
-      WHERE s.listing_status = 'active' AND u.is_suspended = 0 AND u.email_verified = 1
+      WHERE LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND u.email_verified = 1
       ORDER BY u.rating DESC, u.sessions_completed DESC
       LIMIT 6
     `).all();
@@ -1615,7 +1615,7 @@ module.exports = function(timerEngine, io) {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 24));
     const offset = (page - 1) * limit;
 
-    let whereClause = ` WHERE s.listing_status = 'active' AND u.is_suspended = 0 AND u.email_verified = 1`;
+    let whereClause = ` WHERE LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND u.email_verified = 1`;
     const params = [];
 
     if (category && category !== 'all') {
@@ -1813,7 +1813,7 @@ module.exports = function(timerEngine, io) {
       FROM services s
       JOIN users u ON s.provider_id = u.id
       JOIN categories c ON s.category_id = c.id
-      WHERE s.id = ? AND u.is_suspended = 0 AND u.email_verified = 1
+      WHERE s.id = ? AND LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND u.email_verified = 1
     `).get(req.params.id);
 
     if (!service) {

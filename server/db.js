@@ -1167,12 +1167,19 @@ function cleanupFakeAndDemoData(dbInstance) {
       ) AND email NOT IN ('vishalkumar75912@gmail.com', 'vishal@gmail.com', 'vishalchaudhary74096@gmail.com')
     `).run();
 
+    // Safely migrate any legacy services stranded in pending_payment solely due to obsolete listing fees
+    dbInstance.prepare(`
+      UPDATE services 
+      SET listing_status = 'active', listing_fee_paid = 1, updated_at = CURRENT_TIMESTAMP
+      WHERE listing_status = 'pending_payment'
+    `).run();
+
     // Recalculate category service counts to accurately reflect real active services
     dbInstance.prepare(`
       UPDATE categories 
       SET service_count = (
         SELECT COUNT(*) FROM services 
-        WHERE services.category_id = categories.id AND services.listing_status = 'active'
+        WHERE services.category_id = categories.id AND LOWER(services.listing_status) IN ('active', 'published')
       )
     `).run();
 
