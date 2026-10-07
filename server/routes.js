@@ -2725,52 +2725,90 @@ module.exports = function(timerEngine, io) {
   router.post('/consultation-requests/:id/verify-razorpay-payment', authMiddleware, async (req, res) => {
     checkAndExpireRequests(io);
 
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    try {
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
-    const request = db.prepare(`
-      SELECT cr.*, s.title as service_title, s.price_per_minute as service_ppm,
-             c.full_name as client_name, c.email as client_email,
-             p.full_name as provider_name, p.email as provider_email
-      FROM consultation_requests cr
-      JOIN services s ON cr.service_id = s.id
-      JOIN users c ON cr.client_id = c.id
-      JOIN users p ON cr.provider_id = p.id
-      WHERE cr.id = ?
-    `).get(req.params.id);
+      const request = db.prepare(`
+        SELECT cr.*, s.title as service_title, s.price_per_minute as service_ppm,
+               c.full_name as client_name, c.email as client_email,
+               p.full_name as provider_name, p.email as provider_email
+        FROM consultation_requests cr
+        JOIN services s ON cr.service_id = s.id
+        JOIN users c ON cr.client_id = c.id
+        JOIN users p ON cr.provider_id = p.id
+        WHERE cr.id = ?
+      `).get(req.params.id);
 
-    if (!request) {
-      return res.status(404).json({ error: 'Consultation request not found.' });
-    }
-
-    if (request.client_id !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Unauthorized: Only the client who created this request can verify payment.' });
-    }
-
-    // Idempotency: If already paid, return the existing session
-    if (request.status === 'PAID' && request.session_id) {
-      const existingSession = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(request.session_id);
-      return res.json({
-        success: true,
-        session_id: request.session_id,
-        session: existingSession,
-        message: 'Payment was already verified. Connected to active session.'
-      });
-    }
-
-    if (request.status !== 'ACCEPTED') {
-      return res.status(400).json({
-        error: `Cannot verify payment: Current request status is ${request.status}. Must be ACCEPTED.`
-      });
-    }
-
-    // Strict HMAC SHA-256 Signature Verification
-    const resolvedCredentials = getEffectiveRazorpayCredentials();
-    const rawSecret = resolvedCredentials.keySecret || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
-    const keySecret = rawSecret ? rawSecret.trim().replace(/^["']|["']$/g, '') : null;
-    if (process.env.NODE_ENV === 'production') {
-      if (!keySecret) {
-        return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required in production.' });
+      if (!request) {
+        return res.status(404).json({ error: 'Consultation request not found.' });
       }
+
+      if (request.client_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Unauthorized: Only the client who created this request can verify payment.' });
+      }
+
+      // Idempotency: If already paid (by webhook or concurrent request), return the existing session
+      if (request.status === 'PAID') {
+        let existingSession = request.session_id
+          ? db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(request.session_id)
+          : db.prepare(`SELECT * FROM sessions WHERE booking_id = ?`).get(request.id);
+
+        if (!existingSession) {
+          // If session was not yet created, create it now to heal state
+          const newSessionId = `ses-${uuidv4().slice(0, 8)}`;
+          const startTime = request.connect_type === 'now' ? new Date() : new Date(request.scheduled_start);
+          const endTime = new Date(startTime.getTime() + request.duration_minutes * 60 * 1000);
+          const actualStart = request.connect_type === 'now' ? startTime.toISOString() : null;
+          const actualEnd = request.connect_type === 'now' ? endTime.toISOString() : null;
+          const sessionStatus = request.connect_type === 'now' ? 'ACTIVE' : 'SCHEDULED';
+
+          db.prepare(`
+            INSERT INTO sessions (id, booking_id, client_id, provider_id, service_id, scheduled_start, scheduled_end, actual_start, actual_end, duration_minutes, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO NOTHING
+          `).run(
+            newSessionId,
+            request.id,
+            request.client_id,
+            request.provider_id,
+            request.service_id,
+            startTime.toISOString(),
+            endTime.toISOString(),
+            actualStart,
+            actualEnd,
+            request.duration_minutes,
+            sessionStatus
+          );
+
+          db.prepare(`UPDATE consultation_requests SET session_id = ? WHERE id = ?`).run(newSessionId, request.id);
+          existingSession = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(newSessionId);
+        }
+
+        return res.json({
+          success: true,
+          session_id: existingSession?.id || request.session_id,
+          session: existingSession,
+          payment_id: request.payment_id || razorpay_payment_id,
+          message: 'Payment was already verified. Connected to active session.'
+        });
+      }
+
+      if (request.status !== 'ACCEPTED') {
+        return res.status(400).json({
+          error: `Cannot verify payment: Current request status is ${request.status}. Must be ACCEPTED.`
+        });
+      }
+
+      // Strict HMAC SHA-256 Signature Verification
+      const resolvedCredentials = getEffectiveRazorpayCredentials();
+      const rawSecret = resolvedCredentials.keySecret || (process.env.NODE_ENV !== 'production' ? 'dev_razorpay_secret_key_12345' : null);
+      const keySecret = rawSecret ? rawSecret.trim().replace(/^["']|["']$/g, '') : null;
+      const fallbackKey = resolvedCredentials.keyId ? resolvedCredentials.keyId.trim().replace(/^["']|["']$/g, '') : '';
+
+      if (!keySecret) {
+        return res.status(500).json({ error: 'Server configuration error: RAZORPAY_KEY_SECRET is required.' });
+      }
+
       if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
         return res.status(400).json({ error: 'Missing Razorpay signature verification parameters.' });
       }
@@ -2779,7 +2817,7 @@ module.exports = function(timerEngine, io) {
         .createHmac('sha256', keySecret)
         .update(`${razorpay_order_id}|${razorpay_payment_id}`)
         .digest('hex');
-      const fallbackKey = resolvedCredentials.keyId ? resolvedCredentials.keyId.trim().replace(/^["']|["']$/g, '') : '';
+
       const generatedSignature2 = fallbackKey
         ? crypto.createHmac('sha256', fallbackKey).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest('hex')
         : '';
@@ -2788,156 +2826,201 @@ module.exports = function(timerEngine, io) {
       const match2 = Boolean(generatedSignature2 && generatedSignature2 === razorpay_signature);
 
       if (!match1 && !match2) {
+        console.warn(`[Razorpay Signature Verification Failed] Request ${request.id}: Received signature did not match authoritative HMAC.`);
+        try {
+          const auditId = `audit-${uuidv4().replace(/-/g, '').slice(0, 8)}`;
+          db.prepare(`
+            INSERT INTO audit_logs (id, admin_id, admin_name, action, target_type, target_id, details_json, created_at)
+            VALUES (?, 'system', 'Payment Gateway Monitor', 'PAYMENT_SIGNATURE_VERIFICATION_FAILED', 'consultation_request', ?, ?, CURRENT_TIMESTAMP)
+          `).run(auditId, request.id, JSON.stringify({
+            order_id: razorpay_order_id,
+            payment_id: razorpay_payment_id
+          }));
+        } catch {}
         return res.status(400).json({ error: 'Invalid Razorpay payment signature. Verification failed.' });
       }
-    } else {
-      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-        return res.status(400).json({ error: 'Missing Razorpay signature verification parameters.' });
-      }
-      const generatedSignature = crypto
-        .createHmac('sha256', keySecret)
-        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-        .digest('hex');
 
-      if (generatedSignature !== razorpay_signature) {
-        return res.status(400).json({ error: 'Invalid Razorpay payment signature. Verification failed.' });
-      }
-    }
+      // Replay Protection & Idempotency check for payment ID
+      if (razorpay_payment_id) {
+        const existingPayment = db.prepare('SELECT * FROM payments WHERE id = ?').get(razorpay_payment_id);
+        if (existingPayment) {
+          if (existingPayment.reference_id === request.id) {
+            let existingSession = request.session_id
+              ? db.prepare('SELECT * FROM sessions WHERE id = ?').get(request.session_id)
+              : db.prepare('SELECT * FROM sessions WHERE booking_id = ?').get(request.id);
 
-    // Replay Protection & Idempotency check for payment ID
-    if (razorpay_payment_id) {
-      const existingPayment = db.prepare('SELECT * FROM payments WHERE id = ?').get(razorpay_payment_id);
-      if (existingPayment) {
-        if (existingPayment.reference_id === request.id) {
-          const existingSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(request.session_id);
-          return res.json({
-            success: true,
-            session_id: request.session_id,
-            session: existingSession,
-            payment_id: razorpay_payment_id,
-            message: 'Payment was already verified. Connected to active session.'
-          });
+            if (!existingSession) {
+              const newSessionId = `ses-${uuidv4().slice(0, 8)}`;
+              const startTime = request.connect_type === 'now' ? new Date() : new Date(request.scheduled_start);
+              const endTime = new Date(startTime.getTime() + request.duration_minutes * 60 * 1000);
+              const actualStart = request.connect_type === 'now' ? startTime.toISOString() : null;
+              const actualEnd = request.connect_type === 'now' ? endTime.toISOString() : null;
+              const sessionStatus = request.connect_type === 'now' ? 'ACTIVE' : 'SCHEDULED';
+
+              db.prepare(`
+                INSERT INTO sessions (id, booking_id, client_id, provider_id, service_id, scheduled_start, scheduled_end, actual_start, actual_end, duration_minutes, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO NOTHING
+              `).run(
+                newSessionId,
+                request.id,
+                request.client_id,
+                request.provider_id,
+                request.service_id,
+                startTime.toISOString(),
+                endTime.toISOString(),
+                actualStart,
+                actualEnd,
+                request.duration_minutes,
+                sessionStatus
+              );
+
+              db.prepare(`UPDATE consultation_requests SET session_id = ?, status = 'PAID' WHERE id = ?`).run(newSessionId, request.id);
+              existingSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(newSessionId);
+            }
+
+            return res.json({
+              success: true,
+              session_id: existingSession?.id || request.session_id,
+              session: existingSession,
+              payment_id: razorpay_payment_id,
+              message: 'Payment was already verified. Connected to active session.'
+            });
+          }
+          return res.status(409).json({ error: 'Payment ID has already been recorded for another transaction.' });
         }
-        return res.status(409).json({ error: 'Payment ID has already been recorded for another transaction.' });
       }
+
+      const totalPrice = request.total_price;
+      const paymentId = razorpay_payment_id || `pay-sess-${uuidv4().slice(0, 8)}`;
+      const sessionId = `ses-${uuidv4().slice(0, 8)}`;
+
+      const startTime = request.connect_type === 'now' ? new Date() : new Date(request.scheduled_start);
+      const endTime = new Date(startTime.getTime() + request.duration_minutes * 60 * 1000);
+      const sessionStatus = request.connect_type === 'now' ? 'ACTIVE' : 'SCHEDULED';
+      const actualStart = request.connect_type === 'now' ? startTime.toISOString() : null;
+      const actualEnd = request.connect_type === 'now' ? endTime.toISOString() : null;
+
+      db.prepare(`
+        INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
+        VALUES (?, ?, 'session_payment', ?, 'succeeded', ?, ?)
+        ON CONFLICT(id) DO UPDATE SET status = excluded.status
+      `).run(
+        paymentId,
+        request.client_id,
+        totalPrice,
+        request.id,
+        JSON.stringify({
+          gateway: 'razorpay',
+          order_id: razorpay_order_id,
+          payment_id: razorpay_payment_id,
+          currency: CURRENCY,
+          service_title: request.service_title,
+          duration_minutes: request.duration_minutes,
+          provider_id: request.provider_id
+        })
+      );
+
+      db.prepare(`
+        INSERT INTO bookings (id, client_id, provider_id, service_id, duration_minutes, total_price, scheduled_start, scheduled_end, status, payment_id, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
+        ON CONFLICT(id) DO UPDATE SET status = 'COMPLETED', payment_id = excluded.payment_id
+      `).run(
+        request.id,
+        request.client_id,
+        request.provider_id,
+        request.service_id,
+        request.duration_minutes,
+        totalPrice,
+        startTime.toISOString(),
+        endTime.toISOString(),
+        paymentId,
+        request.problem_description || ''
+      );
+
+      db.prepare(`
+        INSERT INTO sessions (id, booking_id, client_id, provider_id, service_id, scheduled_start, scheduled_end, actual_start, actual_end, duration_minutes, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING
+      `).run(
+        sessionId,
+        request.id,
+        request.client_id,
+        request.provider_id,
+        request.service_id,
+        startTime.toISOString(),
+        endTime.toISOString(),
+        actualStart,
+        actualEnd,
+        request.duration_minutes,
+        sessionStatus
+      );
+
+      db.prepare(`
+        UPDATE consultation_requests 
+        SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, payment_id = ?, session_id = ?
+        WHERE id = ?
+      `).run(paymentId, sessionId, request.id);
+
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        request.provider_id,
+        'Payment Verified (Razorpay)',
+        `${request.client_name} paid for ${request.duration_minutes}m consultation. Room is live!`,
+        'success',
+        `/session/${sessionId}`
+      );
+
+      // Real-time Socket.IO emission to BOTH provider AND client
+      const paymentCompletedPayload = {
+        requestId: request.id,
+        sessionId,
+        clientName: request.client_name,
+        providerName: request.provider_name,
+        serviceTitle: request.service_title,
+        durationMinutes: request.duration_minutes,
+        totalPrice,
+        status: 'PAID'
+      };
+      io.to(`user_${request.provider_id}`).emit('consultation_payment_completed', paymentCompletedPayload);
+      io.to(`user_${request.client_id}`).emit('consultation_payment_completed', paymentCompletedPayload);
+      io.to(`user_${request.provider_id}`).emit('session_started', { sessionId, requestId: request.id });
+      io.to(`user_${request.client_id}`).emit('session_started', { sessionId, requestId: request.id });
+      io.to(`session_${sessionId}`).emit('session_started', { sessionId, requestId: request.id });
+
+      emailService.sendPaymentReceipt({
+        clientEmail: request.client_email,
+        clientName: request.client_name,
+        expertEmail: request.provider_email,
+        expertName: request.provider_name,
+        serviceTitle: request.service_title,
+        durationMinutes: request.duration_minutes,
+        totalPrice,
+        sessionId
+      }).catch(err => console.error('Failed to send payment receipt email', err));
+
+      const createdSession = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
+
+      res.json({
+        success: true,
+        session_id: sessionId,
+        session: createdSession,
+        payment_id: paymentId,
+        message: 'Razorpay payment verified successfully. Consultation workspace ready!'
+      });
+    } catch (verifyErr) {
+      console.error('[Razorpay Verify Error]:', verifyErr);
+      res.status(500).json({ error: verifyErr.message || 'Payment verification failed due to internal error.' });
     }
-
-    const totalPrice = request.total_price;
-    const paymentId = razorpay_payment_id || `pay-sess-${uuidv4().slice(0, 8)}`;
-    const sessionId = `ses-${uuidv4().slice(0, 8)}`;
-
-    const startTime = request.connect_type === 'now' ? new Date() : new Date(request.scheduled_start);
-    const endTime = new Date(startTime.getTime() + request.duration_minutes * 60 * 1000);
-    const sessionStatus = request.connect_type === 'now' ? 'ACTIVE' : 'SCHEDULED';
-    const actualStart = request.connect_type === 'now' ? startTime.toISOString() : null;
-
-    db.prepare(`
-      INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
-      VALUES (?, ?, 'session_payment', ?, 'succeeded', ?, ?)
-    `).run(
-      paymentId,
-      request.client_id,
-      totalPrice,
-      request.id,
-      JSON.stringify({
-        gateway: 'razorpay',
-        order_id: razorpay_order_id,
-        payment_id: razorpay_payment_id,
-        currency: CURRENCY,
-        service_title: request.service_title,
-        duration_minutes: request.duration_minutes,
-        provider_id: request.provider_id
-      })
-    );
-
-    db.prepare(`
-      INSERT INTO bookings (id, client_id, provider_id, service_id, duration_minutes, total_price, scheduled_start, scheduled_end, status, payment_id, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
-      ON CONFLICT(id) DO UPDATE SET status = 'COMPLETED', payment_id = excluded.payment_id
-    `).run(
-      request.id,
-      request.client_id,
-      request.provider_id,
-      request.service_id,
-      request.duration_minutes,
-      totalPrice,
-      startTime.toISOString(),
-      endTime.toISOString(),
-      paymentId,
-      request.problem_description || ''
-    );
-
-    const actualEnd = request.connect_type === 'now' ? endTime.toISOString() : null;
-
-    db.prepare(`
-      INSERT INTO sessions (id, booking_id, client_id, provider_id, service_id, scheduled_start, scheduled_end, actual_start, actual_end, duration_minutes, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      sessionId,
-      request.id,
-      request.client_id,
-      request.provider_id,
-      request.service_id,
-      startTime.toISOString(),
-      endTime.toISOString(),
-      actualStart,
-      actualEnd,
-      request.duration_minutes,
-      sessionStatus
-    );
-
-    db.prepare(`
-      UPDATE consultation_requests 
-      SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, payment_id = ?, session_id = ?
-      WHERE id = ?
-    `).run(paymentId, sessionId, request.id);
-
-    db.prepare(`
-      INSERT INTO notifications (id, user_id, title, message, type, link)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      `notif-${uuidv4().slice(0, 8)}`,
-      request.provider_id,
-      'Payment Verified (Razorpay)',
-      `${request.client_name} paid for ${request.duration_minutes}m consultation. Room is live!`,
-      'success',
-      `/session/${sessionId}`
-    );
-
-    io.to(`user_${request.provider_id}`).emit('consultation_payment_completed', {
-      requestId: request.id,
-      sessionId,
-      clientName: request.client_name,
-      serviceTitle: request.service_title,
-      durationMinutes: request.duration_minutes
-    });
-
-    emailService.sendPaymentReceipt({
-      clientEmail: request.client_email,
-      clientName: request.client_name,
-      expertEmail: request.provider_email,
-      expertName: request.provider_name,
-      serviceTitle: request.service_title,
-      durationMinutes: request.duration_minutes,
-      totalPrice,
-      sessionId
-    }).catch(err => console.error('Failed to send payment receipt email', err));
-
-    const createdSession = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
-
-    res.json({
-      success: true,
-      session_id: sessionId,
-      session: createdSession,
-      payment_id: paymentId,
-      message: 'Razorpay payment verified successfully. Consultation workspace ready!'
-    });
   });
 
   // ==========================================
   // RAZORPAY PRODUCTION WEBHOOK HANDLER
   // ==========================================
-  router.post('/payments/razorpay-webhook', (req, res) => {
+  const handleRazorpayWebhook = (req, res) => {
     const resolvedCredentials = getEffectiveRazorpayCredentials();
     const rawWebhookSecret = resolvedCredentials.webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET || (process.env.NODE_ENV !== 'production' ? 'whsec_test_secret_for_razorpay_98765' : null);
     const webhookSecret = rawWebhookSecret ? rawWebhookSecret.trim().replace(/^["']|["']$/g, '') : null;
@@ -3017,6 +3100,7 @@ module.exports = function(timerEngine, io) {
               db.prepare(`
                 INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
                 VALUES (?, ?, 'session_payment', ?, 'succeeded', ?, ?)
+                ON CONFLICT(id) DO UPDATE SET status = excluded.status
               `).run(pId, request.client_id, request.total_price, request.id, JSON.stringify({
                 gateway: 'razorpay_webhook',
                 order_id: orderId,
@@ -3079,13 +3163,33 @@ module.exports = function(timerEngine, io) {
               `/session/${sessionId}`
             );
 
-            io.to(`user_${request.provider_id}`).emit('consultation_payment_completed', {
+            db.prepare(`
+              INSERT INTO notifications (id, user_id, title, message, type, link)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `).run(
+              `notif-${uuidv4().slice(0, 8)}`,
+              request.client_id,
+              'Payment Confirmed',
+              `Payment confirmed for ${request.service_title}. Your consultation room is live!`,
+              'success',
+              `/session/${sessionId}`
+            );
+
+            const paymentCompletedPayload = {
               requestId: request.id,
               sessionId,
               clientName: request.client_name,
+              providerName: request.provider_name,
               serviceTitle: request.service_title,
-              durationMinutes: request.duration_minutes
-            });
+              durationMinutes: request.duration_minutes,
+              totalPrice: request.total_price,
+              status: 'PAID'
+            };
+            io.to(`user_${request.provider_id}`).emit('consultation_payment_completed', paymentCompletedPayload);
+            io.to(`user_${request.client_id}`).emit('consultation_payment_completed', paymentCompletedPayload);
+            io.to(`user_${request.provider_id}`).emit('session_started', { sessionId, requestId: request.id });
+            io.to(`user_${request.client_id}`).emit('session_started', { sessionId, requestId: request.id });
+            io.to(`session_${sessionId}`).emit('session_started', { sessionId, requestId: request.id });
 
             emailService.sendPaymentReceipt({
               clientEmail: request.client_email,
@@ -3260,7 +3364,10 @@ module.exports = function(timerEngine, io) {
     }
 
     res.status(200).json({ status: 'ok', processed: true });
-  });
+  };
+
+  router.post('/payments/razorpay-webhook', handleRazorpayWebhook);
+  router.post('/webhooks/razorpay', handleRazorpayWebhook);
 
   // ==========================================
   // WEBRTC ICE & TURN SERVER ENDPOINTS

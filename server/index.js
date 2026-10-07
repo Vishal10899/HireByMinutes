@@ -252,6 +252,12 @@ app.use('/api/admin/change-password', rateLimiter(10, 60000));
 
 app.use('/api', createRoutes(timerEngine, io));
 
+// Forward non-prefixed Razorpay webhook URLs to /api equivalents if configured at domain root
+app.post(['/webhooks/razorpay', '/payments/razorpay-webhook'], (req, res, next) => {
+  req.url = `/api${req.url}`;
+  app.handle(req, res, next);
+});
+
 // =============================================================================
 // PRODUCTION HEALTH & KEEP-ALIVE MONITORING ENDPOINTS
 // Extremely lightweight: returns HTTP 200 quickly without auth, no external APIs,

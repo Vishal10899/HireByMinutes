@@ -182,12 +182,20 @@ export const ClientDashboardPage: React.FC = () => {
       loadDashboard();
     };
 
+    const handleSessionStarted = (data: any) => {
+      loadDashboard();
+      if (data?.sessionId) {
+        navigate(`/session/${data.sessionId}`);
+      }
+    };
+
     socket.on('consultation_request_accepted', handleAccepted);
     socket.on('consultation_request_declined', handleDeclined);
     socket.on('consultation_request_expired', handleExpired);
     socket.on('session_completed', handleSessionCompleted);
     socket.on('session_extended', handleSessionExtended);
     socket.on('consultation_payment_completed', handlePaymentCompleted);
+    socket.on('session_started', handleSessionStarted);
 
     return () => {
       socket.off('consultation_request_accepted', handleAccepted);
@@ -196,8 +204,9 @@ export const ClientDashboardPage: React.FC = () => {
       socket.off('session_completed', handleSessionCompleted);
       socket.off('session_extended', handleSessionExtended);
       socket.off('consultation_payment_completed', handlePaymentCompleted);
+      socket.off('session_started', handleSessionStarted);
     };
-  }, [socket]);
+  }, [socket, navigate]);
 
   const handlePayRequest = async (requestId: string) => {
     try {
@@ -248,9 +257,10 @@ export const ClientDashboardPage: React.FC = () => {
           razorpay_signature: string;
         }) => {
           try {
+            const orderId = response.razorpay_order_id || orderRes.order_id;
             // 3. Cryptographic signature verification on backend
             const verifyRes = await api.verifyRazorpayPayment(requestId, {
-              razorpay_order_id: response.razorpay_order_id,
+              razorpay_order_id: orderId,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature
             });
@@ -262,14 +272,29 @@ export const ClientDashboardPage: React.FC = () => {
               await loadDashboard();
             }
           } catch (verifyErr: any) {
+            try {
+              const checkRes = await api.getConsultationRequest(requestId);
+              if (checkRes.request?.status === 'PAID' && checkRes.request.session_id) {
+                confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+                navigate(`/session/${checkRes.request.session_id}`);
+                return;
+              }
+            } catch {}
             alert(verifyErr.message || 'Payment verification failed. Please contact support.');
           } finally {
             setPayingId(null);
           }
         },
         modal: {
-          ondismiss: () => {
+          ondismiss: async () => {
             setPayingId(null);
+            try {
+              const checkRes = await api.getConsultationRequest(requestId);
+              if (checkRes.request?.status === 'PAID' && checkRes.request.session_id) {
+                confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+                navigate(`/session/${checkRes.request.session_id}`);
+              }
+            } catch {}
           }
         }
       };

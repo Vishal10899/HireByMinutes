@@ -139,24 +139,44 @@ export const ServiceDetailPage: React.FC = () => {
         }
       };
 
+      const handlePaymentCompleted = (data: any) => {
+        if (data.requestId === activeRequest.id) {
+          if (data.sessionId) {
+            navigate(`/session/${data.sessionId}`);
+          } else {
+            api.getConsultationRequest(activeRequest.id).then(res => {
+              if (res.request?.session_id) {
+                navigate(`/session/${res.request.session_id}`);
+              } else if (res.request) {
+                setActiveRequest(res.request);
+              }
+            }).catch(() => {});
+          }
+        }
+      };
+
+      const handleSessionStarted = (data: any) => {
+        if (data.requestId === activeRequest.id && data.sessionId) {
+          navigate(`/session/${data.sessionId}`);
+        }
+      };
+
       socket.on('consultation_request_accepted', handleAccepted);
       socket.on('consultation_request_declined', handleDeclined);
       socket.on('consultation_request_expired', handleExpired);
-
-      return () => {
-        clearInterval(timer);
-        socket.off('consultation_request_accepted', handleAccepted);
-        socket.off('consultation_request_declined', handleDeclined);
-        socket.off('consultation_request_expired', handleExpired);
-      };
+      socket.on('consultation_payment_completed', handlePaymentCompleted);
+      socket.on('session_started', handleSessionStarted);
     }
 
-    // Polling fallback to recover state from server if socket drops
+    // Polling fallback to recover state from server if socket drops or webhooks complete asynchronously
     const pollInterval = setInterval(async () => {
       try {
         const res = await api.getConsultationRequest(activeRequest.id);
         if (res.request) {
           setActiveRequest(res.request);
+          if (res.request.status === 'PAID' && res.request.session_id) {
+            navigate(`/session/${res.request.session_id}`);
+          }
           if (res.request.remaining_seconds !== undefined) {
             setCountdownSeconds(res.request.remaining_seconds);
           }
@@ -169,10 +189,17 @@ export const ServiceDetailPage: React.FC = () => {
     return () => {
       clearInterval(timer);
       clearInterval(pollInterval);
+      if (socket) {
+        socket.off('consultation_request_accepted');
+        socket.off('consultation_request_declined');
+        socket.off('consultation_request_expired');
+        socket.off('consultation_payment_completed');
+        socket.off('session_started');
+      }
     };
-  }, [activeRequest?.id, socket]);
+  }, [activeRequest?.id, socket, navigate]);
 
-  // Sync activeRequest status with hireStep
+  // Sync activeRequest status with hireStep and auto-navigate to session when confirmed
   useEffect(() => {
     if (!activeRequest) {
       if (hireStep > 3) setHireStep(1);
@@ -182,10 +209,13 @@ export const ServiceDetailPage: React.FC = () => {
       setHireStep(4);
     } else if (activeRequest.status === 'ACCEPTED') {
       setHireStep(5);
-    } else if (activeRequest.status === 'COMPLETED') {
+    } else if (activeRequest.status === 'PAID' || activeRequest.status === 'COMPLETED') {
       setHireStep(6);
+      if (activeRequest.session_id) {
+        navigate(`/session/${activeRequest.session_id}`);
+      }
     }
-  }, [activeRequest?.status]);
+  }, [activeRequest?.status, activeRequest?.session_id, navigate]);
 
   const handleRequestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -279,9 +309,10 @@ export const ServiceDetailPage: React.FC = () => {
           razorpay_signature: string;
         }) => {
           try {
+            const orderId = response.razorpay_order_id || orderRes.order_id;
             // 3. Cryptographic signature verification on backend
             const verifyRes = await api.verifyRazorpayPayment(activeRequest.id, {
-              razorpay_order_id: response.razorpay_order_id,
+              razorpay_order_id: orderId,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature
             });
@@ -290,9 +321,24 @@ export const ServiceDetailPage: React.FC = () => {
             if (verifyRes.session_id) {
               navigate(`/session/${verifyRes.session_id}`);
             } else {
-              navigate('/client');
+              const pollRes = await api.getConsultationRequest(activeRequest.id);
+              if (pollRes.request?.session_id) {
+                navigate(`/session/${pollRes.request.session_id}`);
+              } else {
+                navigate('/client');
+              }
             }
           } catch (verifyErr: any) {
+            // Polling fallback to check if payment succeeded via webhook or concurrent verify
+            try {
+              const checkRes = await api.getConsultationRequest(activeRequest.id);
+              if (checkRes.request?.status === 'PAID' && checkRes.request.session_id) {
+                confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+                navigate(`/session/${checkRes.request.session_id}`);
+                return;
+              }
+            } catch {}
+
             const verifyMsg = verifyErr.message || 'Payment verification failed. Please contact support.';
             setFormError(verifyMsg);
             alert(verifyMsg);
@@ -301,8 +347,15 @@ export const ServiceDetailPage: React.FC = () => {
           }
         },
         modal: {
-          ondismiss: () => {
+          ondismiss: async () => {
             setPaying(false);
+            try {
+              const checkRes = await api.getConsultationRequest(activeRequest.id);
+              if (checkRes.request?.status === 'PAID' && checkRes.request.session_id) {
+                confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+                navigate(`/session/${checkRes.request.session_id}`);
+              }
+            } catch {}
           }
         }
       };
@@ -832,7 +885,7 @@ export const ServiceDetailPage: React.FC = () => {
         )}
 
         {/* ---------------- STEP 6: SESSION REDIRECTING ---------------- */}
-        {activeRequest && activeRequest.status === 'COMPLETED' && (
+        {activeRequest && (activeRequest.status === 'PAID' || activeRequest.status === 'COMPLETED') && (
           <div className="space-y-4 text-center animate-fade-in py-4">
             <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 mx-auto flex items-center justify-center border border-emerald-200 shadow-subtle">
               <Sparkles className="w-6 h-6 animate-spin" />
@@ -843,6 +896,17 @@ export const ServiceDetailPage: React.FC = () => {
             <p className="text-xs text-midnight/70">
               Launching your secure consultation room...
             </p>
+            {activeRequest.session_id && (
+              <div className="pt-2">
+                <Link
+                  to={`/session/${activeRequest.session_id}`}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover transition-colors shadow-subtle"
+                >
+                  <span>Enter Consultation Room Now</span>
+                  <ArrowRight className="w-4 h-4 text-moonstone" />
+                </Link>
+              </div>
+            )}
           </div>
         )}
 

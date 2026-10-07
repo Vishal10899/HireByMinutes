@@ -186,6 +186,7 @@ export const ProviderDashboardPage: React.FC = () => {
 
     socket.on('consultation_request_created', handleNewRequest);
     socket.on('consultation_payment_completed', handlePaymentCompleted);
+    socket.on('session_started', handlePaymentCompleted);
     socket.on('consultation_request_expired', handleRequestExpired);
     socket.on('session_completed', handleSessionCompleted);
     socket.on('session_extended', handleSessionExtended);
@@ -194,6 +195,7 @@ export const ProviderDashboardPage: React.FC = () => {
     return () => {
       socket.off('consultation_request_created', handleNewRequest);
       socket.off('consultation_payment_completed', handlePaymentCompleted);
+      socket.off('session_started', handlePaymentCompleted);
       socket.off('consultation_request_expired', handleRequestExpired);
       socket.off('session_completed', handleSessionCompleted);
       socket.off('session_extended', handleSessionExtended);
