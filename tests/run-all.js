@@ -23,6 +23,7 @@ const suites = [
   { name: 'Production Hardening & Reliability Suite', file: path.join('marketplace', 'production-hardening.test.js') },
   { name: 'Universal Marketplace Features Suite', file: path.join('marketplace', 'universal-marketplace-features.test.js') },
   { name: 'Frontend Runtime & Error Boundary Suite', file: path.join('frontend', 'error-boundary-runtime.test.js') },
+  { name: 'PostgreSQL Schema & Migration Regression Suite', file: path.join('integrations', 'postgres-categories-migration.test.js') },
   { name: 'Production Acceptance Audit Regression Suite', file: path.join('marketplace', 'production-audit-regression.test.js') }
 ];
 

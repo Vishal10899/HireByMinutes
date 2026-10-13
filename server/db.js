@@ -281,6 +281,7 @@ function initPostgresSchema(db) {
       short_description TEXT,
       pricing_type VARCHAR(32) NOT NULL DEFAULT 'free' CHECK(pricing_type IN ('free', 'paid')),
       entry_fee_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+      entry_fee_inr NUMERIC(10,2) NOT NULL DEFAULT 0.00,
       is_featured INTEGER DEFAULT 0,
       skills_json TEXT DEFAULT '[]',
       requirements TEXT,
@@ -302,6 +303,7 @@ function initPostgresSchema(db) {
       availability VARCHAR(128) NOT NULL,
       status VARCHAR(32) NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'rejected')),
       payment_id VARCHAR(64),
+      fee_paid NUMERIC(10,2) DEFAULT 0.00,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -396,6 +398,7 @@ function initPostgresSchema(db) {
       name VARCHAR(255) NOT NULL,
       description TEXT,
       fee_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+      fee_inr NUMERIC(10,2) NOT NULL DEFAULT 0.00,
       start_time TIMESTAMP WITH TIME ZONE NOT NULL,
       end_time TIMESTAMP WITH TIME ZONE NOT NULL,
       is_active INTEGER NOT NULL DEFAULT 1,
@@ -659,10 +662,39 @@ function initPostgresSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_blog_status ON blog_posts(status);
     CREATE INDEX IF NOT EXISTS idx_blog_category ON blog_posts(category);
 
+    -- Safe Idempotent Schema Migrations (Run BEFORE cleanup and default seeding)
+    ALTER TABLE categories ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+    ALTER TABLE categories ADD COLUMN IF NOT EXISTS active INTEGER DEFAULT 1;
+    ALTER TABLE categories ADD COLUMN IF NOT EXISTS service_count INTEGER DEFAULT 0;
+    ALTER TABLE categories ADD COLUMN IF NOT EXISTS subcategories_json TEXT DEFAULT '[]';
+    ALTER TABLE categories ADD COLUMN IF NOT EXISTS image_url TEXT;
     ALTER TABLE categories ADD COLUMN IF NOT EXISTS meta_title VARCHAR(255);
     ALTER TABLE categories ADD COLUMN IF NOT EXISTS meta_description TEXT;
     ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_regulated INTEGER DEFAULT 0;
     ALTER TABLE categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
+    UPDATE categories SET subcategories_json = COALESCE(subcategories_json, '[]');
+    UPDATE categories SET sort_order = COALESCE(sort_order, 0);
+    UPDATE categories SET active = COALESCE(active, 1);
+    UPDATE categories SET service_count = COALESCE(service_count, 0);
+    UPDATE categories SET is_regulated = COALESCE(is_regulated, 0);
+
+    ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS pricing_type VARCHAR(32) DEFAULT 'free';
+    ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS entry_fee_usd NUMERIC(10,2) DEFAULT 0.00;
+    ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS entry_fee_inr NUMERIC(10,2) DEFAULT 0.00;
+    ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS is_featured INTEGER DEFAULT 0;
+    ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS skills_json TEXT DEFAULT '[]';
+    ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS requirements TEXT;
+    ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS attachment_url TEXT;
+    ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS visibility VARCHAR(32) DEFAULT 'public';
+    ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS start_date TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS end_date TIMESTAMP WITH TIME ZONE;
+
+    ALTER TABLE registration_campaigns ADD COLUMN IF NOT EXISTS fee_inr NUMERIC(10,2) DEFAULT 0.00;
+    ALTER TABLE applications ADD COLUMN IF NOT EXISTS payment_id VARCHAR(64);
+    ALTER TABLE applications ADD COLUMN IF NOT EXISTS fee_paid NUMERIC(10,2) DEFAULT 0.00;
+    ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
     ALTER TABLE reviews ADD COLUMN IF NOT EXISTS provider_reply TEXT;
     ALTER TABLE reviews ADD COLUMN IF NOT EXISTS provider_replied_at TIMESTAMP WITH TIME ZONE;
   `;
@@ -1282,6 +1314,9 @@ function initSqliteSchema(db) {
     }
   };
 
+  safeAddColumn('categories', 'sort_order INTEGER DEFAULT 0');
+  safeAddColumn('categories', 'active INTEGER DEFAULT 1');
+  safeAddColumn('categories', 'service_count INTEGER DEFAULT 0');
   safeAddColumn('categories', "subcategories_json TEXT DEFAULT '[]'");
   safeAddColumn('categories', 'image_url TEXT');
   safeAddColumn('categories', 'meta_title TEXT');
@@ -1299,7 +1334,18 @@ function initSqliteSchema(db) {
   safeAddColumn('opportunities', "visibility TEXT DEFAULT 'public'");
   safeAddColumn('opportunities', 'start_date DATETIME');
   safeAddColumn('opportunities', 'end_date DATETIME');
+  safeAddColumn('applications', 'payment_id TEXT');
   safeAddColumn('applications', 'fee_paid REAL DEFAULT 0.00');
+
+  try {
+    db.prepare("UPDATE categories SET subcategories_json = '[]' WHERE subcategories_json IS NULL").run();
+    db.prepare("UPDATE categories SET sort_order = 0 WHERE sort_order IS NULL").run();
+    db.prepare("UPDATE categories SET active = 1 WHERE active IS NULL").run();
+    db.prepare("UPDATE categories SET service_count = 0 WHERE service_count IS NULL").run();
+    db.prepare("UPDATE categories SET is_regulated = 0 WHERE is_regulated IS NULL").run();
+  } catch (e) {
+    // Categories table might be newly initializing
+  }
   safeAddColumn('reviews', 'is_hidden INTEGER DEFAULT 0');
   safeAddColumn('reviews', 'moderation_note TEXT');
   safeAddColumn('reviews', 'moderated_by TEXT');
@@ -1508,19 +1554,28 @@ function ensureDefaultCategories(dbInstance) {
   ];
 
   for (const cat of universalCategories) {
-    const existing = dbInstance.prepare('SELECT id FROM categories WHERE id = ? OR slug = ?').get(cat.id, cat.slug);
-    const subcatsJson = JSON.stringify(cat.subcategories);
+    const existing = dbInstance.prepare('SELECT id, name, icon, description, sort_order, subcategories_json, is_regulated FROM categories WHERE id = ? OR slug = ?').get(cat.id, cat.slug);
+    const defaultSubcatsJson = JSON.stringify(cat.subcategories);
     if (!existing) {
       dbInstance.prepare(`
         INSERT INTO categories (id, slug, name, icon, description, sort_order, active, service_count, subcategories_json, is_regulated)
         VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)
-      `).run(cat.id, cat.slug, cat.name, cat.icon, cat.description, cat.sort_order, subcatsJson, cat.is_regulated);
+      `).run(cat.id, cat.slug, cat.name, cat.icon, cat.description, cat.sort_order, defaultSubcatsJson, cat.is_regulated);
     } else {
+      // Preserve existing custom admin modifications; only backfill subcategories_json if empty or unpopulated
+      const hasSubcats = existing.subcategories_json && existing.subcategories_json !== '[]' && existing.subcategories_json !== 'null';
+      const targetSubcats = hasSubcats ? existing.subcategories_json : defaultSubcatsJson;
+      const targetName = existing.name || cat.name;
+      const targetIcon = existing.icon || cat.icon;
+      const targetDesc = existing.description !== null && existing.description !== undefined ? existing.description : cat.description;
+      const targetSortOrder = (existing.sort_order !== null && existing.sort_order !== undefined) ? existing.sort_order : cat.sort_order;
+      const targetRegulated = (existing.is_regulated !== null && existing.is_regulated !== undefined) ? existing.is_regulated : cat.is_regulated;
+
       dbInstance.prepare(`
         UPDATE categories 
         SET name = ?, icon = ?, description = ?, sort_order = ?, subcategories_json = ?, is_regulated = ?
         WHERE id = ?
-      `).run(cat.name, cat.icon, cat.description, cat.sort_order, subcatsJson, cat.is_regulated, existing.id);
+      `).run(targetName, targetIcon, targetDesc, targetSortOrder, targetSubcats, targetRegulated, existing.id);
     }
   }
 }
@@ -2018,5 +2073,10 @@ function ensureDefaultCmsPages(dbInstance) {
     // Already seeded or table error
   }
 }
+
+db.initPostgresSchema = initPostgresSchema;
+db.initSqliteSchema = initSqliteSchema;
+db.ensureDefaultCategories = ensureDefaultCategories;
+db.ensureSettingsAndAdmin = ensureSettingsAndAdmin;
 
 module.exports = db;

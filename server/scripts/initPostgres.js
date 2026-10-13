@@ -51,7 +51,11 @@ CREATE TABLE IF NOT EXISTS categories (
   active INTEGER DEFAULT 1,
   service_count INTEGER DEFAULT 0,
   subcategories_json TEXT DEFAULT '[]',
-  image_url TEXT
+  image_url TEXT,
+  meta_title VARCHAR(255),
+  meta_description TEXT,
+  is_regulated INTEGER DEFAULT 0,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS services (
@@ -193,6 +197,7 @@ CREATE TABLE IF NOT EXISTS opportunities (
   short_description TEXT,
   pricing_type VARCHAR(32) NOT NULL DEFAULT 'free' CHECK(pricing_type IN ('free', 'paid')),
   entry_fee_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  entry_fee_inr NUMERIC(10,2) NOT NULL DEFAULT 0.00,
   is_featured INTEGER DEFAULT 0,
   skills_json TEXT DEFAULT '[]',
   requirements TEXT,
@@ -214,6 +219,7 @@ CREATE TABLE IF NOT EXISTS applications (
   availability VARCHAR(128) NOT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'pending',
   payment_id VARCHAR(64),
+  fee_paid NUMERIC(10,2) DEFAULT 0.00,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -308,6 +314,7 @@ CREATE TABLE IF NOT EXISTS registration_campaigns (
   name VARCHAR(255) NOT NULL,
   description TEXT,
   fee_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  fee_inr NUMERIC(10,2) NOT NULL DEFAULT 0.00,
   start_time TIMESTAMP WITH TIME ZONE NOT NULL,
   end_time TIMESTAMP WITH TIME ZONE NOT NULL,
   is_active INTEGER NOT NULL DEFAULT 1,
@@ -461,6 +468,140 @@ CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
 CREATE INDEX IF NOT EXISTS idx_bookings_client ON bookings(client_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_provider ON bookings(provider_id);
+
+CREATE TABLE IF NOT EXISTS portfolio_projects (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  skills_json TEXT DEFAULT '[]',
+  project_url TEXT,
+  image_url TEXT,
+  display_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS expert_bank_accounts (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  account_holder_name VARCHAR(255) NOT NULL,
+  account_number_last4 VARCHAR(4) NOT NULL,
+  account_number_masked VARCHAR(64) NOT NULL,
+  ifsc_code VARCHAR(32) NOT NULL,
+  bank_name VARCHAR(255) NOT NULL,
+  account_type VARCHAR(32) DEFAULT 'savings',
+  verification_status VARCHAR(32) DEFAULT 'pending_verification',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS financial_ledger (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  session_id VARCHAR(64),
+  booking_id VARCHAR(64),
+  entry_type VARCHAR(32) NOT NULL,
+  amount_paise INTEGER NOT NULL,
+  balance_type VARCHAR(32) NOT NULL,
+  currency VARCHAR(8) DEFAULT 'INR',
+  description TEXT,
+  metadata_json TEXT DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS reward_points_ledger (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  session_id VARCHAR(64),
+  booking_id VARCHAR(64),
+  entry_type VARCHAR(32) NOT NULL,
+  points INTEGER NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'available',
+  description TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_portfolio_user ON portfolio_projects(user_id);
+CREATE INDEX IF NOT EXISTS idx_fin_ledger_user ON financial_ledger(user_id);
+CREATE INDEX IF NOT EXISTS idx_fin_ledger_session ON financial_ledger(session_id);
+CREATE INDEX IF NOT EXISTS idx_reward_user ON reward_points_ledger(user_id);
+CREATE INDEX IF NOT EXISTS idx_reward_session ON reward_points_ledger(session_id);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS education_json TEXT DEFAULT '[]';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS certifications_json TEXT DEFAULT '[]';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reward_points_balance INTEGER DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_balance_paise INTEGER DEFAULT 0;
+ALTER TABLE consultation_requests ADD COLUMN IF NOT EXISTS reward_points_redeemed INTEGER DEFAULT 0;
+ALTER TABLE consultation_requests ADD COLUMN IF NOT EXISTS reward_discount_amount NUMERIC(10,2) DEFAULT 0.00;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reward_points_redeemed INTEGER DEFAULT 0;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reward_discount_amount NUMERIC(10,2) DEFAULT 0.00;
+
+CREATE TABLE IF NOT EXISTS blog_posts (
+  id VARCHAR(64) PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  slug VARCHAR(255) UNIQUE NOT NULL,
+  excerpt TEXT,
+  content TEXT NOT NULL,
+  author_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  author_name VARCHAR(255) NOT NULL,
+  category VARCHAR(128) DEFAULT 'Expert Guidance',
+  category_id VARCHAR(64) REFERENCES categories(id) ON DELETE SET NULL,
+  featured_image TEXT,
+  tags_json TEXT DEFAULT '[]',
+  internal_links_json TEXT DEFAULT '[]',
+  meta_title VARCHAR(255),
+  meta_description TEXT,
+  canonical_url TEXT,
+  og_image TEXT,
+  status VARCHAR(32) NOT NULL DEFAULT 'published' CHECK(status IN ('draft', 'scheduled', 'published', 'archived')),
+  published_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  scheduled_at TIMESTAMP WITH TIME ZONE,
+  read_time_minutes INTEGER DEFAULT 5,
+  views_count INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_blog_slug ON blog_posts(slug);
+CREATE INDEX IF NOT EXISTS idx_blog_status ON blog_posts(status);
+CREATE INDEX IF NOT EXISTS idx_blog_category ON blog_posts(category);
+
+-- Safe Idempotent Schema Migrations
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS active INTEGER DEFAULT 1;
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS service_count INTEGER DEFAULT 0;
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS subcategories_json TEXT DEFAULT '[]';
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS meta_title VARCHAR(255);
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS meta_description TEXT;
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_regulated INTEGER DEFAULT 0;
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
+UPDATE categories SET subcategories_json = COALESCE(subcategories_json, '[]');
+UPDATE categories SET sort_order = COALESCE(sort_order, 0);
+UPDATE categories SET active = COALESCE(active, 1);
+UPDATE categories SET service_count = COALESCE(service_count, 0);
+UPDATE categories SET is_regulated = COALESCE(is_regulated, 0);
+
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS pricing_type VARCHAR(32) DEFAULT 'free';
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS entry_fee_usd NUMERIC(10,2) DEFAULT 0.00;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS entry_fee_inr NUMERIC(10,2) DEFAULT 0.00;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS is_featured INTEGER DEFAULT 0;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS skills_json TEXT DEFAULT '[]';
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS requirements TEXT;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS attachment_url TEXT;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS visibility VARCHAR(32) DEFAULT 'public';
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS start_date TIMESTAMP WITH TIME ZONE;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS end_date TIMESTAMP WITH TIME ZONE;
+
+ALTER TABLE registration_campaigns ADD COLUMN IF NOT EXISTS fee_inr NUMERIC(10,2) DEFAULT 0.00;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS payment_id VARCHAR(64);
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS fee_paid NUMERIC(10,2) DEFAULT 0.00;
+ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS provider_reply TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS provider_replied_at TIMESTAMP WITH TIME ZONE;
 `;
 
 async function initPostgres(customPool = null) {
