@@ -24,6 +24,10 @@ export interface User {
   email_verified?: number | boolean;
   response_time?: string;
   member_since?: string;
+  education?: string[];
+  certifications?: string[];
+  reward_points_balance?: number;
+  payout_balance_paise?: number;
   created_at?: string;
 }
 
@@ -42,6 +46,7 @@ export interface Category {
 export interface Service {
   id: string;
   provider_id: string;
+  user_id?: string;
   title: string;
   subcategory?: string;
   category_id: string;
@@ -110,6 +115,8 @@ export interface ConsultationRequest {
   paid_at?: string;
   payment_id?: string;
   session_id?: string;
+  reward_points_redeemed?: number;
+  reward_discount_amount?: number;
   created_at: string;
 }
 

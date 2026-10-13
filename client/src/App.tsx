@@ -20,6 +20,8 @@ import { ProviderOnboardingPage } from './pages/ProviderOnboardingPage';
 import { OpportunitiesPage } from './pages/OpportunitiesPage';
 import { JobsPage } from './pages/JobsPage';
 import { JobDetailPage } from './pages/JobDetailPage';
+import { BlogListPage } from './pages/BlogListPage';
+import { BlogPostPage } from './pages/BlogPostPage';
 import { AdminPage } from './pages/AdminPage';
 import { AuthPage } from './pages/AuthPage';
 import { EditProfilePage } from './pages/EditProfilePage';
@@ -76,6 +78,8 @@ const AppRoutes: React.FC = () => {
           <Route path="/jobs" element={<JobsPage />} />
           <Route path="/jobs/:id" element={<JobDetailPage />} />
           <Route path="/opportunities" element={<OpportunitiesPage />} />
+          <Route path="/blog" element={<BlogListPage />} />
+          <Route path="/blog/:slug" element={<BlogPostPage />} />
 
           {/* Legal & Informational Routes */}
           <Route path="/about" element={<AboutPage />} />

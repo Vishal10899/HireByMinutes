@@ -77,7 +77,8 @@ const DEFAULT_NAV_ITEMS: NavItem[] = [
   { id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true, is_external: false },
   { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 2, is_visible: true, is_external: false },
   { id: 'jobs', label: 'Jobs', url: '/jobs', order: 3, is_visible: true, is_external: false },
-  { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 4, is_visible: true, is_external: false }
+  { id: 'blog', label: 'Blog', url: '/blog', order: 4, is_visible: true, is_external: false },
+  { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 5, is_visible: true, is_external: false }
 ];
 
 const DEFAULT_FOOTER_SETTINGS: FooterSettings = {
@@ -98,7 +99,8 @@ const DEFAULT_FOOTER_SETTINGS: FooterSettings = {
       { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 2, is_visible: true },
       { id: 'services', label: 'Browse Services', url: '/services', order: 3, is_visible: true },
       { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 4, is_visible: true, is_new: true },
-      { id: 'jobs', label: 'Jobs', url: '/jobs', order: 5, is_visible: true }
+      { id: 'jobs', label: 'Jobs', url: '/jobs', order: 5, is_visible: true },
+      { id: 'blog', label: 'Insights & Blog', url: '/blog', order: 6, is_visible: true }
     ],
     policies: [
       { id: 'terms', label: 'Terms of Service', url: '/terms', order: 1, is_visible: true },

@@ -125,6 +125,26 @@ function sanitizeUser(user) {
       .replace(/^_+|_+$/g, '');
   }
 
+  if (safe.education_json && typeof safe.education_json === 'string') {
+    try {
+      safe.education = JSON.parse(safe.education_json);
+    } catch {
+      safe.education = [];
+    }
+  } else if (!safe.education) {
+    safe.education = [];
+  }
+
+  if (safe.certifications_json && typeof safe.certifications_json === 'string') {
+    try {
+      safe.certifications = JSON.parse(safe.certifications_json);
+    } catch {
+      safe.certifications = [];
+    }
+  } else if (!safe.certifications) {
+    safe.certifications = [];
+  }
+
   return safe;
 }
 
@@ -291,7 +311,9 @@ async function createRazorpayNativeOrder({ amountPaise, receipt, notes = {} }) {
   }
 }
 
-module.exports = function(timerEngine, io) {
+module.exports = function(timerEngineArg, ioArg, maybeTimer) {
+  let timerEngine = (maybeTimer && typeof maybeTimer.extendSession === 'function') ? maybeTimer : timerEngineArg;
+  let io = ioArg;
   // Initialize email service with database reference
   emailService.init(db);
 
@@ -1487,6 +1509,8 @@ module.exports = function(timerEngine, io) {
       languages,
       skills,
       experience_years,
+      education,
+      certifications,
       // Expert-specific fields
       service_title,
       service_description,
@@ -1522,6 +1546,14 @@ module.exports = function(timerEngine, io) {
       skillsJson = JSON.stringify(skillsArray);
     }
 
+    const educationJson = education !== undefined 
+      ? JSON.stringify(Array.isArray(education) ? education : []) 
+      : (user.education_json || '[]');
+
+    const certificationsJson = certifications !== undefined 
+      ? JSON.stringify(Array.isArray(certifications) ? certifications : []) 
+      : (user.certifications_json || '[]');
+
     const newAvatarUrl = avatar_url !== undefined ? avatar_url : user.avatar_url;
     const newBio = bio !== undefined ? String(bio).trim() : user.bio;
     const newHeadline = headline !== undefined ? String(headline).trim() : user.headline;
@@ -1537,7 +1569,8 @@ module.exports = function(timerEngine, io) {
       UPDATE users 
       SET full_name = ?, avatar_url = ?, bio = ?, headline = ?, location = ?,
           country = ?, state_region = ?, city = ?, area = ?,
-          languages_json = ?, skills_json = ?, experience_years = ?
+          languages_json = ?, skills_json = ?, experience_years = ?,
+          education_json = ?, certifications_json = ?
       WHERE id = ?
     `).run(
       newFullName,
@@ -1552,6 +1585,8 @@ module.exports = function(timerEngine, io) {
       languagesJson,
       skillsJson,
       newExpYears,
+      educationJson,
+      certificationsJson,
       user.id
     );
 
@@ -1634,7 +1669,21 @@ module.exports = function(timerEngine, io) {
       WHERE c.active = 1
       GROUP BY c.id
       ORDER BY c.sort_order ASC
-    `).all();
+    `).all().map(c => {
+      let subcats = [];
+      try {
+        subcats = JSON.parse(c.subcategories_json || '[]');
+      } catch {
+        subcats = [];
+      }
+      return {
+        ...c,
+        sort_order: Number(c.sort_order) || 0,
+        active_services_count: Number(c.active_services_count) || 0,
+        subcategories: Array.isArray(subcats) ? subcats : [],
+        is_regulated: Boolean(c.is_regulated)
+      };
+    });
     res.json({ categories });
   });
 
@@ -1997,6 +2046,10 @@ module.exports = function(timerEngine, io) {
 
   // Create Service Listing (Provider Service Creation — 100% Free on HireByMinute)
   router.post('/services', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only registered experts can create or manage service listings.' });
+    }
+
     const { title, category_id, description, price_per_minute, skills = [], languages = ['English'], experience_years = 5, available_now = 1 } = req.body;
 
     if (!title || !category_id || !description || !price_per_minute) {
@@ -2039,10 +2092,6 @@ module.exports = function(timerEngine, io) {
       `/services/${id}`
     );
 
-    if (req.user.role !== 'admin' && req.user.role !== 'provider') {
-      db.prepare(`UPDATE users SET role = 'provider' WHERE id = ?`).run(req.user.id);
-    }
-
     const created = db.prepare('SELECT * FROM services WHERE id = ?').get(id);
     return res.status(201).json({
       success: true,
@@ -2061,6 +2110,9 @@ module.exports = function(timerEngine, io) {
     if (!service) return res.status(404).json({ error: 'Service not found' });
     if (service.provider_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Unauthorized to publish this service.' });
+    }
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only expert accounts can publish services.' });
     }
 
     const wasActive = service.listing_status === 'active';
@@ -2273,8 +2325,12 @@ module.exports = function(timerEngine, io) {
 
   // 1. Create Consultation Request (Client sends request; NO PAYMENT, NO SESSION)
   router.post('/consultation-requests', authMiddleware, async (req, res) => {
-    const { service_id, duration_minutes, connect_type = 'now', scheduled_start, problem_description = '', attachments = [] } = req.body;
+    const { service_id, duration_minutes, connect_type = 'now', scheduled_start, problem_description = '', attachments = [], redeem_reward_points = false } = req.body;
     const client_id = req.user.id;
+
+    if (req.user.role === 'provider') {
+      return res.status(403).json({ error: 'Expert accounts cannot book consultations. Please switch to or use a client account to hire experts.' });
+    }
 
     if (!service_id || !duration_minutes) {
       return res.status(400).json({ error: 'Service ID and duration are required.' });
@@ -2304,13 +2360,39 @@ module.exports = function(timerEngine, io) {
     }
 
     const duration = parseInt(duration_minutes, 10);
-    if (isNaN(duration) || duration < 5 || duration > 300) {
-      return res.status(400).json({ error: 'Duration must be between 5 and 300 minutes.' });
+    const minAllowed = redeem_reward_points ? 5 : 15;
+    if (isNaN(duration) || duration < minAllowed || duration > 300) {
+      return res.status(400).json({ error: `Duration must be between ${minAllowed} and 300 minutes. Minimum initial consultation is ${minAllowed} minutes.` });
     }
 
     // Price calculated strictly server-side
     const pricePerMinute = service.price_per_minute;
-    const totalPrice = Number((duration * pricePerMinute).toFixed(2));
+    const grossPrice = Number((duration * pricePerMinute).toFixed(2));
+
+    // Handle reward points redemption (1,000 pts = 5-minute credit capped at reward_max_credit_inr)
+    let rewardPointsRedeemed = 0;
+    let rewardDiscountAmount = 0;
+    if (redeem_reward_points) {
+      const clientUser = db.prepare('SELECT reward_points_balance FROM users WHERE id = ?').get(client_id);
+      const pointsBal = clientUser?.reward_points_balance || 0;
+      if (pointsBal < 1000) {
+        return res.status(400).json({ error: 'Insufficient reward points balance. You need at least 1,000 points to redeem a 5-minute consultation credit.' });
+      }
+
+      let maxCredit = 500.00;
+      try {
+        const setRow = db.prepare("SELECT value FROM platform_settings WHERE key = 'reward_max_credit_inr'").get();
+        if (setRow && !isNaN(Number(setRow.value))) maxCredit = Number(setRow.value);
+      } catch (e) {}
+
+      const fiveMinVal = 5 * pricePerMinute;
+      rewardDiscountAmount = Math.min(fiveMinVal, maxCredit);
+      rewardDiscountAmount = Math.min(rewardDiscountAmount, grossPrice);
+      rewardDiscountAmount = Number(rewardDiscountAmount.toFixed(2));
+      rewardPointsRedeemed = 1000;
+    }
+
+    const totalPrice = Number((grossPrice - rewardDiscountAmount).toFixed(2));
 
     const startTime = scheduled_start ? new Date(scheduled_start) : new Date();
     const requestId = `cr-${uuidv4().slice(0, 8)}`;
@@ -2321,9 +2403,10 @@ module.exports = function(timerEngine, io) {
     db.prepare(`
       INSERT INTO consultation_requests (
         id, client_id, provider_id, service_id, duration_minutes, price_per_minute, total_price,
-        connect_type, scheduled_start, problem_description, attachments_json, status, response_deadline
+        connect_type, scheduled_start, problem_description, attachments_json, status, response_deadline,
+        reward_points_redeemed, reward_discount_amount
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_EXPERT', ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_EXPERT', ?, ?, ?)
     `).run(
       requestId,
       client_id,
@@ -2336,13 +2419,15 @@ module.exports = function(timerEngine, io) {
       startTime.toISOString(),
       problem_description.trim(),
       JSON.stringify(attachments),
-      responseDeadline
+      responseDeadline,
+      rewardPointsRedeemed,
+      rewardDiscountAmount
     );
 
     // Maintain backwards-compatible bookings record for foreign keys
     db.prepare(`
-      INSERT OR IGNORE INTO bookings (id, client_id, provider_id, service_id, duration_minutes, total_price, scheduled_start, scheduled_end, status, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+      INSERT OR IGNORE INTO bookings (id, client_id, provider_id, service_id, duration_minutes, total_price, scheduled_start, scheduled_end, status, notes, reward_points_redeemed, reward_discount_amount)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
     `).run(
       requestId,
       client_id,
@@ -2352,7 +2437,9 @@ module.exports = function(timerEngine, io) {
       totalPrice,
       startTime.toISOString(),
       new Date(startTime.getTime() + duration * 60 * 1000).toISOString(),
-      problem_description.trim()
+      problem_description.trim(),
+      rewardPointsRedeemed,
+      rewardDiscountAmount
     );
 
     // In-app notification for Provider
@@ -2655,6 +2742,83 @@ module.exports = function(timerEngine, io) {
       });
     }
 
+    // Loyalty reward redemption: If request is 100% covered by redeemed points (total_price <= 0)
+    if (Number(request.total_price) <= 0 && Number(request.reward_points_redeemed) >= 1000) {
+      if (request.status === 'PAID') {
+        const existingSession = request.session_id
+          ? db.prepare('SELECT * FROM sessions WHERE id = ?').get(request.session_id)
+          : db.prepare('SELECT * FROM sessions WHERE booking_id = ?').get(request.id);
+        return res.json({
+          success: true,
+          session_id: existingSession?.id || request.session_id,
+          session: existingSession,
+          payment_id: request.payment_id,
+          message: 'Reward consultation was already activated.'
+        });
+      }
+
+      if (request.status !== 'ACCEPTED') {
+        return res.status(400).json({
+          error: `Cannot activate session: Current request status is ${request.status}. Must be ACCEPTED by expert first.`
+        });
+      }
+
+      // Check if points were already deducted for this request
+      const existingRedeem = db.prepare(`SELECT id FROM reward_points_ledger WHERE booking_id = ? AND entry_type = 'redeemed_consultation'`).get(request.id);
+      if (!existingRedeem) {
+        // Atomic deduction: ensure user has >= 1000 points at execution time
+        const updateResult = db.prepare('UPDATE users SET reward_points_balance = reward_points_balance - 1000 WHERE id = ? AND reward_points_balance >= 1000').run(request.client_id);
+        if (updateResult.changes === 0) {
+          return res.status(400).json({ error: 'Insufficient reward points balance. 1,000 points required.' });
+        }
+        const rwdId = `rwd-red-${uuidv4().slice(0, 8)}`;
+        db.prepare(`
+          INSERT INTO reward_points_ledger (id, user_id, session_id, booking_id, entry_type, points, status, description)
+          VALUES (?, ?, NULL, ?, 'redeemed_consultation', -1000, 'available', ?)
+        `).run(rwdId, request.client_id, request.id, `Redeemed 1,000 points for free consultation with ${request.provider_name}`);
+      }
+
+      const paymentId = `pay-rwd-${uuidv4().slice(0, 8)}`;
+      const sessionId = `ses-${uuidv4().slice(0, 8)}`;
+      const startTime = request.connect_type === 'now' ? new Date() : new Date(request.scheduled_start);
+      const endTime = new Date(startTime.getTime() + request.duration_minutes * 60 * 1000);
+      const actualStart = request.connect_type === 'now' ? startTime.toISOString() : null;
+      const actualEnd = request.connect_type === 'now' ? endTime.toISOString() : null;
+      const sessionStatus = request.connect_type === 'now' ? 'ACTIVE' : 'SCHEDULED';
+
+      db.prepare(`
+        INSERT INTO payments (id, user_id, type, amount, status, reference_id, metadata_json)
+        VALUES (?, ?, 'session_payment', 0.00, 'succeeded', ?, ?)
+        ON CONFLICT(id) DO NOTHING
+      `).run(paymentId, request.client_id, request.id, JSON.stringify({ reward_redemption: true, points: 1000 }));
+
+      db.prepare(`
+        INSERT INTO bookings (id, client_id, provider_id, service_id, duration_minutes, total_price, scheduled_start, scheduled_end, status, payment_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
+        ON CONFLICT(id) DO UPDATE SET status = 'COMPLETED', payment_id = excluded.payment_id
+      `).run(request.id, request.client_id, request.provider_id, request.service_id, request.duration_minutes, request.total_price || 0, startTime.toISOString(), endTime.toISOString(), paymentId);
+
+      db.prepare(`
+        INSERT INTO sessions (id, booking_id, client_id, provider_id, service_id, scheduled_start, scheduled_end, actual_start, actual_end, duration_minutes, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING
+      `).run(sessionId, request.id, request.client_id, request.provider_id, request.service_id, startTime.toISOString(), endTime.toISOString(), actualStart, actualEnd, request.duration_minutes, sessionStatus);
+
+      db.prepare(`UPDATE consultation_requests SET status = 'PAID', session_id = ?, payment_id = ? WHERE id = ?`).run(sessionId, paymentId, request.id);
+      db.prepare(`UPDATE bookings SET status = 'COMPLETED', payment_id = ? WHERE id = ?`).run(paymentId, request.id);
+
+      const createdSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+      const updatedReq = db.prepare('SELECT * FROM consultation_requests WHERE id = ?').get(request.id);
+      return res.json({
+        success: true,
+        session_id: sessionId,
+        session: createdSession,
+        payment_id: paymentId,
+        request: updatedReq,
+        message: 'Reward points redeemed! Your consultation session is active.'
+      });
+    }
+
     // Strict security: Direct unverified payments are completely eliminated.
     // Callers must use the Razorpay checkout flow (create order -> checkout -> verify payment).
     return res.status(400).json({
@@ -2688,10 +2852,23 @@ module.exports = function(timerEngine, io) {
       });
     }
 
+    if (Number(request.total_price) <= 0 && Number(request.reward_points_redeemed) >= 1000) {
+      return res.json({
+        is_free_reward: true,
+        amount: 0,
+        amount_paise: 0,
+        currency: CURRENCY,
+        request_id: request.id,
+        message: 'Consultation is 100% covered by redeemed reward points. Call /pay to activate directly.'
+      });
+    }
+
     // Authoritative Server-side Price Calculation: duration_minutes * service.price_per_minute
     const durationMinutes = Number(request.duration_minutes) || 0;
     const ratePerMinute = Number(request.service_ppm || request.price_per_minute) || 0;
-    const calculatedAmount = Number((durationMinutes * ratePerMinute).toFixed(2));
+    const grossAmount = Number((durationMinutes * ratePerMinute).toFixed(2));
+    const discount = Number(request.reward_discount_amount || 0);
+    const calculatedAmount = Math.max(0, Number((grossAmount - discount).toFixed(2)));
     request.total_price = calculatedAmount > 0 ? calculatedAmount : request.total_price;
     const amountInPaise = toPaise(request.total_price);
 
@@ -2961,6 +3138,17 @@ module.exports = function(timerEngine, io) {
         SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, payment_id = ?, session_id = ?
         WHERE id = ?
       `).run(paymentId, sessionId, request.id);
+
+      if (Number(request.reward_points_redeemed) >= 1000) {
+        const existingRedeem = db.prepare(`SELECT id FROM reward_points_ledger WHERE booking_id = ? AND entry_type = 'redeemed_consultation'`).get(request.id);
+        if (!existingRedeem) {
+          db.prepare('UPDATE users SET reward_points_balance = MAX(0, reward_points_balance - 1000) WHERE id = ?').run(request.client_id);
+          db.prepare(`
+            INSERT INTO reward_points_ledger (id, user_id, session_id, booking_id, entry_type, points, status, description)
+            VALUES (?, ?, ?, ?, 'redeemed_consultation', -1000, 'available', ?)
+          `).run(`rwd-red-${uuidv4().slice(0, 8)}`, request.client_id, sessionId, request.id, `Redeemed 1,000 points for credit towards consultation with ${request.provider_name}`);
+        }
+      }
 
       db.prepare(`
         INSERT INTO notifications (id, user_id, title, message, type, link)
@@ -3348,6 +3536,157 @@ module.exports = function(timerEngine, io) {
             }
           }
         }
+      } else if (eventType === 'payment.failed') {
+        const paymentEntity = event.payload?.payment?.entity;
+        const notes = paymentEntity?.notes || {};
+        const requestId = notes.request_id;
+        const paymentId = paymentEntity?.id;
+        const errorCode = paymentEntity?.error_code || 'PAYMENT_FAILED';
+        const errorDesc = paymentEntity?.error_description || 'Payment was declined or failed by issuing bank.';
+
+        logAuditAction(
+          { id: 'system', full_name: 'Razorpay Webhook Engine', email: 'gateway@hirebyminute.com', role: 'admin' },
+          'PAYMENT_FAILED_WEBHOOK',
+          'payment',
+          paymentId || 'unknown',
+          { request_id: requestId, error_code: errorCode, error_description: errorDesc }
+        );
+
+        if (requestId) {
+          const request = db.prepare(`
+            SELECT cr.client_id, s.title as service_title 
+            FROM consultation_requests cr
+            LEFT JOIN services s ON cr.service_id = s.id
+            WHERE cr.id = ?
+          `).get(requestId);
+          if (request) {
+            db.prepare(`
+              INSERT INTO notifications (id, user_id, title, message, type, link)
+              VALUES (?, ?, 'Payment Attempt Failed', ?, 'warning', ?)
+            `).run(
+              `notif-${uuidv4().slice(0, 8)}`,
+              request.client_id,
+              `Payment for "${request.service_title || 'Consultation'}" was unsuccessful: ${errorDesc}. You may re-attempt checkout.`,
+              '/client'
+            );
+          }
+        }
+      } else if (eventType === 'refund.processed' || eventType === 'refund.created') {
+        const refundEntity = event.payload?.refund?.entity;
+        const paymentEntity = event.payload?.payment?.entity;
+        const paymentId = refundEntity?.payment_id || paymentEntity?.id;
+        const refundAmountInr = refundEntity?.amount ? toRupees(refundEntity.amount) : 0;
+
+        if (paymentId) {
+          const origPayment = db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId);
+          if (origPayment) {
+            db.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").run(paymentId);
+
+            const booking = db.prepare('SELECT * FROM bookings WHERE payment_id = ? OR id = ?').get(paymentId, origPayment.reference_id);
+            if (booking) {
+              db.prepare("UPDATE bookings SET status = 'CANCELLED' WHERE id = ?").run(booking.id);
+              db.prepare("UPDATE sessions SET status = 'CANCELLED' WHERE booking_id = ?").run(booking.id);
+              db.prepare("UPDATE consultation_requests SET status = 'CANCELLED' WHERE id = ?").run(booking.id);
+
+              const existingEarning = db.prepare(`
+                SELECT * FROM financial_ledger 
+                WHERE (booking_id = ? OR session_id IN (SELECT id FROM sessions WHERE booking_id = ?)) 
+                  AND entry_type = 'net_earning'
+              `).get(booking.id, booking.id);
+
+              if (existingEarning) {
+                const existingReversal = db.prepare(`
+                  SELECT id FROM financial_ledger 
+                  WHERE (booking_id = ? OR session_id = ?) AND entry_type = 'refund_reversal'
+                `).get(booking.id, existingEarning.session_id);
+
+                if (!existingReversal) {
+                  const reversalId = `fin-rev-${uuidv4().slice(0, 8)}`;
+                  const netPaise = existingEarning.amount_paise;
+                  db.prepare(`
+                    INSERT INTO financial_ledger (id, user_id, session_id, booking_id, entry_type, amount_paise, balance_type, currency, description, metadata_json)
+                    VALUES (?, ?, ?, ?, 'refund_reversal', ?, 'available', 'INR', ?, ?)
+                  `).run(
+                    reversalId,
+                    booking.provider_id,
+                    existingEarning.session_id,
+                    booking.id,
+                    -netPaise,
+                    `Earnings clawback due to processed refund`,
+                    JSON.stringify({ original_ledger_id: existingEarning.id, refund_payment_id: paymentId })
+                  );
+
+                  db.prepare(`
+                    UPDATE users SET payout_balance_paise = MAX(0, COALESCE(payout_balance_paise, 0) - ?) WHERE id = ?
+                  `).run(netPaise, booking.provider_id);
+                }
+              }
+
+              const redeemedRecord = db.prepare(`
+                SELECT * FROM reward_points_ledger 
+                WHERE booking_id = ? AND entry_type = 'redeemed_consultation'
+              `).get(booking.id);
+
+              if (redeemedRecord) {
+                const alreadyRestored = db.prepare(`
+                  SELECT id FROM reward_points_ledger 
+                  WHERE booking_id = ? AND entry_type = 'refund_restoration'
+                `).get(booking.id);
+
+                if (!alreadyRestored) {
+                  db.prepare('UPDATE users SET reward_points_balance = reward_points_balance + 1000 WHERE id = ?').run(booking.client_id);
+                  const rwdRestId = `rwd-rst-${uuidv4().slice(0, 8)}`;
+                  db.prepare(`
+                    INSERT INTO reward_points_ledger (id, user_id, session_id, booking_id, entry_type, points, status, description)
+                    VALUES (?, ?, NULL, ?, 'refund_restoration', 1000, 'available', ?)
+                  `).run(rwdRestId, booking.client_id, booking.id, `Restored 1,000 reward points due to refunded consultation`);
+                }
+              }
+
+              const earnedRecord = db.prepare(`
+                SELECT * FROM reward_points_ledger 
+                WHERE booking_id = ? AND entry_type = 'earned_session'
+              `).get(booking.id);
+
+              if (earnedRecord) {
+                const alreadyRevoked = db.prepare(`
+                  SELECT id FROM reward_points_ledger 
+                  WHERE booking_id = ? AND entry_type = 'earned_revocation'
+                `).get(booking.id);
+
+                if (!alreadyRevoked) {
+                  const pts = earnedRecord.points;
+                  db.prepare('UPDATE users SET reward_points_balance = MAX(0, reward_points_balance - ?) WHERE id = ?').run(pts, booking.client_id);
+                  const rwdRevId = `rwd-rev-${uuidv4().slice(0, 8)}`;
+                  db.prepare(`
+                    INSERT INTO reward_points_ledger (id, user_id, session_id, booking_id, entry_type, points, status, description)
+                    VALUES (?, ?, NULL, ?, 'earned_revocation', -?, 'available', ?)
+                  `).run(rwdRevId, booking.client_id, booking.id, pts, `Revoked ${pts} reward points due to refunded consultation`);
+                }
+              }
+
+              db.prepare(`
+                INSERT INTO notifications (id, user_id, title, message, type, link)
+                VALUES (?, ?, 'Refund Processed', ?, 'info', ?)
+              `).run(
+                `notif-${uuidv4().slice(0, 8)}`,
+                booking.client_id,
+                `A refund of ₹${refundAmountInr || booking.total_price} has been processed for your consultation.`,
+                '/client'
+              );
+
+              db.prepare(`
+                INSERT INTO notifications (id, user_id, title, message, type, link)
+                VALUES (?, ?, 'Consultation Refunded', ?, 'warning', ?)
+              `).run(
+                `notif-${uuidv4().slice(0, 8)}`,
+                booking.provider_id,
+                `Consultation #${booking.id} was refunded. Ledger earnings adjusted accordingly.`,
+                '/provider'
+              );
+            }
+          }
+        }
       }
 
       // Mark event as processed in idempotency ledger
@@ -3601,26 +3940,8 @@ module.exports = function(timerEngine, io) {
       return res.json({ success: true, message: 'Session already completed.', session });
     }
 
-    const now = new Date().toISOString();
-    db.prepare(`
-      UPDATE sessions 
-      SET status = 'COMPLETED', actual_end = ? 
-      WHERE id = ?
-    `).run(now, session.id);
-
-    db.prepare(`UPDATE bookings SET status = 'COMPLETED' WHERE id = ?`).run(session.booking_id);
-    db.prepare(`UPDATE users SET sessions_completed = sessions_completed + 1 WHERE id IN (?, ?)`).run(session.provider_id, session.client_id);
-
-    io.to(`session_${session.id}`).emit('session_expired', {
-      sessionId: session.id,
-      message: 'Session has been concluded by participant.'
-    });
-    io.to(`session_${session.id}`).emit('session_completed', {
-      sessionId: session.id,
-      bookingId: session.booking_id
-    });
-
-    const updatedSession = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(session.id);
+    const { completeSession } = require('./sessionLifecycle');
+    const updatedSession = completeSession(session.id, { io, completedBy: req.user.id });
     res.json({ success: true, session: updatedSession, message: 'Session concluded successfully.' });
   });
 
@@ -3844,6 +4165,15 @@ module.exports = function(timerEngine, io) {
       SELECT COUNT(*) as count FROM reviews WHERE client_id = ?
     `).get(userId)?.count || 0;
 
+    const totalAmountPaidCalc = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE user_id = ? AND status = 'succeeded' AND type = 'session_payment'
+    `).get(userId);
+    const totalAmountPaid = Number(totalAmountPaidCalc?.total || 0);
+
+    const totalSessionsBooked = db.prepare(`
+      SELECT COUNT(*) as count FROM consultation_requests WHERE client_id = ?
+    `).get(userId)?.count || 0;
+
     // Previously hired experts for quick 1-click "Hire Again"
     const previouslyHired = db.prepare(`
       SELECT DISTINCT p.id as provider_id, p.full_name, p.avatar_url, p.headline, p.rating,
@@ -3857,6 +4187,52 @@ module.exports = function(timerEngine, io) {
       ORDER BY MAX(s.actual_end) DESC
     `).all(userId);
 
+    // Personalized expert recommendations based on past consultation categories or high platform rating
+    const usedCategories = db.prepare(`
+      SELECT DISTINCT srv.category_id 
+      FROM sessions s
+      JOIN services srv ON s.service_id = srv.id
+      WHERE s.client_id = ?
+    `).all(userId).map(r => r.category_id);
+
+    let recSql = `
+      SELECT s.*, 
+             u.full_name as provider_name, u.avatar_url as provider_avatar,
+             u.headline as provider_headline, u.rating as provider_rating,
+             u.review_count as provider_review_count, u.verified as provider_verified,
+             u.response_time as provider_response_time,
+             c.name as category_name, c.slug as category_slug
+      FROM services s
+      JOIN users u ON s.provider_id = u.id
+      JOIN categories c ON s.category_id = c.id
+      WHERE LOWER(s.listing_status) IN ('active', 'published')
+        AND u.id != ?
+        AND COALESCE(u.is_suspended, 0) = 0
+    `;
+    const recParams = [userId];
+
+    if (usedCategories.length > 0) {
+      const placeholders = usedCategories.map(() => '?').join(',');
+      recSql += ` AND (s.category_id IN (${placeholders}) OR u.rating >= 4.8)`;
+      recParams.push(...usedCategories);
+    } else {
+      recSql += ` AND u.rating >= 4.5`;
+    }
+
+    recSql += ` ORDER BY u.rating DESC, u.sessions_completed DESC LIMIT 6`;
+    const recommendedExperts = db.prepare(recSql).all(...recParams).map(s => {
+      let skills = [];
+      try {
+        skills = JSON.parse(s.skills_json || '[]');
+      } catch {
+        skills = [];
+      }
+      return {
+        ...s,
+        skills
+      };
+    });
+
     res.json({
       activeSession,
       consultationRequests,
@@ -3868,13 +4244,19 @@ module.exports = function(timerEngine, io) {
         totalSessionMinutes: totalMinutes,
         completedSessions: completedCount,
         ratingsGiven,
+        totalAmountPaid,
+        totalSessionsBooked,
         clientRating: req.user.rating || 5.0
       },
-      previouslyHiredExperts: previouslyHired
+      previouslyHiredExperts: previouslyHired,
+      recommendedExperts
     });
   });
 
   router.get('/dashboards/provider', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied. Provider account required.' });
+    }
     const userId = req.user.id;
     checkAndExpireRequests(io);
 
@@ -3995,7 +4377,86 @@ module.exports = function(timerEngine, io) {
       ORDER BY r.created_at DESC
     `).all(userId);
 
+    // Calculate REAL response metrics from consultation_requests
+    const expertRequests = db.prepare(`
+      SELECT id, status, created_at, accepted_at, declined_at, expired_at
+      FROM consultation_requests
+      WHERE provider_id = ?
+    `).all(userId);
+
+    const totalRequests = expertRequests.length;
+    const answeredRequests = expertRequests.filter(r => r.accepted_at || r.declined_at || ['ACCEPTED', 'DECLINED', 'PAID', 'COMPLETED'].includes(r.status));
+    const responseRate = totalRequests > 0 ? Math.round((answeredRequests.length / totalRequests) * 100) : 100;
+
+    let responseTimeText = 'Within 15 mins';
+    if (answeredRequests.length > 0) {
+      let totalMins = 0;
+      let countWithTiming = 0;
+      for (const r of answeredRequests) {
+        const respondedAt = r.accepted_at || r.declined_at;
+        if (respondedAt && r.created_at) {
+          const diffMs = new Date(respondedAt).getTime() - new Date(r.created_at).getTime();
+          const diffMins = Math.max(0.5, diffMs / (60 * 1000));
+          totalMins += diffMins;
+          countWithTiming++;
+        }
+      }
+      if (countWithTiming > 0) {
+        const avgMins = Math.round(totalMins / countWithTiming);
+        if (avgMins <= 1) responseTimeText = '< 1 min';
+        else if (avgMins < 60) responseTimeText = `Within ${avgMins} mins`;
+        else responseTimeText = `Within ${Math.round(avgMins / 60)} hrs`;
+      }
+    }
+
+    // Platform Ranking calculation (Merit-based composite methodology)
+    // Formula: (Rating * 20) + (ResponseRate * 0.3) + min(30, CompletedSessions * 3) + (Verified ? 10 : 0) - (ExpiredRequests * 5)
+    const allProviders = db.prepare(`
+      SELECT u.id, u.rating, u.sessions_completed, u.verified,
+             (SELECT COUNT(*) FROM consultation_requests WHERE provider_id = u.id) as req_total,
+             (SELECT COUNT(*) FROM consultation_requests WHERE provider_id = u.id AND (accepted_at IS NOT NULL OR declined_at IS NOT NULL OR status IN ('ACCEPTED', 'DECLINED', 'PAID', 'COMPLETED'))) as req_answered,
+             (SELECT COUNT(*) FROM consultation_requests WHERE provider_id = u.id AND status = 'EXPIRED') as req_expired
+      FROM users u
+      WHERE u.role = 'provider' AND COALESCE(u.is_suspended, 0) = 0
+    `).all();
+
+    const scoredProviders = allProviders.map(p => {
+      const pTotal = Number(p.req_total || 0);
+      const pAnswered = Number(p.req_answered || 0);
+      const pExpired = Number(p.req_expired || 0);
+      const pRate = pTotal > 0 ? (pAnswered / pTotal) * 100 : 100;
+      const ratingScore = (Number(p.rating || 5.0)) * 20;
+      const rateScore = pRate * 0.3;
+      const sessionScore = Math.min(30, (Number(p.sessions_completed || 0)) * 3);
+      const verifiedScore = p.verified ? 10 : 0;
+      const penalty = pExpired * 5;
+      const totalScore = ratingScore + rateScore + sessionScore + verifiedScore - penalty;
+      return { id: p.id, score: totalScore };
+    }).sort((a, b) => b.score - a.score);
+
+    const rankIndex = scoredProviders.findIndex(p => p.id === userId);
+    const platformRank = rankIndex >= 0 ? rankIndex + 1 : 1;
+    const totalRanked = Math.max(1, scoredProviders.length);
+
+    const currentProviderUser = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+    const userScore = scoredProviders.find(p => p.id === userId)?.score || 100;
+    const tier = userScore >= 120 ? 'Platinum Tier' : (userScore >= 90 ? 'Gold Tier' : 'Silver Tier');
+
+    const providerObj = {
+      ...(currentProviderUser ? sanitizeUser(currentProviderUser) : req.user),
+      response_rate: `${responseRate}%`,
+      response_time: responseTimeText,
+      platform_ranking: {
+        rank: platformRank,
+        total_ranked: totalRanked,
+        rank_score: Math.round(userScore),
+        tier,
+        methodology: 'Calculated from 40% client review rating, 30% request response rate and speed, 20% consultation completions, and 10% verified credentials. Paid placement is strictly prohibited.'
+      }
+    };
+
     res.json({
+      provider: providerObj,
       activeSession,
       pendingRequests,
       upcomingSessions,
@@ -4014,12 +4475,55 @@ module.exports = function(timerEngine, io) {
         totalSessionMinutes: totalMinutesCalc.mins || 0
       },
       completedSessionsBreakdown,
-      reviews
+      reviews,
+      metrics: {
+        responseRate,
+        responseTime: responseTimeText,
+        ranking: platformRank,
+        totalRanked,
+        rankingMethodology: 'Calculated from 40% client review rating, 30% request response rate and speed, 20% consultation completions, and 10% verified credentials. Paid placement is strictly prohibited.'
+      }
+    });
+  });
+
+  router.post('/provider/reviews/:id/reply', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only expert providers can reply to reviews.' });
+    }
+
+    const { reply } = req.body;
+    if (!reply || !reply.trim()) {
+      return res.status(400).json({ error: 'Reply text cannot be empty.' });
+    }
+
+    const review = db.prepare('SELECT * FROM reviews WHERE id = ?').get(req.params.id);
+    if (!review) return res.status(404).json({ error: 'Review not found.' });
+
+    if (review.provider_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You can only reply to reviews on your own consultations.' });
+    }
+
+    const now = new Date().toISOString();
+    db.prepare('UPDATE reviews SET provider_reply = ?, provider_replied_at = ? WHERE id = ?').run(
+      reply.trim(), now, review.id
+    );
+
+    const updatedReview = db.prepare('SELECT * FROM reviews WHERE id = ?').get(review.id);
+
+    res.json({
+      success: true,
+      message: 'Reply saved successfully.',
+      provider_reply: reply.trim(),
+      provider_replied_at: now,
+      review: updatedReview
     });
   });
 
   router.post('/provider/toggle-availability', authMiddleware, (req, res) => {
     try {
+      if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only expert accounts can toggle availability.' });
+      }
       const { available_now } = req.body;
       const targetState = (available_now === undefined || available_now) ? 1 : 0;
       db.prepare(`UPDATE services SET available_now = ? WHERE provider_id = ?`).run(targetState, req.user.id);
@@ -4028,6 +4532,470 @@ module.exports = function(timerEngine, io) {
       console.error('Failed to toggle provider availability:', err);
       res.status(500).json({ error: 'Failed to update availability' });
     }
+  });
+
+  // ==========================================
+  // EXPLICIT ROLE SWITCHING (Client <-> Expert)
+  // ==========================================
+  router.post('/auth/switch-role', authMiddleware, (req, res) => {
+    const target_role = req.body.target_role || req.body.role;
+    if (!target_role || (target_role !== 'client' && target_role !== 'provider')) {
+      return res.status(400).json({ error: 'Valid target_role (client or provider) is required.' });
+    }
+    if (req.user.role === 'admin') {
+      return res.status(400).json({ error: 'Admin accounts have permanent administrative privileges.' });
+    }
+    if (req.user.role === target_role) {
+      return res.json({ success: true, message: `Account is already set to ${target_role}.`, user: req.user });
+    }
+
+    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(target_role, req.user.id);
+    const updatedUser = db.prepare('SELECT id, email, username, full_name, role, avatar_url, bio, headline, rating, review_count, sessions_completed, verified, email_verified FROM users WHERE id = ?').get(req.user.id);
+    const token = generateToken(updatedUser);
+
+    res.json({
+      success: true,
+      role: target_role,
+      user: updatedUser,
+      token,
+      message: `Account role successfully switched to ${target_role === 'provider' ? 'Expert' : 'Client'}.`
+    });
+  });
+
+  // ==========================================
+  // EXPERT PORTFOLIO PROJECTS (CRUD)
+  // ==========================================
+  router.get('/provider/portfolio', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only expert accounts have a portfolio.' });
+    }
+    const projects = db.prepare('SELECT * FROM portfolio_projects WHERE user_id = ? ORDER BY display_order ASC, created_at DESC').all(req.user.id);
+    res.json({
+      projects: projects.map(p => ({
+        ...p,
+        skills: JSON.parse(p.skills_json || '[]')
+      }))
+    });
+  });
+
+  router.post('/provider/portfolio', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only expert accounts can create portfolio projects.' });
+    }
+    const { title, description = '', skills = [], project_url = '', image_url = '', display_order = 0 } = req.body;
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Project title is required.' });
+    }
+    const count = db.prepare('SELECT COUNT(*) as count FROM portfolio_projects WHERE user_id = ?').get(req.user.id)?.count || 0;
+    if (count >= 20) {
+      return res.status(400).json({ error: 'Maximum of 20 portfolio projects permitted per expert.' });
+    }
+
+    const projectId = `proj-${uuidv4().slice(0, 8)}`;
+    db.prepare(`
+      INSERT INTO portfolio_projects (id, user_id, title, description, skills_json, project_url, image_url, display_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      projectId,
+      req.user.id,
+      title.trim().slice(0, 255),
+      (description || '').slice(0, 5000),
+      JSON.stringify(Array.isArray(skills) ? skills.slice(0, 15) : []),
+      project_url ? project_url.trim().slice(0, 500) : null,
+      image_url ? image_url.trim().slice(0, 500) : null,
+      Number(display_order) || 0
+    );
+
+    const created = db.prepare('SELECT * FROM portfolio_projects WHERE id = ?').get(projectId);
+    res.status(201).json({
+      success: true,
+      project: { ...created, skills: JSON.parse(created.skills_json || '[]') }
+    });
+  });
+
+  router.put('/provider/portfolio/:id', authMiddleware, (req, res) => {
+    const project = db.prepare('SELECT * FROM portfolio_projects WHERE id = ?').get(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Portfolio project not found.' });
+    if (project.user_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized to modify this portfolio project.' });
+    }
+
+    const { title, description, skills, project_url, image_url, display_order } = req.body;
+    db.prepare(`
+      UPDATE portfolio_projects
+      SET title = COALESCE(?, title),
+          description = COALESCE(?, description),
+          skills_json = COALESCE(?, skills_json),
+          project_url = COALESCE(?, project_url),
+          image_url = COALESCE(?, image_url),
+          display_order = COALESCE(?, display_order),
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      title ? title.trim().slice(0, 255) : null,
+      description !== undefined ? String(description).slice(0, 5000) : null,
+      skills !== undefined ? JSON.stringify(Array.isArray(skills) ? skills.slice(0, 15) : []) : null,
+      project_url !== undefined ? (project_url ? project_url.trim().slice(0, 500) : null) : null,
+      image_url !== undefined ? (image_url ? image_url.trim().slice(0, 500) : null) : null,
+      display_order !== undefined ? Number(display_order) : null,
+      project.id
+    );
+
+    const updated = db.prepare('SELECT * FROM portfolio_projects WHERE id = ?').get(project.id);
+    res.json({
+      success: true,
+      project: { ...updated, skills: JSON.parse(updated.skills_json || '[]') }
+    });
+  });
+
+  router.delete('/provider/portfolio/:id', authMiddleware, (req, res) => {
+    const project = db.prepare('SELECT * FROM portfolio_projects WHERE id = ?').get(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Portfolio project not found.' });
+    if (project.user_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized to delete this portfolio project.' });
+    }
+
+    db.prepare('DELETE FROM portfolio_projects WHERE id = ?').run(project.id);
+    res.json({ success: true, message: 'Portfolio project deleted.' });
+  });
+
+  router.get('/users/:id/portfolio', (req, res) => {
+    const projects = db.prepare('SELECT * FROM portfolio_projects WHERE user_id = ? ORDER BY display_order ASC, created_at DESC').all(req.params.id);
+    res.json({
+      projects: projects.map(p => ({
+        ...p,
+        skills: JSON.parse(p.skills_json || '[]')
+      }))
+    });
+  });
+
+  // ==========================================
+  // EXPERT PROFILE MANAGEMENT & COMPLETENESS
+  // ==========================================
+  router.put('/provider/profile', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only expert accounts can update expert profile details.' });
+    }
+
+    const { headline, bio, skills, languages, experience_years, education, certifications, default_price_per_minute } = req.body;
+
+    db.prepare(`
+      UPDATE users
+      SET headline = COALESCE(?, headline),
+          bio = COALESCE(?, bio),
+          skills_json = COALESCE(?, skills_json),
+          languages_json = COALESCE(?, languages_json),
+          experience_years = COALESCE(?, experience_years),
+          education_json = COALESCE(?, education_json),
+          certifications_json = COALESCE(?, certifications_json)
+      WHERE id = ?
+    `).run(
+      headline !== undefined ? String(headline).trim().slice(0, 255) : null,
+      bio !== undefined ? String(bio).trim().slice(0, 5000) : null,
+      skills !== undefined ? JSON.stringify(Array.isArray(skills) ? skills : []) : null,
+      languages !== undefined ? JSON.stringify(Array.isArray(languages) ? languages : ['English']) : null,
+      experience_years !== undefined ? Number(experience_years) : null,
+      education !== undefined ? JSON.stringify(Array.isArray(education) ? education : []) : null,
+      certifications !== undefined ? JSON.stringify(Array.isArray(certifications) ? certifications : []) : null,
+      req.user.id
+    );
+
+    // If default_price_per_minute is provided, update active services
+    if (default_price_per_minute && !isNaN(Number(default_price_per_minute))) {
+      db.prepare(`UPDATE services SET price_per_minute = ? WHERE provider_id = ?`).run(Number(default_price_per_minute), req.user.id);
+    }
+
+    const updatedUser = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    res.json({
+      success: true,
+      user: {
+        ...updatedUser,
+        skills: JSON.parse(updatedUser.skills_json || '[]'),
+        languages: JSON.parse(updatedUser.languages_json || '["English"]'),
+        education: JSON.parse(updatedUser.education_json || '[]'),
+        certifications: JSON.parse(updatedUser.certifications_json || '[]')
+      },
+      message: 'Expert profile updated successfully.'
+    });
+  });
+
+  router.get('/users/:id/public-profile', (req, res) => {
+    const user = db.prepare(`
+      SELECT id, full_name, username, avatar_url, headline, bio, location, country, state_region, city,
+             rating, review_count, sessions_completed, verified, response_time, member_since,
+             skills_json, languages_json, experience_years, education_json, certifications_json
+      FROM users WHERE id = ?
+    `).get(req.params.id);
+
+    if (!user) return res.status(404).json({ error: 'Expert not found.' });
+
+    const services = db.prepare(`
+      SELECT s.*, c.name as category_name
+      FROM services s
+      JOIN categories c ON s.category_id = c.id
+      WHERE s.provider_id = ? AND s.listing_status = 'active'
+      ORDER BY s.is_featured DESC, s.created_at DESC
+    `).all(req.params.id);
+
+    const portfolio = db.prepare('SELECT * FROM portfolio_projects WHERE user_id = ? ORDER BY display_order ASC, created_at DESC').all(req.params.id);
+
+    const reviews = db.prepare(`
+      SELECT r.id, r.rating, r.comment, r.created_at, c.full_name as client_name, c.avatar_url as client_avatar, srv.title as service_title
+      FROM reviews r
+      JOIN users c ON r.client_id = c.id
+      JOIN services srv ON r.service_id = srv.id
+      WHERE r.provider_id = ? AND COALESCE(r.is_hidden, 0) = 0
+      ORDER BY r.created_at DESC
+      LIMIT 20
+    `).all(req.params.id);
+
+    res.json({
+      profile: {
+        ...user,
+        skills: JSON.parse(user.skills_json || '[]'),
+        languages: JSON.parse(user.languages_json || '["English"]'),
+        education: JSON.parse(user.education_json || '[]'),
+        certifications: JSON.parse(user.certifications_json || '[]'),
+        services: services.map(s => ({
+          ...s,
+          skills: JSON.parse(s.skills_json || '[]'),
+          languages: JSON.parse(s.languages_json || '[]')
+        })),
+        portfolio: portfolio.map(p => ({
+          ...p,
+          skills: JSON.parse(p.skills_json || '[]')
+        })),
+        reviews
+      }
+    });
+  });
+
+  // ==========================================
+  // EXPERT PAYOUT ACCOUNT & WALLET
+  // ==========================================
+  router.get('/provider/payout-account', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only expert accounts can manage payout details.' });
+    }
+    const acc = db.prepare('SELECT id, user_id, account_holder_name, account_number_masked, ifsc_code, bank_name, account_type, verification_status, created_at, updated_at FROM expert_bank_accounts WHERE user_id = ?').get(req.user.id);
+    res.json({ account: acc || null, payoutAccount: acc || null });
+  });
+
+  router.post('/provider/payout-account', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only expert accounts can register bank accounts.' });
+    }
+    const { account_holder_name, account_number, confirm_account_number, ifsc_code, bank_name, account_type = 'savings' } = req.body;
+
+    if (!account_holder_name || account_holder_name.trim().length < 3) {
+      return res.status(400).json({ error: 'Please enter a valid account holder name (minimum 3 characters).' });
+    }
+    const cleanAccNum = (account_number || '').trim().replace(/\s+/g, '');
+    const cleanConfirm = (confirm_account_number || '').trim().replace(/\s+/g, '');
+    if (!/^\d{9,18}$/.test(cleanAccNum)) {
+      return res.status(400).json({ error: 'Bank account number must be between 9 and 18 digits.' });
+    }
+    if (confirm_account_number && cleanAccNum !== cleanConfirm) {
+      return res.status(400).json({ error: 'Account number confirmation does not match.' });
+    }
+    const cleanIfsc = (ifsc_code || '').trim().toUpperCase();
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(cleanIfsc)) {
+      return res.status(400).json({ error: 'Please enter a valid 11-character Indian IFSC code (e.g., HDFC0001234).' });
+    }
+    if (!bank_name || bank_name.trim().length < 2) {
+      return res.status(400).json({ error: 'Please enter a valid bank name.' });
+    }
+
+    const last4 = cleanAccNum.slice(-4);
+    const masked = `•••• •••• •••• ${last4}`;
+    const id = `bank-${uuidv4().slice(0, 8)}`;
+
+    db.prepare(`
+      INSERT INTO expert_bank_accounts (
+        id, user_id, account_holder_name, account_number_last4, account_number_masked,
+        ifsc_code, bank_name, account_type, verification_status, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_verification', CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id) DO UPDATE SET
+        account_holder_name = excluded.account_holder_name,
+        account_number_last4 = excluded.account_number_last4,
+        account_number_masked = excluded.account_number_masked,
+        ifsc_code = excluded.ifsc_code,
+        bank_name = excluded.bank_name,
+        account_type = excluded.account_type,
+        verification_status = 'pending_verification',
+        updated_at = CURRENT_TIMESTAMP
+    `).run(
+      id,
+      req.user.id,
+      account_holder_name.trim().slice(0, 255),
+      last4,
+      masked,
+      cleanIfsc,
+      bank_name.trim().slice(0, 255),
+      account_type === 'current' ? 'current' : 'savings'
+    );
+
+    const saved = db.prepare('SELECT id, user_id, account_holder_name, account_number_masked, ifsc_code, bank_name, account_type, verification_status FROM expert_bank_accounts WHERE user_id = ?').get(req.user.id);
+    res.json({
+      success: true,
+      message: 'Bank account details saved securely. Verification is in progress.',
+      account: saved,
+      payoutAccount: saved
+    });
+  });
+
+  router.get('/provider/wallet', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only expert accounts have an earnings wallet.' });
+    }
+
+    const commPct = getPlatformCommissionPercent();
+    const commRate = commPct / 100;
+    const providerRate = (100 - commPct) / 100;
+
+    const earningsCalc = db.prepare(`
+      SELECT COALESCE(SUM(p.amount), 0) as total_gross, COUNT(DISTINCT s.id) as completed_sessions
+      FROM sessions s
+      LEFT JOIN payments p ON s.booking_id = p.reference_id AND p.type = 'session_payment' AND p.status = 'succeeded'
+      WHERE s.provider_id = ? AND s.status = 'COMPLETED'
+    `).get(req.user.id);
+
+    const grossEarnings = Number(earningsCalc?.total_gross || 0);
+    const platformCommission = Number((grossEarnings * commRate).toFixed(2));
+    const netEarnings = Number((grossEarnings * providerRate).toFixed(2));
+
+    const userRow = db.prepare('SELECT payout_balance_paise FROM users WHERE id = ?').get(req.user.id);
+    const availablePaise = userRow?.payout_balance_paise || Math.round(netEarnings * 100);
+    const availableBalance = Number((availablePaise / 100).toFixed(2));
+
+    const transactions = db.prepare(`
+      SELECT id, entry_type, amount_paise, balance_type, currency, description, created_at
+      FROM financial_ledger
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT 50
+    `).all(req.user.id).map(t => ({
+      ...t,
+      amount_inr: (t.amount_paise / 100).toFixed(2)
+    }));
+
+    const bankAccount = db.prepare('SELECT account_number_masked, bank_name, verification_status FROM expert_bank_accounts WHERE user_id = ?').get(req.user.id);
+
+    res.json({
+      grossEarnings,
+      platformCommission,
+      commissionPercent: commPct,
+      netEarnings,
+      availableBalance,
+      pendingBalance: 0,
+      totalWithdrawn: 0,
+      payoutsEnabled: false,
+      payoutStatusNotice: 'Automated marketplace bank transfers are pending merchant transfer onboarding. Available earnings will be disbursed in platform batch settlement distributions.',
+      bankAccount: bankAccount || null,
+      transactions
+    });
+  });
+
+  router.post('/provider/payouts/request', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only expert accounts can request payouts.' });
+    }
+    return res.status(400).json({
+      error: 'Direct API withdrawals are currently disabled while marketplace automated transfer onboarding is in review. Your available earnings remain safely credited to your ledger for administrative batch settlement.',
+      payouts_enabled: false
+    });
+  });
+
+  // ==========================================
+  // CLIENT LOYALTY REWARDS
+  // ==========================================
+  router.get('/rewards/me', authMiddleware, (req, res) => {
+    const userRow = db.prepare('SELECT reward_points_balance FROM users WHERE id = ?').get(req.user.id);
+    const currentPoints = userRow?.reward_points_balance || 0;
+
+    const earnedRow = db.prepare(`SELECT COALESCE(SUM(points), 0) as total FROM reward_points_ledger WHERE user_id = ? AND points > 0`).get(req.user.id);
+    const redeemedRow = db.prepare(`SELECT COALESCE(SUM(ABS(points)), 0) as total FROM reward_points_ledger WHERE user_id = ? AND points < 0`).get(req.user.id);
+
+    const history = db.prepare(`
+      SELECT id, entry_type, points, status, description, created_at
+      FROM reward_points_ledger
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT 50
+    `).all(req.user.id);
+
+    const threshold = 1000;
+    const progressPercent = Math.min(100, Math.floor(((currentPoints % threshold) / threshold) * 100));
+    const eligibleCredits = Math.floor(currentPoints / threshold);
+
+    res.json({
+      availablePoints: currentPoints,
+      reward_points_balance: currentPoints,
+      lifetimeEarned: earnedRow?.total || 0,
+      lifetimeRedeemed: redeemedRow?.total || 0,
+      redemptionThreshold: threshold,
+      redemption_threshold: threshold,
+      freeConsultationMinutesPerRedemption: 5,
+      free_minutes: 5,
+      can_redeem: currentPoints >= threshold,
+      progressPercent: currentPoints >= threshold ? 100 : progressPercent,
+      eligibleCredits,
+      pointsNeededForNextCredit: Math.max(0, threshold - (currentPoints % threshold)),
+      history
+    });
+  });
+
+  // ==========================================
+  // ADMIN REWARDS & FINANCIAL LEDGER
+  // ==========================================
+  router.get('/admin/rewards/settings', adminAuthMiddleware, (req, res) => {
+    const keys = ['reward_points_per_minute', 'reward_redemption_threshold', 'reward_free_minutes', 'reward_max_credit_inr', 'payouts_enabled'];
+    const settings = {};
+    for (const k of keys) {
+      const row = db.prepare('SELECT value FROM platform_settings WHERE key = ?').get(k);
+      settings[k] = row ? row.value : null;
+    }
+    res.json({ settings });
+  });
+
+  router.put('/admin/rewards/settings', adminAuthMiddleware, (req, res) => {
+    const { reward_points_per_minute, reward_redemption_threshold, reward_free_minutes, reward_max_credit_inr, payouts_enabled } = req.body;
+    const updateStmt = db.prepare(`
+      INSERT INTO platform_settings (key, value, description)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+    `);
+
+    if (reward_points_per_minute !== undefined) updateStmt.run('reward_points_per_minute', String(reward_points_per_minute), 'Points awarded per completed consultation minute');
+    if (reward_redemption_threshold !== undefined) updateStmt.run('reward_redemption_threshold', String(reward_redemption_threshold), 'Points required for 5-minute reward credit');
+    if (reward_free_minutes !== undefined) updateStmt.run('reward_free_minutes', String(reward_free_minutes), 'Minutes credited per reward redemption');
+    if (reward_max_credit_inr !== undefined) updateStmt.run('reward_max_credit_inr', String(reward_max_credit_inr), 'Maximum INR credit value for 5-minute reward session');
+    if (payouts_enabled !== undefined) updateStmt.run('payouts_enabled', String(payouts_enabled), 'Automated provider payouts flag');
+
+    res.json({ success: true, message: 'Reward settings updated successfully.' });
+  });
+
+  router.get('/admin/rewards/ledger', adminAuthMiddleware, (req, res) => {
+    const entries = db.prepare(`
+      SELECT r.*, u.full_name as user_name, u.email as user_email
+      FROM reward_points_ledger r
+      JOIN users u ON r.user_id = u.id
+      ORDER BY r.created_at DESC
+      LIMIT 100
+    `).all();
+    res.json({ entries });
+  });
+
+  router.get('/admin/financial/ledger', adminAuthMiddleware, (req, res) => {
+    const entries = db.prepare(`
+      SELECT f.*, u.full_name as user_name, u.email as user_email
+      FROM financial_ledger f
+      JOIN users u ON f.user_id = u.id
+      ORDER BY f.created_at DESC
+      LIMIT 100
+    `).all();
+    res.json({ entries });
   });
 
   // ==========================================
@@ -4934,7 +5902,7 @@ module.exports = function(timerEngine, io) {
   });
 
   router.post('/admin/categories', adminAuthMiddleware, (req, res) => {
-    const { name, slug, icon = 'Tag', description = '', sort_order = 99, subcategories = [], image_url = '' } = req.body;
+    const { name, slug, icon = 'Tag', description = '', sort_order = 99, subcategories = [], image_url = '', meta_title = '', meta_description = '', is_regulated = 0 } = req.body;
     if (!name || !slug) return res.status(400).json({ error: 'Name and slug are required.' });
 
     const cleanSlug = String(slug).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
@@ -4947,9 +5915,14 @@ module.exports = function(timerEngine, io) {
     const subcatsJson = JSON.stringify(Array.isArray(subcategories) ? subcategories : []);
 
     db.prepare(`
-      INSERT INTO categories (id, slug, name, icon, description, sort_order, active, subcategories_json, image_url)
-      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
-    `).run(id, cleanSlug, String(name).trim(), String(icon || 'Tag').trim(), String(description || '').trim(), Number(sort_order) || 0, subcatsJson, String(image_url || '').trim());
+      INSERT INTO categories (id, slug, name, icon, description, sort_order, active, subcategories_json, image_url, meta_title, meta_description, is_regulated)
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+    `).run(
+      id, cleanSlug, String(name).trim(), String(icon || 'Tag').trim(),
+      String(description || '').trim(), Number(sort_order) || 0, subcatsJson,
+      String(image_url || '').trim(), String(meta_title || '').trim(),
+      String(meta_description || '').trim(), is_regulated ? 1 : 0
+    );
 
     logAuditAction(req.user, 'CATEGORY_CREATED', 'category', id, { name, slug: cleanSlug });
     const created = db.prepare('SELECT * FROM categories WHERE id = ?').get(id);
@@ -4975,7 +5948,7 @@ module.exports = function(timerEngine, io) {
 
   router.put('/admin/categories/:id', adminAuthMiddleware, (req, res) => {
     if (req.params.id === 'reorder') return res.status(400).json({ error: 'Invalid category ID' });
-    const { name, slug, icon, description, sort_order, subcategories, image_url, active } = req.body;
+    const { name, slug, icon, description, sort_order, subcategories, image_url, active, meta_title, meta_description, is_regulated } = req.body;
     const cat = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
     if (!cat) return res.status(404).json({ error: 'Category not found' });
 
@@ -5000,7 +5973,10 @@ module.exports = function(timerEngine, io) {
           sort_order = COALESCE(?, sort_order),
           active = COALESCE(?, active),
           subcategories_json = ?,
-          image_url = COALESCE(?, image_url)
+          image_url = COALESCE(?, image_url),
+          meta_title = COALESCE(?, meta_title),
+          meta_description = COALESCE(?, meta_description),
+          is_regulated = COALESCE(?, is_regulated)
       WHERE id = ?
     `).run(
       name ? String(name).trim() : null,
@@ -5011,6 +5987,9 @@ module.exports = function(timerEngine, io) {
       active !== undefined ? (active ? 1 : 0) : null,
       subcatsJson,
       image_url !== undefined ? String(image_url).trim() : null,
+      meta_title !== undefined ? String(meta_title).trim() : null,
+      meta_description !== undefined ? String(meta_description).trim() : null,
+      is_regulated !== undefined ? (is_regulated ? 1 : 0) : null,
       cat.id
     );
 
@@ -5144,6 +6123,7 @@ module.exports = function(timerEngine, io) {
 
     db.prepare("UPDATE bookings SET status = 'CANCELLED' WHERE id = ?").run(booking.id);
     db.prepare("UPDATE sessions SET status = 'CANCELLED' WHERE booking_id = ?").run(booking.id);
+    db.prepare("UPDATE consultation_requests SET status = 'CANCELLED' WHERE id = ?").run(booking.id);
 
     // Process gateway refund if payment exists
     let refundResult = null;
@@ -5179,6 +6159,107 @@ module.exports = function(timerEngine, io) {
         gateway_refund: refundResult,
         original_payment_id: booking.payment_id || null
       })
+    );
+
+    // Reconcile financial ledger & claw back expert earnings if previously completed
+    const existingEarning = db.prepare(`
+      SELECT * FROM financial_ledger 
+      WHERE (booking_id = ? OR session_id IN (SELECT id FROM sessions WHERE booking_id = ?)) 
+        AND entry_type = 'net_earning'
+    `).get(booking.id, booking.id);
+
+    if (existingEarning) {
+      const existingReversal = db.prepare(`
+        SELECT id FROM financial_ledger 
+        WHERE (booking_id = ? OR session_id = ?) AND entry_type = 'refund_reversal'
+      `).get(booking.id, existingEarning.session_id);
+
+      if (!existingReversal) {
+        const reversalId = `fin-rev-${uuidv4().slice(0, 8)}`;
+        const netPaise = existingEarning.amount_paise;
+        db.prepare(`
+          INSERT INTO financial_ledger (id, user_id, session_id, booking_id, entry_type, amount_paise, balance_type, currency, description, metadata_json)
+          VALUES (?, ?, ?, ?, 'refund_reversal', ?, 'available', 'INR', ?, ?)
+        `).run(
+          reversalId,
+          booking.provider_id,
+          existingEarning.session_id,
+          booking.id,
+          -netPaise,
+          `Earnings clawback due to refunded consultation`,
+          JSON.stringify({ original_ledger_id: existingEarning.id, refund_id: refundId })
+        );
+
+        db.prepare(`
+          UPDATE users SET payout_balance_paise = MAX(0, COALESCE(payout_balance_paise, 0) - ?) WHERE id = ?
+        `).run(netPaise, booking.provider_id);
+      }
+    }
+
+    // Restore redeemed reward points to client
+    const redeemedRecord = db.prepare(`
+      SELECT * FROM reward_points_ledger 
+      WHERE booking_id = ? AND entry_type = 'redeemed_consultation'
+    `).get(booking.id);
+
+    if (redeemedRecord) {
+      const alreadyRestored = db.prepare(`
+        SELECT id FROM reward_points_ledger 
+        WHERE booking_id = ? AND entry_type = 'refund_restoration'
+      `).get(booking.id);
+
+      if (!alreadyRestored) {
+        db.prepare('UPDATE users SET reward_points_balance = reward_points_balance + 1000 WHERE id = ?').run(booking.client_id);
+        const rwdRestId = `rwd-rst-${uuidv4().slice(0, 8)}`;
+        db.prepare(`
+          INSERT INTO reward_points_ledger (id, user_id, session_id, booking_id, entry_type, points, status, description)
+          VALUES (?, ?, NULL, ?, 'refund_restoration', 1000, 'available', ?)
+        `).run(rwdRestId, booking.client_id, booking.id, `Restored 1,000 reward points due to refunded consultation`);
+      }
+    }
+
+    // Revoke earned reward points if any
+    const earnedRecord = db.prepare(`
+      SELECT * FROM reward_points_ledger 
+      WHERE booking_id = ? AND entry_type = 'earned_session'
+    `).get(booking.id);
+
+    if (earnedRecord) {
+      const alreadyRevoked = db.prepare(`
+        SELECT id FROM reward_points_ledger 
+        WHERE booking_id = ? AND entry_type = 'earned_revocation'
+      `).get(booking.id);
+
+      if (!alreadyRevoked) {
+        const pts = earnedRecord.points;
+        db.prepare('UPDATE users SET reward_points_balance = MAX(0, reward_points_balance - ?) WHERE id = ?').run(pts, booking.client_id);
+        const rwdRevId = `rwd-rev-${uuidv4().slice(0, 8)}`;
+        db.prepare(`
+          INSERT INTO reward_points_ledger (id, user_id, session_id, booking_id, entry_type, points, status, description)
+          VALUES (?, ?, NULL, ?, 'earned_revocation', -?, 'available', ?)
+        `).run(rwdRevId, booking.client_id, booking.id, pts, `Revoked ${pts} reward points due to refunded consultation`);
+      }
+    }
+
+    // Notify client and expert
+    db.prepare(`
+      INSERT INTO notifications (id, user_id, title, message, type, link)
+      VALUES (?, ?, 'Booking Cancelled & Refunded', ?, 'info', ?)
+    `).run(
+      `notif-${uuidv4().slice(0, 8)}`,
+      booking.client_id,
+      `Your consultation #${booking.id} was cancelled by administration and ₹${booking.total_price} refunded.`,
+      '/client'
+    );
+
+    db.prepare(`
+      INSERT INTO notifications (id, user_id, title, message, type, link)
+      VALUES (?, ?, 'Booking Cancelled & Refunded', ?, 'warning', ?)
+    `).run(
+      `notif-${uuidv4().slice(0, 8)}`,
+      booking.provider_id,
+      `Consultation #${booking.id} was cancelled and refunded. Ledger adjusted accordingly.`,
+      '/provider'
     );
 
     logAuditAction(req.user, 'BOOKING_CANCELLED_REFUNDED', 'booking', booking.id, {
@@ -6384,6 +7465,411 @@ module.exports = function(timerEngine, io) {
     db.prepare('DELETE FROM cms_pages WHERE id = ?').run(page.id);
     logAuditAction(req.user, 'CMS_PAGE_DELETED', 'cms_page', page.id, { slug: page.slug, title: page.title });
     res.json({ success: true, message: `Page "${page.title}" deleted successfully.` });
+  });
+
+  // ==========================================
+  // BLOG & CONTENT PUBLISHING (Section 10 & 11)
+  // ==========================================
+  router.get('/blog', (req, res) => {
+    try {
+      const { category, search, page = 1, limit = 12 } = req.query;
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 12));
+      const offset = (pageNum - 1) * limitNum;
+
+      let whereClause = "WHERE status = 'published'";
+      const params = [];
+
+      if (category) {
+        whereClause += " AND (LOWER(category) = LOWER(?) OR category_id = ?)";
+        params.push(String(category).trim(), String(category).trim());
+      }
+
+      if (search) {
+        whereClause += " AND (LOWER(title) LIKE ? OR LOWER(excerpt) LIKE ? OR LOWER(content) LIKE ?)";
+        const term = `%${String(search).trim().toLowerCase()}%`;
+        params.push(term, term, term);
+      }
+
+      const countRow = db.prepare(`SELECT COUNT(*) as count FROM blog_posts ${whereClause}`).get(...params);
+      const totalPosts = countRow ? Number(countRow.count) : 0;
+
+      const posts = db.prepare(`
+        SELECT id, title, slug, excerpt, author_name, category, featured_image,
+               meta_title, meta_description, read_time_minutes, views_count, published_at, created_at
+        FROM blog_posts
+        ${whereClause}
+        ORDER BY published_at DESC, created_at DESC
+        LIMIT ? OFFSET ?
+      `).all(...params, limitNum, offset);
+
+      res.json({
+        posts,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalPosts,
+          totalPages: Math.ceil(totalPosts / limitNum) || 1
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch blog posts: ' + err.message });
+    }
+  });
+
+  router.get('/blog/categories', (req, res) => {
+    try {
+      const categories = db.prepare(`
+        SELECT category as name, COUNT(id) as post_count
+        FROM blog_posts
+        WHERE status = 'published'
+        GROUP BY category
+        ORDER BY post_count DESC
+      `).all();
+      res.json({ categories });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch blog categories: ' + err.message });
+    }
+  });
+
+  router.get('/blog/:slug', (req, res) => {
+    try {
+      const post = db.prepare(`
+        SELECT * FROM blog_posts WHERE slug = ? AND status = 'published'
+      `).get(req.params.slug);
+
+      if (!post) {
+        return res.status(404).json({ error: 'Article not found or not published.' });
+      }
+
+      try {
+        db.prepare('UPDATE blog_posts SET views_count = views_count + 1 WHERE id = ?').run(post.id);
+        post.views_count = (Number(post.views_count) || 0) + 1;
+      } catch (e) {}
+
+      let parsedTags = [];
+      try {
+        parsedTags = JSON.parse(post.tags_json || '[]');
+      } catch {
+        parsedTags = [];
+      }
+
+      const related = db.prepare(`
+        SELECT id, title, slug, excerpt, author_name, category, featured_image, read_time_minutes, published_at
+        FROM blog_posts
+        WHERE status = 'published' AND id != ? AND category = ?
+        ORDER BY published_at DESC
+        LIMIT 3
+      `).all(post.id, post.category);
+
+      res.json({
+        post: {
+          ...post,
+          tags: parsedTags
+        },
+        related
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to retrieve article: ' + err.message });
+    }
+  });
+
+  // Admin Blog endpoints
+  router.get('/admin/blog', adminAuthMiddleware, (req, res) => {
+    try {
+      const { status, search, page = 1, limit = 20 } = req.query;
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      let whereClause = "WHERE 1=1";
+      const params = [];
+
+      if (status && status !== 'all') {
+        whereClause += " AND status = ?";
+        params.push(status);
+      }
+
+      if (search) {
+        whereClause += " AND (LOWER(title) LIKE ? OR LOWER(slug) LIKE ?)";
+        const term = `%${String(search).trim().toLowerCase()}%`;
+        params.push(term, term);
+      }
+
+      const countRow = db.prepare(`SELECT COUNT(*) as count FROM blog_posts ${whereClause}`).get(...params);
+      const totalPosts = countRow ? Number(countRow.count) : 0;
+
+      const posts = db.prepare(`
+        SELECT * FROM blog_posts
+        ${whereClause}
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+      `).all(...params, limitNum, offset).map(p => {
+        let tags = [];
+        try { tags = JSON.parse(p.tags_json || '[]'); } catch {}
+        return { ...p, tags };
+      });
+
+      res.json({
+        posts,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalPosts,
+          totalPages: Math.ceil(totalPosts / limitNum) || 1
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch admin blog posts: ' + err.message });
+    }
+  });
+
+  router.post('/admin/blog', adminAuthMiddleware, (req, res) => {
+    try {
+      const {
+        title, slug, excerpt = '', content, author_name, category = 'Expert Guidance',
+        category_id, featured_image = '', tags = [], meta_title = '', meta_description = '',
+        canonical_url = '', og_image = '', status = 'draft', read_time_minutes = 5
+      } = req.body;
+
+      if (!title || !title.trim()) {
+        return res.status(400).json({ error: 'Article title is required.' });
+      }
+      if (!content || !content.trim()) {
+        return res.status(400).json({ error: 'Article content cannot be empty.' });
+      }
+
+      let cleanSlug = slug ? String(slug).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') : '';
+      if (!cleanSlug) {
+        cleanSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      }
+
+      const existingSlug = db.prepare('SELECT id FROM blog_posts WHERE slug = ?').get(cleanSlug);
+      if (existingSlug) {
+        cleanSlug = `${cleanSlug}-${Date.now().toString(36)}`;
+      }
+
+      const id = `post-${uuidv4().slice(0, 8)}`;
+      const author = author_name?.trim() || req.user.full_name || 'HireByMinute Editorial';
+      const now = new Date().toISOString();
+      const publishedAt = status === 'published' ? now : null;
+
+      db.prepare(`
+        INSERT INTO blog_posts (
+          id, title, slug, excerpt, content, author_id, author_name, category, category_id,
+          featured_image, tags_json, meta_title, meta_description, canonical_url, og_image,
+          status, published_at, read_time_minutes, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id, title.trim(), cleanSlug, excerpt.trim(), content.trim(), req.user.id, author,
+        category.trim(), category_id || null, featured_image.trim(), JSON.stringify(tags || []),
+        meta_title.trim() || title.trim(), meta_description.trim() || excerpt.trim(),
+        canonical_url.trim() || `https://hirebyminute.com/blog/${cleanSlug}`,
+        og_image.trim() || featured_image.trim(), status, publishedAt,
+        Number(read_time_minutes) || 5, now, now
+      );
+
+      logAuditAction(req.user, 'BLOG_POST_CREATED', 'blog_post', id, { title, slug: cleanSlug, status });
+      const created = db.prepare('SELECT * FROM blog_posts WHERE id = ?').get(id);
+      res.status(201).json({ success: true, post: created });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to create blog post: ' + err.message });
+    }
+  });
+
+  router.put('/admin/blog/:id', adminAuthMiddleware, (req, res) => {
+    try {
+      const post = db.prepare('SELECT * FROM blog_posts WHERE id = ?').get(req.params.id);
+      if (!post) return res.status(404).json({ error: 'Post not found.' });
+
+      const {
+        title, slug, excerpt, content, author_name, category, category_id,
+        featured_image, tags, meta_title, meta_description, canonical_url,
+        og_image, status, read_time_minutes
+      } = req.body;
+
+      let cleanSlug = post.slug;
+      if (slug && slug.trim() !== post.slug) {
+        cleanSlug = String(slug).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+        const conflict = db.prepare('SELECT id FROM blog_posts WHERE slug = ? AND id != ?').get(cleanSlug, post.id);
+        if (conflict) {
+          return res.status(409).json({ error: `Slug "${cleanSlug}" is already in use by another article.` });
+        }
+      }
+
+      const now = new Date().toISOString();
+      let publishedAt = post.published_at;
+      if (status === 'published' && (!post.published_at || post.status !== 'published')) {
+        publishedAt = now;
+      }
+
+      db.prepare(`
+        UPDATE blog_posts SET
+          title = COALESCE(?, title),
+          slug = ?,
+          excerpt = COALESCE(?, excerpt),
+          content = COALESCE(?, content),
+          author_name = COALESCE(?, author_name),
+          category = COALESCE(?, category),
+          category_id = COALESCE(?, category_id),
+          featured_image = COALESCE(?, featured_image),
+          tags_json = COALESCE(?, tags_json),
+          meta_title = COALESCE(?, meta_title),
+          meta_description = COALESCE(?, meta_description),
+          canonical_url = COALESCE(?, canonical_url),
+          og_image = COALESCE(?, og_image),
+          status = COALESCE(?, status),
+          published_at = ?,
+          read_time_minutes = COALESCE(?, read_time_minutes),
+          updated_at = ?
+        WHERE id = ?
+      `).run(
+        title ? title.trim() : null,
+        cleanSlug,
+        excerpt !== undefined ? excerpt.trim() : null,
+        content !== undefined ? content.trim() : null,
+        author_name ? author_name.trim() : null,
+        category ? category.trim() : null,
+        category_id !== undefined ? category_id : null,
+        featured_image !== undefined ? featured_image.trim() : null,
+        tags !== undefined ? JSON.stringify(tags) : null,
+        meta_title !== undefined ? meta_title.trim() : null,
+        meta_description !== undefined ? meta_description.trim() : null,
+        canonical_url !== undefined ? canonical_url.trim() : null,
+        og_image !== undefined ? og_image.trim() : null,
+        status || null,
+        publishedAt,
+        read_time_minutes !== undefined ? Number(read_time_minutes) : null,
+        now,
+        post.id
+      );
+
+      logAuditAction(req.user, 'BLOG_POST_UPDATED', 'blog_post', post.id, { title: title || post.title, slug: cleanSlug });
+      const updated = db.prepare('SELECT * FROM blog_posts WHERE id = ?').get(post.id);
+      res.json({ success: true, post: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update blog post: ' + err.message });
+    }
+  });
+
+  router.delete('/admin/blog/:id', adminAuthMiddleware, (req, res) => {
+    try {
+      const post = db.prepare('SELECT * FROM blog_posts WHERE id = ?').get(req.params.id);
+      if (!post) return res.status(404).json({ error: 'Post not found.' });
+
+      db.prepare('DELETE FROM blog_posts WHERE id = ?').run(post.id);
+      logAuditAction(req.user, 'BLOG_POST_DELETED', 'blog_post', post.id, { title: post.title });
+      res.json({ success: true, message: `Article "${post.title}" deleted.` });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete blog post: ' + err.message });
+    }
+  });
+
+  router.patch('/admin/blog/:id/status', adminAuthMiddleware, (req, res) => {
+    try {
+      const { status } = req.body;
+      if (!status || !['draft', 'scheduled', 'published', 'archived'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid status. Must be draft, scheduled, published, or archived.' });
+      }
+
+      const post = db.prepare('SELECT * FROM blog_posts WHERE id = ?').get(req.params.id);
+      if (!post) return res.status(404).json({ error: 'Post not found.' });
+
+      const now = new Date().toISOString();
+      const publishedAt = status === 'published' ? (post.published_at || now) : post.published_at;
+
+      db.prepare('UPDATE blog_posts SET status = ?, published_at = ?, updated_at = ? WHERE id = ?').run(
+        status, publishedAt, now, post.id
+      );
+
+      logAuditAction(req.user, 'BLOG_POST_STATUS_CHANGED', 'blog_post', post.id, { oldStatus: post.status, newStatus: status });
+      const updated = db.prepare('SELECT * FROM blog_posts WHERE id = ?').get(post.id);
+      res.json({ success: true, status, post: updated });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update status: ' + err.message });
+    }
+  });
+
+  // Dynamic XML Sitemaps (Section 11)
+  router.get('/sitemap.xml', (req, res) => {
+    try {
+      const baseUrl = 'https://hirebyminute.com';
+      const now = new Date().toISOString().slice(0, 10);
+
+      const corePages = [
+        { loc: `${baseUrl}/`, priority: '1.0', changefreq: 'daily' },
+        { loc: `${baseUrl}/services`, priority: '0.9', changefreq: 'daily' },
+        { loc: `${baseUrl}/opportunities`, priority: '0.8', changefreq: 'daily' },
+        { loc: `${baseUrl}/blog`, priority: '0.8', changefreq: 'daily' },
+        { loc: `${baseUrl}/how-it-works`, priority: '0.8', changefreq: 'weekly' },
+        { loc: `${baseUrl}/about`, priority: '0.7', changefreq: 'monthly' },
+        { loc: `${baseUrl}/contact`, priority: '0.7', changefreq: 'monthly' },
+        { loc: `${baseUrl}/terms`, priority: '0.5', changefreq: 'monthly' },
+        { loc: `${baseUrl}/privacy`, priority: '0.5', changefreq: 'monthly' },
+        { loc: `${baseUrl}/refund-policy`, priority: '0.5', changefreq: 'monthly' },
+        { loc: `${baseUrl}/expert-policy`, priority: '0.5', changefreq: 'monthly' },
+        { loc: `${baseUrl}/acceptable-use`, priority: '0.5', changefreq: 'monthly' }
+      ];
+
+      const blogPosts = db.prepare(`SELECT slug, updated_at, published_at FROM blog_posts WHERE status = 'published'`).all();
+      const categories = db.prepare(`SELECT slug FROM categories WHERE active = 1`).all();
+      const services = db.prepare(`
+        SELECT s.id, s.updated_at
+        FROM services s
+        JOIN users u ON s.provider_id = u.id
+        WHERE LOWER(s.listing_status) IN ('active', 'published') AND COALESCE(u.is_suspended, 0) = 0
+      `).all();
+
+      let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+      xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+
+      for (const p of corePages) {
+        xml += `  <url>\n    <loc>${p.loc}</loc>\n    <lastmod>${now}</lastmod>\n    <changefreq>${p.changefreq}</changefreq>\n    <priority>${p.priority}</priority>\n  </url>\n`;
+      }
+
+      for (const c of categories) {
+        xml += `  <url>\n    <loc>${baseUrl}/categories/${encodeURIComponent(c.slug)}</loc>\n    <lastmod>${now}</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+        xml += `  <url>\n    <loc>${baseUrl}/services?category=${encodeURIComponent(c.slug)}</loc>\n    <lastmod>${now}</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+      }
+
+      for (const b of blogPosts) {
+        const lastMod = (b.updated_at || b.published_at || now).slice(0, 10);
+        xml += `  <url>\n    <loc>${baseUrl}/blog/${encodeURIComponent(b.slug)}</loc>\n    <lastmod>${lastMod}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
+      }
+
+      for (const s of services) {
+        const lastMod = (s.updated_at || now).slice(0, 10);
+        xml += `  <url>\n    <loc>${baseUrl}/services/${encodeURIComponent(s.id)}</loc>\n    <lastmod>${lastMod}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+      }
+
+      xml += `</urlset>`;
+      res.header('Content-Type', 'application/xml');
+      res.send(xml);
+    } catch (e) {
+      res.status(500).send('Error generating sitemap');
+    }
+  });
+
+  router.get('/sitemap-blog.xml', (req, res) => {
+    try {
+      const baseUrl = 'https://hirebyminute.com';
+      const blogPosts = db.prepare(`SELECT slug, updated_at, published_at FROM blog_posts WHERE status = 'published'`).all();
+      const now = new Date().toISOString().slice(0, 10);
+
+      let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+      xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+
+      for (const b of blogPosts) {
+        const lastMod = (b.updated_at || b.published_at || now).slice(0, 10);
+        xml += `  <url>\n    <loc>${baseUrl}/blog/${encodeURIComponent(b.slug)}</loc>\n    <lastmod>${lastMod}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+      }
+
+      xml += `</urlset>`;
+      res.header('Content-Type', 'application/xml');
+      res.send(xml);
+    } catch (e) {
+      res.status(500).send('Error generating blog sitemap');
+    }
   });
 
   // ==========================================

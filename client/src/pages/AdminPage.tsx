@@ -28,6 +28,7 @@ export const VALID_ADMIN_TABS = [
   'header_navigation',
   'footer',
   'cms_pages',
+  'blog',
   'contact',
   'faq',
   'banners',
@@ -63,6 +64,7 @@ import { AdminContactSettings } from '../components/admin/AdminContactSettings';
 import { AdminFaqControl } from '../components/admin/AdminFaqControl';
 import { AdminBannersControl } from '../components/admin/AdminBannersControl';
 import { AdminPagesControl } from '../components/admin/AdminPagesControl';
+import { AdminBlogControl } from '../components/admin/AdminBlogControl';
 import { AdminSeoControl } from '../components/admin/AdminSeoControl';
 import { AdminReviewsControl } from '../components/admin/AdminReviewsControl';
 import { AdminCompaniesControl } from '../components/admin/AdminCompaniesControl';
@@ -80,6 +82,7 @@ import {
   Building2,
   Layers,
   Sparkles,
+  BookOpen,
   Clock,
   Video,
   CheckCircle2,
@@ -270,6 +273,9 @@ export const AdminPage: React.FC = () => {
     sort_order: number;
     subcategories: string;
     image_url: string;
+    is_regulated: boolean;
+    meta_title: string;
+    meta_description: string;
   }>({
     isOpen: false,
     isEdit: false,
@@ -279,7 +285,10 @@ export const AdminPage: React.FC = () => {
     description: '',
     sort_order: 1,
     subcategories: '',
-    image_url: ''
+    image_url: '',
+    is_regulated: false,
+    meta_title: '',
+    meta_description: ''
   });
 
   // Opportunity Modal
@@ -597,7 +606,10 @@ export const AdminPage: React.FC = () => {
         description: categoryModal.description.trim(),
         sort_order: Number(categoryModal.sort_order) || 1,
         subcategories: subcategoriesArr,
-        image_url: categoryModal.image_url.trim() || undefined
+        image_url: categoryModal.image_url.trim() || undefined,
+        is_regulated: categoryModal.is_regulated ? 1 : 0,
+        meta_title: categoryModal.meta_title.trim() || undefined,
+        meta_description: categoryModal.meta_description.trim() || undefined
       };
 
       if (categoryModal.isEdit && categoryModal.id) {
@@ -614,7 +626,10 @@ export const AdminPage: React.FC = () => {
         description: '',
         sort_order: 1,
         subcategories: '',
-        image_url: ''
+        image_url: '',
+        is_regulated: false,
+        meta_title: '',
+        meta_description: ''
       });
       await loadAdminData();
     } catch (err: any) {
@@ -883,6 +898,7 @@ export const AdminPage: React.FC = () => {
         { id: 'header_navigation', label: 'Header & Navigation', icon: Compass, count: null },
         { id: 'footer', label: 'Footer CMS', icon: Globe, count: null },
         { id: 'cms_pages', label: 'Pages & Legal CMS', icon: FileText, count: null },
+        { id: 'blog', label: 'Blog & Articles', icon: BookOpen, count: null },
         { id: 'contact', label: 'Contact & Support', icon: Mail, count: null },
         { id: 'faq', label: 'FAQ Management', icon: HelpCircle, count: null },
         { id: 'banners', label: 'Banners & Broadcasts', icon: Megaphone, count: null },
@@ -1909,7 +1925,10 @@ export const AdminPage: React.FC = () => {
                       description: '',
                       sort_order: categoriesList.length + 1,
                       subcategories: '',
-                      image_url: ''
+                      image_url: '',
+                      is_regulated: false,
+                      meta_title: '',
+                      meta_description: ''
                     })
                   }
                   className="btn-shine inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
@@ -1922,25 +1941,32 @@ export const AdminPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {categoriesList.map((cat) => (
                   <div key={cat.id} className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-9 h-9 rounded-xl bg-aliceblue text-midnight flex items-center justify-center border border-lightblue/60">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-aliceblue text-midnight flex items-center justify-center border border-lightblue/60 flex-shrink-0">
                           <Sparkles className="w-4 h-4 text-moonstone" />
                         </div>
-                        <div>
-                          <h3 className="font-bold text-sm text-midnight">{cat.name}</h3>
+                        <div className="truncate">
+                          <h3 className="font-bold text-sm text-midnight truncate">{cat.name}</h3>
                           <span className="text-[11px] text-midnight/60 font-mono">/{cat.slug}</span>
                         </div>
                       </div>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          cat.active === 1
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-rose-50 text-rose-700 border border-rose-200'
-                        }`}
-                      >
-                        {cat.active === 1 ? 'ACTIVE' : 'DISABLED'}
-                      </span>
+                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            cat.active === 1
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}
+                        >
+                          {cat.active === 1 ? 'ACTIVE' : 'DISABLED'}
+                        </span>
+                        {cat.is_regulated === 1 && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-amber-50 text-amber-700 border border-amber-200 uppercase tracking-tight">
+                            Regulated
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <p className="text-xs text-midnight/70 line-clamp-2">{cat.description || 'No description provided.'}</p>
@@ -1976,7 +2002,10 @@ export const AdminPage: React.FC = () => {
                               description: cat.description || '',
                               sort_order: cat.sort_order || 1,
                               subcategories: Array.isArray(cat.subcategories) ? cat.subcategories.join(', ') : '',
-                              image_url: cat.image_url || ''
+                              image_url: cat.image_url || '',
+                              is_regulated: Boolean(cat.is_regulated),
+                              meta_title: cat.meta_title || '',
+                              meta_description: cat.meta_description || ''
                             })
                           }
                           className="p-1 rounded-lg bg-aliceblue hover:bg-lightblue/30 text-midnight/70 hover:text-midnight transition-colors cursor-pointer"
@@ -2867,6 +2896,15 @@ export const AdminPage: React.FC = () => {
           {activeTab === 'cms_pages' && (
             <AdminContentErrorBoundary activeTab={activeTab} onReset={loadAdminData}>
               <AdminPagesControl />
+            </AdminContentErrorBoundary>
+          )}
+
+          {/* ===================================================================== */}
+          {/* TAB: BLOG & EDITORIAL CMS */}
+          {/* ===================================================================== */}
+          {activeTab === 'blog' && (
+            <AdminContentErrorBoundary activeTab={activeTab} onReset={loadAdminData}>
+              <AdminBlogControl />
             </AdminContentErrorBoundary>
           )}
 
@@ -4119,6 +4157,45 @@ export const AdminPage: React.FC = () => {
                 placeholder="Consultations for LLM deployment and machine learning architecture..."
                 className="w-full bg-white border border-timberwolf/70 rounded-xl p-2.5 text-xs text-midnight focus:border-moonstone"
               />
+            </div>
+
+            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80">
+              <input
+                type="checkbox"
+                id="catRegulated"
+                checked={categoryModal.is_regulated}
+                onChange={(e) => setCategoryModal({ ...categoryModal, is_regulated: e.target.checked })}
+                className="w-4 h-4 text-amber-600 rounded cursor-pointer"
+              />
+              <label htmlFor="catRegulated" className="text-xs font-semibold text-amber-900 cursor-pointer">
+                Regulated Category (Requires Credential Verification & Legal/Medical Disclaimers)
+              </label>
+            </div>
+
+            <div className="space-y-2 p-2.5 rounded-xl bg-slate-50 border border-timberwolf/60">
+              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
+                SEO & OpenGraph Metadata
+              </span>
+              <div>
+                <label className="block text-[11px] text-slate-600 mb-0.5">Meta Title</label>
+                <input
+                  type="text"
+                  value={categoryModal.meta_title}
+                  onChange={(e) => setCategoryModal({ ...categoryModal, meta_title: e.target.value })}
+                  placeholder="e.g., Expert Legal Advice & Consultations | HireByMinute"
+                  className="w-full bg-white border border-timberwolf/70 rounded-xl p-2 text-xs text-midnight focus:border-moonstone"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-600 mb-0.5">Meta Description</label>
+                <textarea
+                  rows={2}
+                  value={categoryModal.meta_description}
+                  onChange={(e) => setCategoryModal({ ...categoryModal, meta_description: e.target.value })}
+                  placeholder="e.g., Connect with licensed attorneys and legal advisors for per-minute guidance..."
+                  className="w-full bg-white border border-timberwolf/70 rounded-xl p-2 text-xs text-midnight focus:border-moonstone"
+                />
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-timberwolf/40">

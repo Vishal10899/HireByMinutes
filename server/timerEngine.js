@@ -76,25 +76,12 @@ class TimerEngine {
 
         // Session Expired
         if (remainingSeconds <= 0) {
-          if (typeof db.runAsync === 'function') {
-            await db.runAsync(`UPDATE sessions SET status = 'COMPLETED', actual_end = ? WHERE id = ?`, now, session.id);
-            await db.runAsync(`UPDATE bookings SET status = 'COMPLETED' WHERE id = ?`, session.booking_id);
-            await db.runAsync(`UPDATE users SET sessions_completed = sessions_completed + 1 WHERE id IN (?, ?)`, session.provider_id, session.client_id);
-          } else {
-            db.prepare(`UPDATE sessions SET status = 'COMPLETED', actual_end = ? WHERE id = ?`).run(now, session.id);
-            db.prepare(`UPDATE bookings SET status = 'COMPLETED' WHERE id = ?`).run(session.booking_id);
-            db.prepare(`UPDATE users SET sessions_completed = sessions_completed + 1 WHERE id IN (?, ?)`).run(session.provider_id, session.client_id);
+          try {
+            const { completeSession } = require('./sessionLifecycle');
+            completeSession(session.id, { io: this.io, completedBy: 'timer' });
+          } catch (compErr) {
+            console.error('[TimerEngine Expiration Error]:', compErr.message);
           }
-
-          this.io.to(`session_${session.id}`).emit('session_expired', {
-            sessionId: session.id,
-            message: 'Session completed. Communication channels are now closed.'
-          });
-
-          this.io.to(`session_${session.id}`).emit('session_completed', {
-            sessionId: session.id,
-            bookingId: session.booking_id
-          });
         }
       }
     } catch (tickErr) {

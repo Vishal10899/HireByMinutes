@@ -39,12 +39,16 @@ import { saveIntendedService } from '../utils/navigation';
 export const ServiceDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, setAuthSession } = useAuth();
   const { socket } = useSocket();
 
   const [service, setService] = useState<Service | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [availability, setAvailability] = useState<ProviderAvailability[]>([]);
+  const [portfolioProjects, setPortfolioProjects] = useState<any[]>([]);
+  const [clientRewards, setClientRewards] = useState<{ reward_points_balance: number } | null>(null);
+  const [redeemPoints, setRedeemPoints] = useState(false);
+  const [switchingRole, setSwitchingRole] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,7 +81,15 @@ export const ServiceDetailPage: React.FC = () => {
   const [countdownSeconds, setCountdownSeconds] = useState<number>(600);
 
   const durationMinutes = isCustomDuration ? customDuration : selectedDuration;
-  const totalPrice = service ? (durationMinutes * (Number(service.price_per_minute) || 0)).toFixed(2) : '0.00';
+  const basePriceNum = service ? durationMinutes * (Number(service.price_per_minute) || 0) : 0;
+  const canRedeemPoints = (clientRewards?.reward_points_balance ?? 0) >= 1000;
+  const rewardDiscount = (redeemPoints && canRedeemPoints) ? Math.min(500, 5 * (Number(service?.price_per_minute) || 0)) : 0;
+  const finalPriceNum = Math.max(0, basePriceNum - rewardDiscount);
+  const totalPrice = finalPriceNum.toFixed(2);
+  const originalTotalPrice = basePriceNum.toFixed(2);
+
+  const isOwnService = Boolean(user && service && user.id === service.user_id);
+  const isProviderAccount = Boolean(user && user.role === 'provider' && !isOwnService);
 
   useEffect(() => {
     async function loadServiceDetail() {
@@ -89,6 +101,12 @@ export const ServiceDetailPage: React.FC = () => {
         setService(data.service);
         setReviews(data.reviews || []);
         setAvailability(data.availability || []);
+
+        if (data.service?.user_id) {
+          api.getPublicPortfolio(data.service.user_id)
+            .then(pRes => setPortfolioProjects(pRes.projects || []))
+            .catch(() => {});
+        }
       } catch (err: any) {
         console.error('[ServiceDetailPage] Failed to fetch service detail:', {
           serviceId: id,
@@ -102,6 +120,14 @@ export const ServiceDetailPage: React.FC = () => {
     }
     loadServiceDetail();
   }, [id]);
+
+  useEffect(() => {
+    if (user && user.role === 'client') {
+      api.getClientRewards()
+        .then(r => setClientRewards(r))
+        .catch(() => {});
+    }
+  }, [user?.id, user?.role]);
 
   // Real-time Socket.IO and Server-Authoritative Polling for Request updates
   useEffect(() => {
@@ -217,6 +243,20 @@ export const ServiceDetailPage: React.FC = () => {
     }
   }, [activeRequest?.status, activeRequest?.session_id, navigate]);
 
+  const handleSwitchToClient = async () => {
+    try {
+      setSwitchingRole(true);
+      const res = await api.switchRole('client');
+      if (res.user && res.token) {
+        setAuthSession(res.user, res.token);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to switch role to Client');
+    } finally {
+      setSwitchingRole(false);
+    }
+  };
+
   const handleRequestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!service) return;
@@ -227,8 +267,24 @@ export const ServiceDetailPage: React.FC = () => {
       return;
     }
 
+    if (isOwnService) {
+      setFormError('You cannot hire yourself or book your own expert listing.');
+      return;
+    }
+
+    if (isProviderAccount) {
+      setFormError('Provider accounts cannot submit consultation requests. Please switch to Client mode first.');
+      return;
+    }
+
     if (!problemDescription.trim()) {
       setFormError('Please enter a brief description of what you want to solve.');
+      return;
+    }
+
+    const minDuration = (redeemPoints && canRedeemPoints) ? 5 : 15;
+    if (durationMinutes < minDuration) {
+      setFormError(`Minimum consultation duration is ${minDuration} minutes.`);
       return;
     }
 
@@ -248,7 +304,8 @@ export const ServiceDetailPage: React.FC = () => {
         duration_minutes: durationMinutes,
         connect_type: connectType,
         scheduled_start: scheduledStart.toISOString(),
-        problem_description: problemDescription.trim()
+        problem_description: problemDescription.trim(),
+        redeem_reward_points: redeemPoints && canRedeemPoints
       });
 
       setActiveRequest(res.request);
@@ -264,6 +321,18 @@ export const ServiceDetailPage: React.FC = () => {
     if (!activeRequest || activeRequest.status !== 'ACCEPTED') return;
     setPaying(true);
     try {
+      // Free consultation reward: 100% discount with 1,000 points
+      if (Number(activeRequest.total_price) === 0 || (activeRequest.reward_points_redeemed && activeRequest.reward_points_redeemed >= 1000 && Number(activeRequest.total_price) === 0)) {
+        const payRes = await api.payConsultationRequest(activeRequest.id);
+        confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+        if (payRes.session_id) {
+          navigate(`/session/${payRes.session_id}`);
+        } else {
+          navigate('/client');
+        }
+        return;
+      }
+
       // 1. Create server-authoritative Razorpay order
       const orderRes = await api.createRazorpayOrder(activeRequest.id);
 
@@ -393,6 +462,70 @@ export const ServiceDetailPage: React.FC = () => {
 
   const renderHireFlowContent = () => {
     if (!service) return null;
+
+    if (isOwnService) {
+      return (
+        <div className="p-6 text-center space-y-4 bg-aliceblue/60 rounded-2xl border border-timberwolf/70 animate-fade-in">
+          <div className="w-12 h-12 rounded-2xl bg-midnight/10 text-midnight mx-auto flex items-center justify-center">
+            <UserCheck className="w-6 h-6 text-moonstone" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-midnight">Your Expert Profile</h3>
+            <p className="text-xs text-midnight/70 mt-1 leading-relaxed">
+              This is your public consultation listing. Per marketplace rules, self-booking is disabled.
+            </p>
+          </div>
+          <div className="pt-2 flex flex-col gap-2.5">
+            <Link
+              to="/provider"
+              className="w-full py-3 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover transition-colors text-center shadow-subtle min-h-[44px] flex items-center justify-center"
+            >
+              Go to Provider Dashboard
+            </Link>
+            <Link
+              to="/profile/edit"
+              className="w-full py-2.5 rounded-xl border border-timberwolf/70 bg-white text-midnight text-xs font-semibold hover:bg-aliceblue transition-colors text-center min-h-[44px] flex items-center justify-center"
+            >
+              Edit Profile & Services
+            </Link>
+          </div>
+        </div>
+      );
+    }
+
+    if (isProviderAccount) {
+      return (
+        <div className="p-6 text-center space-y-4 bg-aliceblue/60 rounded-2xl border border-timberwolf/70 animate-fade-in">
+          <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 mx-auto flex items-center justify-center border border-amber-300">
+            <AlertCircle className="w-6 h-6 text-amber-700" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-midnight">Expert Provider Mode Active</h3>
+            <p className="text-xs text-midnight/70 mt-1 leading-relaxed">
+              You are currently logged in with an Expert Provider account. To hire {service.provider_name}, switch to Client mode.
+            </p>
+          </div>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={handleSwitchToClient}
+              disabled={switchingRole}
+              className="w-full min-h-[46px] py-3 rounded-xl bg-moonstone text-white text-xs font-bold hover:bg-moonstone-hover transition-all shadow-subtle flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {switchingRole ? (
+                <span>Switching to Client...</span>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>Switch to Client Mode</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-5">
         {/* Step Progress Header */}
@@ -584,23 +717,58 @@ export const ServiceDetailPage: React.FC = () => {
                 <div className="flex items-center gap-3 pt-1">
                   <input
                     type="number"
-                    min="5"
+                    min={redeemPoints ? 5 : 15}
                     max="180"
                     value={customDuration}
-                    onChange={(e) => setCustomDuration(Math.max(5, parseInt(e.target.value) || 5))}
+                    onChange={(e) => {
+                      const minVal = redeemPoints ? 5 : 15;
+                      setCustomDuration(Math.max(minVal, parseInt(e.target.value) || minVal));
+                    }}
                     className="w-20 px-3 py-2 bg-white border border-timberwolf/80 rounded-xl text-center font-mono font-bold text-sm text-midnight focus:outline-none focus:border-moonstone"
                   />
-                  <span className="text-xs text-midnight/70 font-medium">minutes (5 – 180 mins)</span>
+                  <span className="text-xs text-midnight/70 font-medium">
+                    minutes ({redeemPoints ? 5 : 15} – 180 mins)
+                  </span>
                 </div>
               )}
             </div>
 
+            {/* Reward Points Redemption (Step 2) */}
+            {canRedeemPoints && (
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-300 space-y-1.5">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={redeemPoints}
+                    onChange={(e) => setRedeemPoints(e.target.checked)}
+                    className="w-4 h-4 accent-emerald-600 mt-0.5"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-emerald-900 block">
+                      Redeem 1,000 Reward Points (5 Free Minutes)
+                    </span>
+                    <span className="text-[11px] text-emerald-800/80 block">
+                      Balance: {clientRewards?.reward_points_balance?.toLocaleString()} pts · Save {formatINR(Math.min(500, 5 * (Number(service.price_per_minute) || 0)))} on this session!
+                    </span>
+                  </div>
+                </label>
+              </div>
+            )}
+
             {/* Cost Preview */}
-            <div className="p-3.5 bg-aliceblue rounded-xl border border-timberwolf/60 flex items-center justify-between text-xs">
-              <span className="text-midnight/70">Estimated Cost:</span>
-              <span className="font-mono font-extrabold text-base text-midnight">
-                {formatINR(totalPrice)} <span className="text-xs font-normal text-midnight/60">({durationMinutes}m × {formatINR(service.price_per_minute)})</span>
-              </span>
+            <div className="p-3.5 bg-aliceblue rounded-xl border border-timberwolf/60 space-y-1 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-midnight/70">Estimated Cost:</span>
+                <span className="font-mono font-extrabold text-base text-midnight">
+                  {Number(totalPrice) === 0 ? '₹0.00 (Free)' : formatINR(totalPrice)}
+                </span>
+              </div>
+              {rewardDiscount > 0 && (
+                <div className="flex items-center justify-between text-emerald-700 font-semibold text-[11px]">
+                  <span>Loyalty points discount:</span>
+                  <span>- {formatINR(rewardDiscount)}</span>
+                </div>
+              )}
             </div>
 
             {/* Step 2 Actions */}
@@ -644,6 +812,28 @@ export const ServiceDetailPage: React.FC = () => {
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
                 <span>{formError}</span>
+              </div>
+            )}
+
+            {/* Reward Points Redemption (Step 3) */}
+            {canRedeemPoints && (
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-300 space-y-1.5">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={redeemPoints}
+                    onChange={(e) => setRedeemPoints(e.target.checked)}
+                    className="w-4 h-4 accent-emerald-600 mt-0.5"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-emerald-900 block">
+                      Redeem 1,000 Reward Points (5 Free Minutes)
+                    </span>
+                    <span className="text-[11px] text-emerald-800/80 block">
+                      Credit applied: {formatINR(Math.min(500, 5 * (Number(service.price_per_minute) || 0)))} off total.
+                    </span>
+                  </div>
+                </label>
               </div>
             )}
 
@@ -717,15 +907,23 @@ export const ServiceDetailPage: React.FC = () => {
             <div className="bg-aliceblue p-3.5 rounded-xl border border-timberwolf/60 space-y-2 text-xs">
               <div className="flex justify-between text-midnight/70">
                 <span>{durationMinutes} minutes × {formatINR(service.price_per_minute)}</span>
-                <span className="font-mono font-semibold text-midnight">{formatINR(totalPrice)}</span>
+                <span className="font-mono font-semibold text-midnight">{formatINR(originalTotalPrice)}</span>
               </div>
+              {rewardDiscount > 0 && (
+                <div className="flex justify-between text-emerald-700 font-semibold">
+                  <span>Loyalty Rewards Credit (1,000 pts)</span>
+                  <span className="font-mono">- {formatINR(rewardDiscount)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-midnight/70">
                 <span>Platform payment protection</span>
                 <span className="text-emerald-700 font-semibold font-mono">Included</span>
               </div>
               <div className="border-t border-timberwolf/40 pt-2 flex justify-between items-baseline font-bold text-midnight">
                 <span className="text-xs uppercase tracking-wider">Estimated Total</span>
-                <span className="text-lg font-mono">{formatINR(totalPrice)}</span>
+                <span className="text-lg font-mono">
+                  {Number(totalPrice) === 0 ? '₹0.00 (100% Free)' : formatINR(totalPrice)}
+                </span>
               </div>
             </div>
 
@@ -850,15 +1048,25 @@ export const ServiceDetailPage: React.FC = () => {
             <div className="bg-aliceblue p-4 rounded-xl border border-timberwolf/60 space-y-2 text-xs">
               <div className="flex justify-between text-midnight/80">
                 <span>{activeRequest.duration_minutes} minutes × {formatINR(service.price_per_minute)}</span>
-                <span className="font-mono font-semibold">{formatINR(activeRequest.total_price)}</span>
+                <span className="font-mono font-semibold">
+                  {formatINR(Number(activeRequest.total_price) + Number(activeRequest.reward_discount_amount || 0))}
+                </span>
               </div>
+              {Number(activeRequest.reward_discount_amount) > 0 && (
+                <div className="flex justify-between text-emerald-700 font-semibold">
+                  <span>Loyalty Rewards Credit (1,000 pts redeemed)</span>
+                  <span className="font-mono">- {formatINR(activeRequest.reward_discount_amount)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-midnight/80">
                 <span>Platform payment protection</span>
                 <span className="text-emerald-700 font-semibold">Included</span>
               </div>
               <div className="border-t border-timberwolf/40 pt-2 flex justify-between items-baseline font-bold text-midnight">
-                <span className="text-sm">Total</span>
-                <span className="text-xl font-mono">{formatINR(activeRequest.total_price)}</span>
+                <span className="text-sm">Total to Pay</span>
+                <span className="text-xl font-mono text-midnight">
+                  {Number(activeRequest.total_price) === 0 ? '₹0.00 (100% Free)' : formatINR(activeRequest.total_price)}
+                </span>
               </div>
             </div>
 
@@ -871,8 +1079,13 @@ export const ServiceDetailPage: React.FC = () => {
               {paying ? (
                 <span className="flex items-center gap-2">
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Processing Payment...
+                  Processing...
                 </span>
+              ) : Number(activeRequest.total_price) === 0 ? (
+                <>
+                  <Sparkles className="w-4 h-4 text-emerald-300 animate-pulse" />
+                  <span>ACTIVATE 5 FREE MINUTES CONSULTATION</span>
+                </>
               ) : (
                 <>
                   <CreditCard className="w-4 h-4 text-moonstone" />
@@ -1117,6 +1330,79 @@ export const ServiceDetailPage: React.FC = () => {
               </p>
             </div>
 
+            {/* Regulated Safeguard & Crisis Notice (Section 3 & 4) */}
+            {(service.category_slug === 'mental-wellness-psychology' ||
+              service.category_name?.toLowerCase().includes('mental') ||
+              service.category_name?.toLowerCase().includes('psychology')) && (
+              <div className="mt-4 p-4 rounded-2xl bg-amber-50/90 border border-amber-300 space-y-2 text-xs text-amber-950">
+                <div className="flex items-center gap-2 font-bold text-amber-900 text-sm">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <span>Mental Wellness & Crisis Safety Safeguard</span>
+                </div>
+                <p className="leading-relaxed">
+                  HireByMinute consultations in mental wellness provide professional coaching, mindfulness guidance, and educational counseling. <strong>This platform does not provide emergency crisis intervention.</strong>
+                </p>
+                <div className="p-2.5 bg-white/80 rounded-xl border border-amber-200 text-[11px] leading-relaxed">
+                  <strong>🚨 Immediate Crisis Help:</strong> If you or someone you know is in acute distress or experiencing suicidal ideation, please contact national emergency services immediately:
+                  <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                    <li><strong>India:</strong> Tele-MANAS at <strong>14416</strong> or Emergency Services at <strong>112</strong></li>
+                    <li><strong>US / Canada:</strong> Suicide & Crisis Lifeline at <strong>988</strong></li>
+                    <li><strong>International:</strong> Visit <a href="https://findahelpline.com" target="_blank" rel="noreferrer" className="underline font-bold text-amber-900">findahelpline.com</a> for local 24/7 crisis hotlines.</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* Medical and Health Guidance Disclaimer */}
+            {(service.category_slug === 'medical-health-guidance' ||
+              service.category_name?.toLowerCase().includes('medical') ||
+              service.category_name?.toLowerCase().includes('health guidance')) && (
+              <div className="mt-4 p-4 rounded-2xl bg-blue-50/90 border border-blue-200 space-y-2 text-xs text-blue-950">
+                <div className="flex items-center gap-2 font-bold text-blue-900 text-sm">
+                  <ShieldCheck className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                  <span>Medical Guidance & Tele-Education Notice</span>
+                </div>
+                <p className="leading-relaxed">
+                  Consultations in this category offer informational health guidance, lifestyle advice, and domain second opinions. They <strong>do not create a formal in-hospital doctor-patient relationship</strong> or substitute for an emergency hospital evaluation. If you are experiencing a medical emergency, call <strong>112</strong> (India) or <strong>911</strong> (US) immediately.
+                </p>
+                {service.provider_verified ? (
+                  <p className="text-[11px] font-semibold text-emerald-800 flex items-center gap-1">
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                    Verified Medical Professional credentials reviewed by HireByMinute administration.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-blue-800/80 italic">
+                    Note: Unverified general guidance. Not a substitute for licensed medical diagnostic prescriptions.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Legal Consultation Disclaimer */}
+            {(service.category_slug === 'legal' ||
+              service.category_slug === 'legal-consultation' ||
+              service.category_name?.toLowerCase().includes('legal')) && (
+              <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-300 space-y-2 text-xs text-slate-800">
+                <div className="flex items-center gap-2 font-bold text-slate-900 text-sm">
+                  <ShieldCheck className="w-4 h-4 text-slate-700 flex-shrink-0" />
+                  <span>Legal Consultation & Scope Notice</span>
+                </div>
+                <p className="leading-relaxed">
+                  Legal consultations provide professional legal information, contract reviews, and regulatory explanations within the advisor's stated jurisdiction. <strong>Online consultations do not constitute formal attorney-client retention or court representation.</strong> Formal litigation requires jurisdiction-specific engagement agreements.
+                </p>
+                {service.provider_verified ? (
+                  <p className="text-[11px] font-semibold text-emerald-800 flex items-center gap-1">
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                    Verified Legal Professional credentials on file with HireByMinute administration.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-600 italic">
+                    Note: Legal information only. Not a formal court retainer or representation.
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Worldwide Discovery Data: Languages & Location */}
             <div className="pt-6 border-t border-timberwolf/40 grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/50 space-y-1">
@@ -1156,6 +1442,61 @@ export const ServiceDetailPage: React.FC = () => {
                     >
                       {skill}
                     </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Portfolio & Featured Projects Showcase */}
+            {portfolioProjects.length > 0 && (
+              <div className="pt-6 border-t border-timberwolf/40 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-midnight flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-moonstone" />
+                    Portfolio & Featured Projects ({portfolioProjects.length})
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {portfolioProjects.map((proj) => (
+                    <div key={proj.id} className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/50 space-y-2.5 hover:border-moonstone transition-colors">
+                      {proj.image_url && (
+                        <img
+                          src={proj.image_url}
+                          alt={proj.title}
+                          className="w-full h-32 object-cover rounded-lg border border-timberwolf/30"
+                        />
+                      )}
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-bold text-sm text-midnight">{proj.title}</h4>
+                          {proj.project_url && (
+                            <a
+                              href={proj.project_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-moonstone hover:text-moonstone-hover text-xs font-bold inline-flex items-center gap-1"
+                            >
+                              <span>View</span>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                        </div>
+                        {proj.description && (
+                          <p className="text-xs text-midnight/70 line-clamp-3 mt-1 leading-relaxed">
+                            {proj.description}
+                          </p>
+                        )}
+                      </div>
+                      {proj.technologies && proj.technologies.length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-1">
+                          {proj.technologies.map((t: string, tidx: number) => (
+                            <span key={tidx} className="text-[10px] bg-white px-2 py-0.5 rounded-md font-semibold text-midnight/70 border border-timberwolf/40">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -1265,7 +1606,35 @@ export const ServiceDetailPage: React.FC = () => {
       {/* MOBILE STICKY BOTTOM CTA BAR (Section 13) */}
       {/* ========================================================================= */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-timberwolf/60 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:hidden flex items-center justify-between shadow-elevated">
-        {!activeRequest ? (
+        {isOwnService ? (
+          <div className="w-full flex items-center justify-between gap-3">
+            <div>
+              <span className="text-xs font-bold text-midnight block">Your Expert Listing</span>
+              <span className="text-[11px] text-midnight/60 font-mono">{formatINR(service.price_per_minute)}/min</span>
+            </div>
+            <Link
+              to="/provider"
+              className="px-4 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold shadow-subtle min-h-[44px] flex items-center justify-center"
+            >
+              Manage Listing
+            </Link>
+          </div>
+        ) : isProviderAccount ? (
+          <div className="w-full flex items-center justify-between gap-3">
+            <div>
+              <span className="text-xs font-bold text-midnight block">Provider Mode Active</span>
+              <span className="text-[11px] text-midnight/60 font-mono">Switch to Client to book</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleSwitchToClient}
+              disabled={switchingRole}
+              className="px-4 py-2.5 rounded-xl bg-moonstone text-white text-xs font-bold shadow-subtle min-h-[44px] flex items-center justify-center cursor-pointer disabled:opacity-50"
+            >
+              Switch to Client
+            </button>
+          </div>
+        ) : !activeRequest ? (
           <>
             <div>
               <div className="flex items-baseline gap-1">

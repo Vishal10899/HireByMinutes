@@ -21,7 +21,11 @@ import {
   Clock,
   Layers,
   ArrowLeft,
-  Lock
+  Lock,
+  GraduationCap,
+  Award,
+  Briefcase,
+  ExternalLink
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
@@ -56,6 +60,10 @@ export const EditProfilePage: React.FC = () => {
   const [skills, setSkills] = useState<string[]>([]);
   const [newSkillInput, setNewSkillInput] = useState('');
   const [experienceYears, setExperienceYears] = useState<number>(5);
+  const [education, setEducation] = useState<string[]>([]);
+  const [newEducationInput, setNewEducationInput] = useState('');
+  const [certifications, setCertifications] = useState<string[]>([]);
+  const [newCertInput, setNewCertInput] = useState('');
 
   // Worldwide Location State
   const [country, setCountry] = useState('United States');
@@ -104,6 +112,8 @@ export const EditProfilePage: React.FC = () => {
         setLanguages(u.languages && u.languages.length > 0 ? u.languages : ['English']);
         setSkills(u.skills || []);
         setExperienceYears(u.experience_years || 5);
+        setEducation(u.education || []);
+        setCertifications(u.certifications || []);
 
         const isExpertUser = u.role === 'provider' || u.role === 'admin';
         setIsProvider(isExpertUser);
@@ -197,6 +207,32 @@ export const EditProfilePage: React.FC = () => {
     setSkills(skills.filter(s => s !== skillToRemove));
   };
 
+  const handleAddEducation = () => {
+    const item = newEducationInput.trim();
+    if (!item) return;
+    if (!education.includes(item)) {
+      setEducation([...education, item]);
+    }
+    setNewEducationInput('');
+  };
+
+  const handleRemoveEducation = (itemToRemove: string) => {
+    setEducation(education.filter(e => e !== itemToRemove));
+  };
+
+  const handleAddCertification = () => {
+    const item = newCertInput.trim();
+    if (!item) return;
+    if (!certifications.includes(item)) {
+      setCertifications([...certifications, item]);
+    }
+    setNewCertInput('');
+  };
+
+  const handleRemoveCertification = (itemToRemove: string) => {
+    setCertifications(certifications.filter(c => c !== itemToRemove));
+  };
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim()) {
@@ -221,7 +257,9 @@ export const EditProfilePage: React.FC = () => {
         location: [city.trim(), stateRegion.trim(), country.trim()].filter(Boolean).join(', '),
         languages,
         skills,
-        experience_years: experienceYears
+        experience_years: experienceYears,
+        education,
+        certifications
       };
 
       if (isProvider) {
@@ -605,6 +643,102 @@ export const EditProfilePage: React.FC = () => {
             </div>
           </div>
 
+          {/* Education Management */}
+          <div className="space-y-2 pt-4 border-t border-timberwolf/30">
+            <label className="text-xs font-semibold text-midnight flex items-center gap-1.5">
+              <GraduationCap className="w-3.5 h-3.5 text-moonstone" />
+              <span>Education & Academic Credentials</span>
+            </label>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {education.map((edu) => (
+                <span
+                  key={edu}
+                  className="px-3 py-1 rounded-lg bg-aliceblue text-midnight text-xs font-semibold border border-timberwolf/50 flex items-center gap-1.5"
+                >
+                  <span>{edu}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveEducation(edu)}
+                    className="text-midnight/40 hover:text-rose-600 transition-colors cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 max-w-md">
+              <input
+                type="text"
+                value={newEducationInput}
+                onChange={(e) => setNewEducationInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddEducation();
+                  }
+                }}
+                placeholder="e.g. B.Tech Computer Science, IIT Delhi (2019)"
+                className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-timberwolf/70 focus:outline-none focus:border-moonstone"
+              />
+              <button
+                type="button"
+                onClick={handleAddEducation}
+                className="px-3 py-1.5 rounded-lg bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-colors cursor-pointer"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          {/* Certifications Management */}
+          <div className="space-y-2 pt-4 border-t border-timberwolf/30">
+            <label className="text-xs font-semibold text-midnight flex items-center gap-1.5">
+              <Award className="w-3.5 h-3.5 text-moonstone" />
+              <span>Certifications & Industry Licenses</span>
+            </label>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {certifications.map((cert) => (
+                <span
+                  key={cert}
+                  className="px-3 py-1 rounded-lg bg-emerald-50 text-emerald-900 text-xs font-semibold border border-emerald-200 flex items-center gap-1.5"
+                >
+                  <span>{cert}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveCertification(cert)}
+                    className="text-emerald-500 hover:text-rose-600 transition-colors cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 max-w-md">
+              <input
+                type="text"
+                value={newCertInput}
+                onChange={(e) => setNewCertInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddCertification();
+                  }
+                }}
+                placeholder="e.g. AWS Certified Solutions Architect Professional"
+                className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-timberwolf/70 focus:outline-none focus:border-moonstone"
+              />
+              <button
+                type="button"
+                onClick={handleAddCertification}
+                className="px-3 py-1.5 rounded-lg bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover transition-colors cursor-pointer"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
         </div>
 
         {/* ========================================================================= */}
@@ -612,6 +746,29 @@ export const EditProfilePage: React.FC = () => {
         {/* ========================================================================= */}
         {isProvider && (
           <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-6 sm:p-7 shadow-card space-y-6">
+            
+            {/* Portfolio Projects Callout Banner */}
+            <div className="bg-gradient-to-r from-aliceblue to-lightblue/20 rounded-xl p-4 border border-moonstone/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-white text-moonstone border border-timberwolf/50 flex items-center justify-center shrink-0">
+                  <Briefcase className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-midnight">Portfolio & Featured Projects</h4>
+                  <p className="text-[11px] text-midnight/70">
+                    Showcase live case studies, GitHub repositories, and design systems on your public expert profile.
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/provider?tab=portfolio"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover shrink-0 transition-colors"
+              >
+                <span>Manage Portfolio</span>
+                <ExternalLink className="w-3 h-3 text-moonstone" />
+              </Link>
+            </div>
+
             <div className="flex items-center justify-between pb-2 border-b border-timberwolf/40">
               <h2 className="text-base font-bold text-midnight flex items-center gap-2">
                 <IndianRupee className="w-4 h-4 text-moonstone" />

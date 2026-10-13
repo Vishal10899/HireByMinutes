@@ -63,9 +63,13 @@ export const SessionPage: React.FC = () => {
   const [micEnabled, setMicEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [screenSharing, setScreenSharing] = useState(false);
+  const [remoteIsScreenSharing, setRemoteIsScreenSharing] = useState(false);
   const [remoteHasVideo, setRemoteHasVideo] = useState(false);
   const [remoteHasAudio, setRemoteHasAudio] = useState(true);
   const [isPeerConnected, setIsPeerConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'>('idle');
+  const [remotePeerPresent, setRemotePeerPresent] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
   const [callEndedManually, setCallEndedManually] = useState(false);
 
   // Review modal state
@@ -84,10 +88,52 @@ export const SessionPage: React.FC = () => {
   // DOM & Media Refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const displayStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const iceCandidatesQueueRef = useRef<RTCIceCandidateInit[]>([]);
+  const isNegotiatingRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Helper: Drain queued ICE candidates once remote description is set
+  const drainIceCandidates = async (pc: RTCPeerConnection) => {
+    while (iceCandidatesQueueRef.current.length > 0) {
+      const cand = iceCandidatesQueueRef.current.shift();
+      if (cand && pc.remoteDescription && pc.remoteDescription.type) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (e) {
+          console.warn('[WebRTC] Error adding queued ICE candidate:', e);
+        }
+      }
+    }
+  };
+
+  // Helper: Initiator sends offer
+  const createAndSendOffer = async (pc: RTCPeerConnection) => {
+    if (isNegotiatingRef.current || !socket || !id || !user) return;
+    try {
+      isNegotiatingRef.current = true;
+      setConnectionStatus('connecting');
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      });
+      await pc.setLocalDescription(offer);
+      socket.emit('webrtc_offer', {
+        sessionId: id,
+        offer,
+        senderId: user.id
+      });
+    } catch (err) {
+      console.error('[WebRTC] Error creating offer:', err);
+    } finally {
+      isNegotiatingRef.current = false;
+    }
+  };
 
   // 1. Fetch Session Data
   const loadSession = async () => {
@@ -125,16 +171,24 @@ export const SessionPage: React.FC = () => {
 
     async function initMediaAndWebRTC() {
       try {
+        setMediaError(null);
         let stream: MediaStream | null = null;
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
           try {
-            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-          } catch (e) {
-            console.warn('Camera/Mic permission not granted or unavailable, trying audio-only:', e);
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+              audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+            });
+          } catch (e: any) {
+            console.warn('[WebRTC] Camera/Mic permission not granted, trying audio-only:', e);
             try {
-              stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            } catch (errAudio) {
-              console.warn('Audio device also unavailable:', errAudio);
+              stream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true }
+              });
+              setMediaError('Camera permission was denied or unavailable. Joined with microphone only.');
+            } catch (errAudio: any) {
+              console.warn('[WebRTC] Audio device also unavailable:', errAudio);
+              setMediaError('Microphone and camera permissions were denied. You can participate using live chat.');
             }
           }
         }
@@ -171,23 +225,51 @@ export const SessionPage: React.FC = () => {
         const pc = new RTCPeerConnection(activeIceConfig);
         peerConnectionRef.current = pc;
 
+        // Prepare remote MediaStream container
+        const remoteStream = new MediaStream();
+        remoteStreamRef.current = remoteStream;
+
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStream;
+        }
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = remoteStream;
+        }
+
+        // Add local tracks to RTCPeerConnection
         if (stream) {
           stream.getTracks().forEach(track => {
             pc.addTrack(track, stream);
           });
         }
 
+        // Track incoming media tracks from remote peer
         pc.ontrack = (event) => {
-          if (event.streams && event.streams[0]) {
-            if (remoteVideoRef.current) {
-              remoteVideoRef.current.srcObject = event.streams[0];
-            }
-            setIsPeerConnected(true);
-            const videoTracks = event.streams[0].getVideoTracks();
-            setRemoteHasVideo(videoTracks.length > 0 && videoTracks[0].enabled);
+          if (!remoteStreamRef.current) {
+            remoteStreamRef.current = new MediaStream();
+          }
+          remoteStreamRef.current.addTrack(event.track);
+
+          if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
+            remoteVideoRef.current.srcObject = remoteStreamRef.current;
+          }
+          if (remoteAudioRef.current && remoteAudioRef.current.srcObject !== remoteStreamRef.current) {
+            remoteAudioRef.current.srcObject = remoteStreamRef.current;
+          }
+
+          if (event.track.kind === 'video') {
+            setRemoteHasVideo(event.track.enabled && !event.track.muted);
+            event.track.onmute = () => setRemoteHasVideo(false);
+            event.track.onunmute = () => setRemoteHasVideo(true);
+          }
+          if (event.track.kind === 'audio') {
+            setRemoteHasAudio(event.track.enabled && !event.track.muted);
+            event.track.onmute = () => setRemoteHasAudio(false);
+            event.track.onunmute = () => setRemoteHasAudio(true);
           }
         };
 
+        // ICE candidate generation
         pc.onicecandidate = (event) => {
           if (event.candidate && socket && user) {
             socket.emit('webrtc_ice_candidate', {
@@ -198,26 +280,40 @@ export const SessionPage: React.FC = () => {
           }
         };
 
-        pc.onconnectionstatechange = () => {
-          if (pc.connectionState === 'connected') {
+        // Connection state monitoring
+        const updateConnState = () => {
+          const pcState = pc.connectionState;
+          const iceState = pc.iceConnectionState;
+
+          if (pcState === 'connected' || iceState === 'connected' || iceState === 'completed') {
             setIsPeerConnected(true);
-          } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+            setConnectionStatus('connected');
+          } else if (pcState === 'connecting' || iceState === 'checking') {
+            setConnectionStatus('connecting');
+          } else if (pcState === 'disconnected' || iceState === 'disconnected') {
+            setConnectionStatus('reconnecting');
+          } else if (pcState === 'failed' || iceState === 'failed') {
             setIsPeerConnected(false);
+            setConnectionStatus('failed');
+          } else if (pcState === 'closed') {
+            setIsPeerConnected(false);
+            setConnectionStatus('idle');
           }
         };
 
-        // If client, create initial offer
-        if (session && user && socket && user.id === session.client_id) {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socket.emit('webrtc_offer', {
-            sessionId: id,
-            offer,
-            senderId: user.id
-          });
+        pc.onconnectionstatechange = updateConnState;
+        pc.oniceconnectionstatechange = updateConnState;
+
+        // Signal to room that local peer media is fully initialized
+        socket?.emit('webrtc_ready', { sessionId: id });
+
+        // If client and peer is already present, initiate offer
+        if (session && user && user.id === session.client_id && remotePeerPresent) {
+          createAndSendOffer(pc);
         }
       } catch (err) {
-        console.error('Failed to initialize WebRTC peer connection:', err);
+        console.error('[WebRTC] Failed to initialize peer connection:', err);
+        setConnectionStatus('failed');
       }
     }
 
@@ -235,6 +331,10 @@ export const SessionPage: React.FC = () => {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
     }
+    if (displayStreamRef.current) {
+      displayStreamRef.current.getTracks().forEach(track => track.stop());
+      displayStreamRef.current = null;
+    }
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
@@ -245,8 +345,15 @@ export const SessionPage: React.FC = () => {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null;
     }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
+    }
+    remoteStreamRef.current = null;
+    iceCandidatesQueueRef.current = [];
     setIsPeerConnected(false);
+    setConnectionStatus('idle');
     setScreenSharing(false);
+    setRemoteIsScreenSharing(false);
   };
 
   // 3. Socket Event Handlers
@@ -257,6 +364,42 @@ export const SessionPage: React.FC = () => {
       sessionId: id,
       userId: user.id,
       userName: user.full_name
+    });
+
+    // Room participants tracking
+    socket.on('session_participants', (data: { participants: any[]; peerPresent: boolean }) => {
+      if (data.peerPresent) {
+        setRemotePeerPresent(true);
+        if (session && user && user.id === session.client_id && peerConnectionRef.current) {
+          createAndSendOffer(peerConnectionRef.current);
+        }
+      }
+    });
+
+    socket.on('user_joined_session', ({ userId }: { userId: string }) => {
+      if (userId !== user.id) {
+        setRemotePeerPresent(true);
+        if (session && user && user.id === session.client_id && peerConnectionRef.current) {
+          createAndSendOffer(peerConnectionRef.current);
+        }
+      }
+    });
+
+    socket.on('user_left_session', ({ userId }: { userId: string }) => {
+      if (userId !== user.id) {
+        setRemotePeerPresent(false);
+        setIsPeerConnected(false);
+        setConnectionStatus('idle');
+      }
+    });
+
+    socket.on('peer_ready', ({ userId }: { userId: string }) => {
+      if (userId !== user.id) {
+        setRemotePeerPresent(true);
+        if (session && user && user.id === session.client_id && peerConnectionRef.current) {
+          createAndSendOffer(peerConnectionRef.current);
+        }
+      }
     });
 
     // Server-authoritative timer tick
@@ -314,6 +457,7 @@ export const SessionPage: React.FC = () => {
       if (pc) {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(offer));
+          await drainIceCandidates(pc);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           socket.emit('webrtc_answer', {
@@ -322,7 +466,7 @@ export const SessionPage: React.FC = () => {
             senderId: user.id
           });
         } catch (e) {
-          console.error('Error handling WebRTC offer:', e);
+          console.error('[WebRTC] Error handling offer:', e);
         }
       }
     });
@@ -333,8 +477,9 @@ export const SessionPage: React.FC = () => {
       if (pc) {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          await drainIceCandidates(pc);
         } catch (e) {
-          console.error('Error handling WebRTC answer:', e);
+          console.error('[WebRTC] Error handling answer:', e);
         }
       }
     });
@@ -343,22 +488,31 @@ export const SessionPage: React.FC = () => {
       if (senderId === user.id) return;
       const pc = peerConnectionRef.current;
       if (pc && candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.error('Error adding ICE candidate:', e);
+        if (pc.remoteDescription && pc.remoteDescription.type) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (e) {
+            console.error('[WebRTC] Error adding ICE candidate:', e);
+          }
+        } else {
+          iceCandidatesQueueRef.current.push(candidate);
         }
       }
     });
 
     socket.on('call_media_state', ({ senderId, audio, video, screenSharing: peerScreen }) => {
       if (senderId === user.id) return;
-      setRemoteHasAudio(audio !== undefined ? audio : true);
-      setRemoteHasVideo(video || peerScreen || false);
+      if (audio !== undefined) setRemoteHasAudio(audio);
+      if (video !== undefined) setRemoteHasVideo(video);
+      if (peerScreen !== undefined) setRemoteIsScreenSharing(peerScreen);
     });
 
     return () => {
       socket.emit('leave_session', { sessionId: id, userId: user.id });
+      socket.off('session_participants');
+      socket.off('user_joined_session');
+      socket.off('user_left_session');
+      socket.off('peer_ready');
       socket.off('session_tick');
       socket.off('session_warning');
       socket.off('session_extended');
@@ -370,7 +524,7 @@ export const SessionPage: React.FC = () => {
       socket.off('webrtc_ice_candidate');
       socket.off('call_media_state');
     };
-  }, [socket, id, user?.id]);
+  }, [socket, id, user?.id, session?.client_id]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -418,18 +572,15 @@ export const SessionPage: React.FC = () => {
     if (!screenSharing) {
       try {
         if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-          const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+          const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+          displayStreamRef.current = displayStream;
           const screenTrack = displayStream.getVideoTracks()[0];
 
           if (peerConnectionRef.current) {
             const sender = peerConnectionRef.current.getSenders().find(s => s.track?.kind === 'video');
             if (sender) {
-              sender.replaceTrack(screenTrack);
+              await sender.replaceTrack(screenTrack);
             }
-          }
-
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = displayStream;
           }
 
           screenTrack.onended = () => {
@@ -446,7 +597,7 @@ export const SessionPage: React.FC = () => {
           });
         }
       } catch (err) {
-        console.warn('Screen sharing cancelled or failed:', err);
+        console.warn('[WebRTC] Screen sharing cancelled or failed:', err);
       }
     } else {
       stopScreenShare();
@@ -454,16 +605,18 @@ export const SessionPage: React.FC = () => {
   };
 
   const stopScreenShare = () => {
-    if (localStreamRef.current) {
+    if (displayStreamRef.current) {
+      displayStreamRef.current.getTracks().forEach(t => t.stop());
+      displayStreamRef.current = null;
+    }
+
+    if (localStreamRef.current && peerConnectionRef.current) {
       const originalVideoTrack = localStreamRef.current.getVideoTracks()[0];
-      if (peerConnectionRef.current && originalVideoTrack) {
+      if (originalVideoTrack) {
         const sender = peerConnectionRef.current.getSenders().find(s => s.track?.kind === 'video');
         if (sender) {
           sender.replaceTrack(originalVideoTrack);
         }
-      }
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = localStreamRef.current;
       }
     }
     setScreenSharing(false);
@@ -842,15 +995,33 @@ export const SessionPage: React.FC = () => {
           {/* Top Status Bar */}
           <div className="flex items-center justify-between z-10">
             <div className="flex items-center gap-2 bg-midnight-light/80 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-timberwolf/20 text-xs">
-              <span className={`w-2 h-2 rounded-full ${isSessionActive ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+              <span className={`w-2 h-2 rounded-full ${
+                isSessionCompleted
+                  ? 'bg-rose-400'
+                  : connectionStatus === 'connected'
+                  ? 'bg-emerald-400 animate-pulse'
+                  : connectionStatus === 'connecting'
+                  ? 'bg-amber-400 animate-pulse'
+                  : connectionStatus === 'reconnecting'
+                  ? 'bg-orange-400 animate-pulse'
+                  : connectionStatus === 'failed'
+                  ? 'bg-rose-500'
+                  : 'bg-slate-400'
+              }`} />
               <span className="font-medium">
                 {isSessionCompleted
                   ? 'Stream Terminated'
-                  : isSessionActive
-                  ? isPeerConnected
-                    ? 'Encrypted P2P Stream Active'
-                    : 'Encrypted Stream (Standby)'
-                  : 'Session Not Started'}
+                  : connectionStatus === 'connected'
+                  ? 'Connected (Encrypted P2P)'
+                  : connectionStatus === 'connecting'
+                  ? 'Connecting P2P Stream...'
+                  : connectionStatus === 'reconnecting'
+                  ? 'Reconnecting Stream...'
+                  : connectionStatus === 'failed'
+                  ? 'Connection Failed (STUN/TURN required)'
+                  : remotePeerPresent
+                  ? 'Waiting for media handshake...'
+                  : `Waiting for ${otherPersonName} to join...`}
               </span>
             </div>
 
@@ -896,12 +1067,50 @@ export const SessionPage: React.FC = () => {
               // Active Video / Audio Viewport
               <div className="w-full h-full flex items-center justify-center relative min-h-[300px] sm:min-h-[360px] rounded-xl overflow-hidden bg-midnight-light/50 border border-timberwolf/10">
                 
+                {/* Dedicated audio element for remote participant - plays uninterrupted even if camera is off */}
+                <audio ref={remoteAudioRef} autoPlay playsInline className="sr-only" />
+
+                {/* Remote Screen Share Badge */}
+                {remoteIsScreenSharing && (
+                  <div className="absolute top-3 left-3 bg-midnight/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-moonstone/50 flex items-center gap-2 text-xs font-semibold text-aliceblue z-20 shadow-subtle">
+                    <Monitor className="w-3.5 h-3.5 text-moonstone animate-pulse" />
+                    <span>Screen Shared by {otherPersonName}</span>
+                  </div>
+                )}
+
+                {/* Local Screen Share Indicator */}
+                {screenSharing && (
+                  <div className="absolute top-3 left-3 bg-amber-500/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-amber-300 flex items-center gap-2 text-xs font-semibold text-white z-20 shadow-subtle">
+                    <Monitor className="w-3.5 h-3.5 animate-pulse" />
+                    <span>You are presenting your screen</span>
+                    <button
+                      type="button"
+                      onClick={stopScreenShare}
+                      className="ml-1 bg-white text-amber-900 px-2 py-0.5 rounded text-[10px] font-bold hover:bg-amber-100 cursor-pointer"
+                    >
+                      Stop
+                    </button>
+                  </div>
+                )}
+
+                {/* Media Permission / Device Warning */}
+                {mediaError && (
+                  <div className="absolute top-3 right-3 max-w-xs bg-rose-950/90 border border-rose-500/80 p-2.5 rounded-xl text-[11px] text-rose-100 flex items-start gap-2 z-20 shadow-subtle">
+                    <AlertTriangle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
+                    <span>{mediaError}</span>
+                  </div>
+                )}
+
                 {/* Remote Video Stream */}
                 <video
                   ref={remoteVideoRef}
                   autoPlay
                   playsInline
-                  className={`w-full h-full object-cover rounded-xl ${remoteHasVideo ? 'block' : 'hidden'}`}
+                  className={`w-full h-full rounded-xl transition-all ${
+                    remoteHasVideo ? 'block' : 'hidden'
+                  } ${
+                    remoteIsScreenSharing ? 'object-contain bg-black' : 'object-cover'
+                  }`}
                 />
 
                 {/* Remote Participant Avatar (Shown when remote camera is off or audio-only) */}
@@ -913,14 +1122,22 @@ export const SessionPage: React.FC = () => {
                         alt={otherPersonName}
                         className="w-24 h-24 sm:w-32 sm:h-32 rounded-full object-cover border-4 border-moonstone shadow-elevated"
                       />
-                      <span className="absolute bottom-1 right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-midnight flex items-center justify-center text-[10px]">
-                        <Mic className="w-3 h-3 text-white" />
+                      <span className={`absolute bottom-1 right-1 w-5 h-5 rounded-full border-2 border-midnight flex items-center justify-center text-[10px] ${
+                        remoteHasAudio ? 'bg-emerald-500' : 'bg-rose-500'
+                      }`}>
+                        {remoteHasAudio ? <Mic className="w-3 h-3 text-white" /> : <MicOff className="w-3 h-3 text-white" />}
                       </span>
                     </div>
                     <div>
                       <h4 className="font-bold text-base text-aliceblue">{otherPersonName}</h4>
                       <p className="text-xs text-aliceblue/60">
-                        {isPeerConnected ? 'Voice Connected (Camera Off)' : 'Connecting stream...'}
+                        {connectionStatus === 'connected'
+                          ? 'Voice Connected (Camera Off)'
+                          : connectionStatus === 'connecting'
+                          ? 'Connecting stream...'
+                          : remotePeerPresent
+                          ? 'Participant present (Media standby)'
+                          : `Waiting for ${otherPersonName} to join...`}
                       </p>
                     </div>
                   </div>

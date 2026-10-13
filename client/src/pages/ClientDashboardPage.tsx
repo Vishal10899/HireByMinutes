@@ -93,7 +93,7 @@ export const ClientDashboardPage: React.FC = () => {
   const { socket } = useSocket();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'payments' | 'experts' | 'job_applications'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'payments' | 'rewards' | 'experts' | 'job_applications'>('overview');
   const [activeSession, setActiveSession] = useState<any | null>(null);
   const [consultationRequests, setConsultationRequests] = useState<ConsultationRequest[]>([]);
   const [upcomingBookings, setUpcomingBookings] = useState<any[]>([]);
@@ -101,11 +101,15 @@ export const ClientDashboardPage: React.FC = () => {
   const [payments, setPayments] = useState<any[]>([]);
   const [previouslyHiredExperts, setPreviouslyHiredExperts] = useState<any[]>([]);
   const [jobApplications, setJobApplications] = useState<JobApplication[]>([]);
+  const [rewardsData, setRewardsData] = useState<{ reward_points_balance: number; ledger: any[] } | null>(null);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
+  const [recommendedExperts, setRecommendedExperts] = useState<any[]>([]);
   const [stats, setStats] = useState<{
     totalExpertsHired?: number;
+    totalSessionsBooked?: number;
     totalSessionMinutes?: number;
     completedSessions?: number;
+    totalAmountPaid?: number;
     ratingsGiven?: number;
     clientRating?: number;
   } | null>(null);
@@ -115,9 +119,10 @@ export const ClientDashboardPage: React.FC = () => {
   const loadDashboard = async () => {
     try {
       setLoading(true);
-      const [data, jobAppsRes] = await Promise.all([
+      const [data, jobAppsRes, rewardsRes] = await Promise.all([
         api.getClientDashboard(),
-        api.getMyJobApplications().catch(() => ({ applications: [] }))
+        api.getMyJobApplications().catch(() => ({ applications: [] })),
+        api.getClientRewards().catch(() => ({ reward_points_balance: 0, ledger: [] }))
       ]);
       setActiveSession(data.activeSession || null);
       setConsultationRequests(data.consultationRequests || []);
@@ -125,7 +130,9 @@ export const ClientDashboardPage: React.FC = () => {
       setPastSessions(data.pastSessions || []);
       setPayments(data.payments || []);
       setPreviouslyHiredExperts(data.previouslyHiredExperts || []);
+      setRecommendedExperts(data.recommendedExperts || []);
       setJobApplications(jobAppsRes?.applications || []);
+      setRewardsData(rewardsRes);
       setStats(data.stats || null);
     } catch (err) {
       console.error('Failed to load client dashboard', err);
@@ -214,6 +221,18 @@ export const ClientDashboardPage: React.FC = () => {
 
       // 1. Create server-authoritative Razorpay order
       const orderRes = await api.createRazorpayOrder(requestId);
+
+      // Free consultation reward: 100% discount with 1,000 points
+      if (orderRes?.is_free_reward) {
+        const payRes = await api.payConsultationRequest(requestId);
+        confetti({ particleCount: 80, spread: 60 });
+        if (payRes.session_id) {
+          navigate(`/session/${payRes.session_id}`);
+        } else {
+          loadDashboard();
+        }
+        return;
+      }
 
       if (!orderRes || !orderRes.order_id || !orderRes.key_id) {
         throw new Error('Payment gateway order was not properly initialized. Please try again.');
@@ -357,14 +376,14 @@ export const ClientDashboardPage: React.FC = () => {
       </div>
 
       {/* Client Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-timberwolf/60 shadow-subtle flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-aliceblue text-moonstone flex items-center justify-center shrink-0">
-            <Zap className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+            <CreditCard className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[11px] font-semibold text-midnight/60 uppercase tracking-wider block">Experts Hired</span>
-            <span className="text-xl font-extrabold text-midnight">{stats?.totalExpertsHired ?? previouslyHiredExperts.length}</span>
+            <span className="text-[11px] font-semibold text-midnight/60 uppercase tracking-wider block">Total Spent</span>
+            <span className="text-xl font-extrabold text-midnight font-mono">{formatINR(stats?.totalAmountPaid ?? 0)}</span>
           </div>
         </div>
 
@@ -389,6 +408,25 @@ export const ClientDashboardPage: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-timberwolf/60 shadow-subtle flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-midnight/60 uppercase tracking-wider block">Rewards</span>
+              {(rewardsData?.reward_points_balance ?? 0) >= 1000 && (
+                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded-full">
+                  Free 5m!
+                </span>
+              )}
+            </div>
+            <span className="text-xl font-extrabold text-midnight font-mono">
+              {(rewardsData?.reward_points_balance ?? 0).toLocaleString()} <span className="text-xs font-normal text-midnight/60">pts</span>
+            </span>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-timberwolf/60 shadow-subtle flex items-center gap-3.5 col-span-2 lg:col-span-1">
           <div className="w-10 h-10 rounded-xl bg-aliceblue text-amber-500 flex items-center justify-center shrink-0">
             <Star className="w-5 h-5 fill-amber-400" />
           </div>
@@ -421,6 +459,18 @@ export const ClientDashboardPage: React.FC = () => {
           }`}
         >
           Completed Sessions ({pastSessions.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('rewards')}
+          className={`min-h-[44px] px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+            activeTab === 'rewards'
+              ? 'border-moonstone text-moonstone'
+              : 'border-transparent text-midnight/70 hover:text-midnight'
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5 text-moonstone" />
+          <span>Loyalty Rewards ({(rewardsData?.reward_points_balance ?? 0).toLocaleString()} pts)</span>
         </button>
 
         <button
@@ -796,6 +846,92 @@ export const ClientDashboardPage: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
+      {/* SECTION: PERSONALIZED RECOMMENDED EXPERTS */}
+      {/* ========================================================================= */}
+      {(activeTab === 'overview' || activeTab === 'experts') && recommendedExperts.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-moonstone" />
+                <span>Recommended Experts For You</span>
+              </h2>
+              <p className="text-xs text-midnight/60">
+                Curated based on your consultation topics, highly-rated specialties, and verified ratings.
+              </p>
+            </div>
+            <Link to="/services" className="text-xs text-moonstone font-bold hover:underline flex items-center gap-1">
+              <span>Explore Marketplace</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {recommendedExperts.map((exp) => (
+              <div
+                key={exp.id}
+                className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3 flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={exp.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(exp.full_name)}`}
+                        alt={exp.full_name}
+                        className="w-12 h-12 rounded-xl object-cover border border-lightblue shrink-0"
+                      />
+                      <div>
+                        <h4 className="font-bold text-sm text-midnight flex items-center gap-1.5">
+                          <span>{exp.full_name}</span>
+                          {exp.is_verified === 1 && (
+                            <span title="Credential Verified">
+                              <ShieldCheck className="w-3.5 h-3.5 text-moonstone" />
+                            </span>
+                          )}
+                        </h4>
+                        <p className="text-xs text-midnight/70 line-clamp-1">
+                          {exp.professional_title || exp.category_name || 'Marketplace Expert'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-3 pt-2 border-t border-timberwolf/30 text-xs">
+                    <div className="flex items-center gap-1 font-bold text-amber-600">
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                      <span>{Number(exp.rating || 5.0).toFixed(1)}</span>
+                      <span className="text-[10px] text-midnight/50 font-normal">({exp.review_count || 0})</span>
+                    </div>
+                    <span>•</span>
+                    <span className="font-mono font-bold text-midnight">
+                      {formatINR(exp.price_per_minute || 50)}/min
+                    </span>
+                    {exp.available_now === 1 && (
+                      <>
+                        <span>•</span>
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Online
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <Link
+                  to={exp.service_id ? `/services/${exp.service_id}` : `/services`}
+                  className="btn-shine w-full py-2 px-3 rounded-xl bg-midnight hover:bg-midnight-hover text-aliceblue text-xs font-bold flex items-center justify-center gap-1.5 shadow-subtle transition mt-2 cursor-pointer"
+                >
+                  <span>Consult Expert</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ========================================================================= */}
       {/* TAB 4: PAYMENT & TRANSACTIONS */}
       {/* ========================================================================= */}
       {(activeTab === 'payments' || activeTab === 'overview') && (
@@ -844,6 +980,94 @@ export const ClientDashboardPage: React.FC = () => {
               </table>
             </div>
           )}
+        </section>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB: LOYALTY REWARDS & POINTS */}
+      {/* ========================================================================= */}
+      {activeTab === 'rewards' && (
+        <section className="space-y-6 animate-fade-in">
+          {/* Rewards Hero Banner */}
+          <div className="bg-gradient-to-br from-midnight via-midnight-light to-moonstone/90 rounded-2xl p-6 sm:p-8 text-aliceblue shadow-card flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-2 max-w-xl">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-emerald-300 text-xs font-bold border border-white/20">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Loyalty Consultation Rewards Program</span>
+              </span>
+              <h2 className="text-2xl font-extrabold text-aliceblue">
+                {(rewardsData?.reward_points_balance ?? 0).toLocaleString()} Points Available
+              </h2>
+              <p className="text-xs text-aliceblue/80 leading-relaxed">
+                Earn 20 reward points for every consultation minute completed. Every 1,000 points unlocks a 5-minute credit (up to ₹500 discount) on any verified expert consultation!
+              </p>
+            </div>
+
+            <div className="p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 text-center shrink-0 w-full md:w-auto">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-aliceblue/70 block">Redemption Value</span>
+              <div className="text-2xl font-extrabold font-mono text-emerald-300 mt-0.5">
+                {(rewardsData?.reward_points_balance ?? 0) >= 1000 ? '5 Free Minutes' : `${1000 - ((rewardsData?.reward_points_balance ?? 0) % 1000)} pts to next reward`}
+              </div>
+              <Link
+                to="/services"
+                className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-moonstone hover:bg-moonstone-hover text-white text-xs font-bold transition-all shadow-subtle w-full justify-center"
+              >
+                <span>Browse Experts & Redeem</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </div>
+
+          {/* Reward Points Activity History */}
+          <div className="space-y-4">
+            <h3 className="text-base font-bold text-midnight flex items-center gap-2">
+              <Clock className="w-4 h-4 text-moonstone" />
+              <span>Points Activity & Ledger</span>
+            </h3>
+
+            {!rewardsData?.ledger || rewardsData.ledger.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-timberwolf/70 p-8 text-center text-xs text-midnight/60 shadow-subtle">
+                No reward point transactions yet. Points will be automatically credited to your balance after every completed consultation session.
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-timberwolf/70 overflow-x-auto shadow-subtle">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-aliceblue/60 text-midnight/60 uppercase font-semibold border-b border-timberwolf/40">
+                    <tr>
+                      <th className="py-3 px-4">Transaction</th>
+                      <th className="py-3 px-4">Points</th>
+                      <th className="py-3 px-4">Notes</th>
+                      <th className="py-3 px-4">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-timberwolf/30 text-midnight/80">
+                    {rewardsData.ledger.map((item: any) => (
+                      <tr key={item.id} className="hover:bg-aliceblue/30">
+                        <td className="py-3 px-4">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            item.points_delta > 0
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {item.entry_type === 'EARNED' ? '+ Earned' : '- Redeemed'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-mono font-extrabold text-sm">
+                          <span className={item.points_delta > 0 ? 'text-emerald-700' : 'text-amber-700'}>
+                            {item.points_delta > 0 ? `+${item.points_delta}` : item.points_delta} pts
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-midnight/70">{item.description || item.entry_type}</td>
+                        <td className="py-3 px-4 text-midnight/60">
+                          {new Date(item.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </section>
       )}
 

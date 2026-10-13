@@ -290,6 +290,8 @@ export const api = {
     languages?: string[];
     skills?: string[];
     experience_years?: number;
+    education?: any[];
+    certifications?: any[];
     service_title?: string;
     service_description?: string;
     subcategory?: string;
@@ -404,6 +406,7 @@ export const api = {
     scheduled_start?: string;
     problem_description: string;
     attachments?: string[];
+    redeem_reward_points?: boolean;
   }) => {
     const res = await fetch(`${API_BASE}/consultation-requests`, {
       method: 'POST',
@@ -1948,6 +1951,344 @@ export const api = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Failed to update application status');
+    }
+    return res.json();
+  },
+
+  // Role Switching
+  switchRole: async (role: 'client' | 'provider') => {
+    const res = await fetch(`${API_BASE}/auth/switch-role`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ role })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to switch role');
+    }
+    return res.json();
+  },
+
+  // Expert Portfolio Management
+  getPortfolio: async () => {
+    const res = await fetch(`${API_BASE}/provider/portfolio`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch portfolio projects');
+    return res.json();
+  },
+
+  addPortfolioProject: async (project: {
+    title: string;
+    description?: string;
+    technologies?: string[];
+    project_url?: string;
+    image_url?: string;
+    display_order?: number;
+  }) => {
+    const res = await fetch(`${API_BASE}/provider/portfolio`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(project)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to add portfolio project');
+    }
+    return res.json();
+  },
+
+  updatePortfolioProject: async (
+    id: string,
+    project: {
+      title?: string;
+      description?: string;
+      technologies?: string[];
+      project_url?: string;
+      image_url?: string;
+      display_order?: number;
+    }
+  ) => {
+    const res = await fetch(`${API_BASE}/provider/portfolio/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(project)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update portfolio project');
+    }
+    return res.json();
+  },
+
+  deletePortfolioProject: async (id: string) => {
+    const res = await fetch(`${API_BASE}/provider/portfolio/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to delete portfolio project');
+    }
+    return res.json();
+  },
+
+  getPublicPortfolio: async (userId: string) => {
+    const res = await fetch(`${API_BASE}/users/${encodeURIComponent(userId)}/portfolio`);
+    if (!res.ok) throw new Error('Failed to fetch expert portfolio');
+    return res.json();
+  },
+
+  // Expert Extended Profile & Public Profile
+  updateProviderProfile: async (data: {
+    headline?: string;
+    bio?: string;
+    skills?: string[];
+    languages?: string[];
+    experience_years?: number;
+    education?: any[];
+    certifications?: any[];
+    price_per_minute?: number;
+    available_now?: boolean;
+    service_title?: string;
+    service_description?: string;
+  }) => {
+    const res = await fetch(`${API_BASE}/provider/profile`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update expert profile');
+    }
+    return res.json();
+  },
+
+  getPublicProfile: async (userId: string) => {
+    const res = await fetch(`${API_BASE}/users/${encodeURIComponent(userId)}/public-profile`);
+    if (!res.ok) throw new Error('Failed to fetch public expert profile');
+    return res.json();
+  },
+
+  // Expert Bank Account & Payouts
+  getPayoutAccount: async () => {
+    const res = await fetch(`${API_BASE}/provider/payout-account`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch payout account details');
+    return res.json();
+  },
+
+  savePayoutAccount: async (data: {
+    account_holder_name: string;
+    account_number: string;
+    ifsc_code: string;
+    bank_name?: string;
+    branch_name?: string;
+    account_type?: string;
+  }) => {
+    const res = await fetch(`${API_BASE}/provider/payout-account`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to save payout bank details');
+    }
+    return res.json();
+  },
+
+  getProviderWallet: async () => {
+    const res = await fetch(`${API_BASE}/provider/wallet`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch expert wallet and earnings');
+    return res.json();
+  },
+
+  requestPayout: async (data?: { amount_inr?: number; notes?: string }) => {
+    const res = await fetch(`${API_BASE}/provider/payouts/request`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data || {})
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err: any = new Error(body.error || 'Payout request failed');
+      err.data = body;
+      throw err;
+    }
+    return body;
+  },
+
+  // Client Loyalty Reward Points
+  getClientRewards: async () => {
+    const res = await fetch(`${API_BASE}/rewards/me`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch client reward points');
+    return res.json();
+  },
+
+  // Admin Reward Points & Financial Ledger Settings
+  getAdminRewardSettings: async () => {
+    const res = await fetch(`${API_BASE}/admin/rewards/settings`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch reward settings');
+    return res.json();
+  },
+
+  updateAdminRewardSettings: async (settings: Record<string, any>) => {
+    const res = await fetch(`${API_BASE}/admin/rewards/settings`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(settings)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update reward settings');
+    }
+    return res.json();
+  },
+
+  getAdminRewardsLedger: async (params?: Record<string, any>) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.append(k, String(v));
+      });
+    }
+    const qStr = query.toString();
+    const res = await fetch(`${API_BASE}/admin/rewards/ledger${qStr ? `?${qStr}` : ''}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch rewards ledger');
+    return res.json();
+  },
+
+  getAdminFinancialLedger: async (params?: Record<string, any>) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.append(k, String(v));
+      });
+    }
+    const qStr = query.toString();
+    const res = await fetch(`${API_BASE}/admin/financial/ledger${qStr ? `?${qStr}` : ''}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch financial ledger');
+    return res.json();
+  },
+
+  // Blog & Content Publishing APIs (Section 10 & 11)
+  getBlogPosts: async (params?: { category?: string; search?: string; page?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.append(k, String(v));
+      });
+    }
+    const qStr = query.toString();
+    const res = await fetch(`${API_BASE}/blog${qStr ? `?${qStr}` : ''}`);
+    if (!res.ok) throw new Error('Failed to fetch blog posts');
+    return res.json();
+  },
+
+  getBlogCategories: async () => {
+    const res = await fetch(`${API_BASE}/blog/categories`);
+    if (!res.ok) throw new Error('Failed to fetch blog categories');
+    return res.json();
+  },
+
+  getBlogPost: async (slug: string) => {
+    const res = await fetch(`${API_BASE}/blog/${encodeURIComponent(slug)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch article');
+    }
+    return res.json();
+  },
+
+  getAdminBlogPosts: async (params?: { status?: string; search?: string; page?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.append(k, String(v));
+      });
+    }
+    const qStr = query.toString();
+    const res = await fetch(`${API_BASE}/admin/blog${qStr ? `?${qStr}` : ''}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch admin blog posts');
+    return res.json();
+  },
+
+  createAdminBlogPost: async (data: any) => {
+    const res = await fetch(`${API_BASE}/admin/blog`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to create blog post');
+    }
+    return res.json();
+  },
+
+  updateAdminBlogPost: async (id: string, data: any) => {
+    const res = await fetch(`${API_BASE}/admin/blog/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update blog post');
+    }
+    return res.json();
+  },
+
+  deleteAdminBlogPost: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/blog/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to delete blog post');
+    }
+    return res.json();
+  },
+
+  updateAdminBlogStatus: async (id: string, status: string) => {
+    const res = await fetch(`${API_BASE}/admin/blog/${encodeURIComponent(id)}/status`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ status })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update post status');
+    }
+    return res.json();
+  },
+
+  // Review Reply API
+  replyToReview: async (id: string, reply: string) => {
+    const res = await fetch(`${API_BASE}/provider/reviews/${encodeURIComponent(id)}/reply`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ reply })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to post reply to review');
     }
     return res.json();
   }

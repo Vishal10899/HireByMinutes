@@ -560,6 +560,111 @@ function initPostgresSchema(db) {
     ALTER TABLE reviews ADD COLUMN IF NOT EXISTS moderation_note TEXT;
     ALTER TABLE reviews ADD COLUMN IF NOT EXISTS moderated_by VARCHAR(64);
     ALTER TABLE reviews ADD COLUMN IF NOT EXISTS moderated_at TIMESTAMP WITH TIME ZONE;
+
+    CREATE TABLE IF NOT EXISTS portfolio_projects (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title VARCHAR(255) NOT NULL,
+      description TEXT,
+      skills_json TEXT DEFAULT '[]',
+      project_url TEXT,
+      image_url TEXT,
+      display_order INTEGER DEFAULT 0,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS expert_bank_accounts (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      account_holder_name VARCHAR(255) NOT NULL,
+      account_number_last4 VARCHAR(4) NOT NULL,
+      account_number_masked VARCHAR(64) NOT NULL,
+      ifsc_code VARCHAR(32) NOT NULL,
+      bank_name VARCHAR(255) NOT NULL,
+      account_type VARCHAR(32) DEFAULT 'savings',
+      verification_status VARCHAR(32) DEFAULT 'pending_verification',
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS financial_ledger (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      session_id VARCHAR(64),
+      booking_id VARCHAR(64),
+      entry_type VARCHAR(32) NOT NULL,
+      amount_paise INTEGER NOT NULL,
+      balance_type VARCHAR(32) NOT NULL,
+      currency VARCHAR(8) DEFAULT 'INR',
+      description TEXT,
+      metadata_json TEXT DEFAULT '{}',
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS reward_points_ledger (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      session_id VARCHAR(64),
+      booking_id VARCHAR(64),
+      entry_type VARCHAR(32) NOT NULL,
+      points INTEGER NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'available',
+      description TEXT NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_portfolio_user ON portfolio_projects(user_id);
+    CREATE INDEX IF NOT EXISTS idx_fin_ledger_user ON financial_ledger(user_id);
+    CREATE INDEX IF NOT EXISTS idx_fin_ledger_session ON financial_ledger(session_id);
+    CREATE INDEX IF NOT EXISTS idx_reward_user ON reward_points_ledger(user_id);
+    CREATE INDEX IF NOT EXISTS idx_reward_session ON reward_points_ledger(session_id);
+
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS education_json TEXT DEFAULT '[]';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS certifications_json TEXT DEFAULT '[]';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS reward_points_balance INTEGER DEFAULT 0;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_balance_paise INTEGER DEFAULT 0;
+    ALTER TABLE consultation_requests ADD COLUMN IF NOT EXISTS reward_points_redeemed INTEGER DEFAULT 0;
+    ALTER TABLE consultation_requests ADD COLUMN IF NOT EXISTS reward_discount_amount NUMERIC(10,2) DEFAULT 0.00;
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reward_points_redeemed INTEGER DEFAULT 0;
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reward_discount_amount NUMERIC(10,2) DEFAULT 0.00;
+
+    CREATE TABLE IF NOT EXISTS blog_posts (
+      id VARCHAR(64) PRIMARY KEY,
+      title VARCHAR(255) NOT NULL,
+      slug VARCHAR(255) UNIQUE NOT NULL,
+      excerpt TEXT,
+      content TEXT NOT NULL,
+      author_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+      author_name VARCHAR(255) NOT NULL,
+      category VARCHAR(128) DEFAULT 'Expert Guidance',
+      category_id VARCHAR(64) REFERENCES categories(id) ON DELETE SET NULL,
+      featured_image TEXT,
+      tags_json TEXT DEFAULT '[]',
+      internal_links_json TEXT DEFAULT '[]',
+      meta_title VARCHAR(255),
+      meta_description TEXT,
+      canonical_url TEXT,
+      og_image TEXT,
+      status VARCHAR(32) NOT NULL DEFAULT 'published' CHECK(status IN ('draft', 'scheduled', 'published', 'archived')),
+      published_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      scheduled_at TIMESTAMP WITH TIME ZONE,
+      read_time_minutes INTEGER DEFAULT 5,
+      views_count INTEGER DEFAULT 0,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_blog_slug ON blog_posts(slug);
+    CREATE INDEX IF NOT EXISTS idx_blog_status ON blog_posts(status);
+    CREATE INDEX IF NOT EXISTS idx_blog_category ON blog_posts(category);
+
+    ALTER TABLE categories ADD COLUMN IF NOT EXISTS meta_title VARCHAR(255);
+    ALTER TABLE categories ADD COLUMN IF NOT EXISTS meta_description TEXT;
+    ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_regulated INTEGER DEFAULT 0;
+    ALTER TABLE categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+    ALTER TABLE reviews ADD COLUMN IF NOT EXISTS provider_reply TEXT;
+    ALTER TABLE reviews ADD COLUMN IF NOT EXISTS provider_replied_at TIMESTAMP WITH TIME ZONE;
   `;
 
   db.exec(schemaSql);
@@ -568,6 +673,7 @@ function initPostgresSchema(db) {
   ensureSettingsAndAdmin(db);
   ensureDefaultCampaigns(db);
   ensureDefaultCmsPages(db);
+  ensureDefaultBlogPosts(db);
 }
 
 function initSqliteSchema(db) {
@@ -1071,6 +1177,95 @@ function initSqliteSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
     CREATE INDEX IF NOT EXISTS idx_bookings_client ON bookings(client_id);
     CREATE INDEX IF NOT EXISTS idx_bookings_provider ON bookings(provider_id);
+
+    CREATE TABLE IF NOT EXISTS portfolio_projects (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT,
+      skills_json TEXT DEFAULT '[]',
+      project_url TEXT,
+      image_url TEXT,
+      display_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS expert_bank_accounts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      account_holder_name TEXT NOT NULL,
+      account_number_last4 TEXT NOT NULL,
+      account_number_masked TEXT NOT NULL,
+      ifsc_code TEXT NOT NULL,
+      bank_name TEXT NOT NULL,
+      account_type TEXT DEFAULT 'savings',
+      verification_status TEXT DEFAULT 'pending_verification',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS financial_ledger (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      session_id TEXT,
+      booking_id TEXT,
+      entry_type TEXT NOT NULL,
+      amount_paise INTEGER NOT NULL,
+      balance_type TEXT NOT NULL,
+      currency TEXT DEFAULT 'INR',
+      description TEXT,
+      metadata_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS reward_points_ledger (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      session_id TEXT,
+      booking_id TEXT,
+      entry_type TEXT NOT NULL,
+      points INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'available',
+      description TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_portfolio_user ON portfolio_projects(user_id);
+    CREATE INDEX IF NOT EXISTS idx_fin_ledger_user ON financial_ledger(user_id);
+    CREATE INDEX IF NOT EXISTS idx_fin_ledger_session ON financial_ledger(session_id);
+    CREATE INDEX IF NOT EXISTS idx_reward_user ON reward_points_ledger(user_id);
+    CREATE INDEX IF NOT EXISTS idx_reward_session ON reward_points_ledger(session_id);
+
+    CREATE TABLE IF NOT EXISTS blog_posts (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      slug TEXT UNIQUE NOT NULL,
+      excerpt TEXT,
+      content TEXT NOT NULL,
+      author_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      author_name TEXT NOT NULL,
+      category TEXT DEFAULT 'Expert Guidance',
+      category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+      featured_image TEXT,
+      tags_json TEXT DEFAULT '[]',
+      internal_links_json TEXT DEFAULT '[]',
+      meta_title TEXT,
+      meta_description TEXT,
+      canonical_url TEXT,
+      og_image TEXT,
+      status TEXT NOT NULL DEFAULT 'published' CHECK(status IN ('draft', 'scheduled', 'published', 'archived')),
+      published_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      scheduled_at DATETIME,
+      read_time_minutes INTEGER DEFAULT 5,
+      views_count INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_blog_slug ON blog_posts(slug);
+    CREATE INDEX IF NOT EXISTS idx_blog_status ON blog_posts(status);
+    CREATE INDEX IF NOT EXISTS idx_blog_category ON blog_posts(category);
   `);
 
   try {
@@ -1089,6 +1284,10 @@ function initSqliteSchema(db) {
 
   safeAddColumn('categories', "subcategories_json TEXT DEFAULT '[]'");
   safeAddColumn('categories', 'image_url TEXT');
+  safeAddColumn('categories', 'meta_title TEXT');
+  safeAddColumn('categories', 'meta_description TEXT');
+  safeAddColumn('categories', 'is_regulated INTEGER DEFAULT 0');
+  safeAddColumn('categories', 'updated_at DATETIME DEFAULT CURRENT_TIMESTAMP');
   safeAddColumn('opportunities', "pricing_type TEXT DEFAULT 'free'");
   safeAddColumn('opportunities', 'entry_fee_inr REAL DEFAULT 0.00');
   safeAddColumn('opportunities', 'entry_fee_usd REAL DEFAULT 0.00');
@@ -1105,7 +1304,18 @@ function initSqliteSchema(db) {
   safeAddColumn('reviews', 'moderation_note TEXT');
   safeAddColumn('reviews', 'moderated_by TEXT');
   safeAddColumn('reviews', 'moderated_at DATETIME');
+  safeAddColumn('reviews', 'provider_reply TEXT');
+  safeAddColumn('reviews', 'provider_replied_at DATETIME');
+  safeAddColumn('blog_posts', 'updated_at DATETIME DEFAULT CURRENT_TIMESTAMP');
   safeAddColumn('services', 'is_featured INTEGER DEFAULT 0');
+  safeAddColumn('users', "education_json TEXT DEFAULT '[]'");
+  safeAddColumn('users', "certifications_json TEXT DEFAULT '[]'");
+  safeAddColumn('users', 'reward_points_balance INTEGER DEFAULT 0');
+  safeAddColumn('users', 'payout_balance_paise INTEGER DEFAULT 0');
+  safeAddColumn('consultation_requests', 'reward_points_redeemed INTEGER DEFAULT 0');
+  safeAddColumn('consultation_requests', 'reward_discount_amount REAL DEFAULT 0.00');
+  safeAddColumn('bookings', 'reward_points_redeemed INTEGER DEFAULT 0');
+  safeAddColumn('bookings', 'reward_discount_amount REAL DEFAULT 0.00');
 
   try {
     const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='payments'").get();
@@ -1140,6 +1350,7 @@ function initSqliteSchema(db) {
   ensureSettingsAndAdmin(db);
   ensureDefaultCampaigns(db);
   ensureDefaultCmsPages(db);
+  ensureDefaultBlogPosts(db);
 }
 
 function cleanupFakeAndDemoData(dbInstance) {
@@ -1193,32 +1404,262 @@ function cleanupFakeAndDemoData(dbInstance) {
 }
 
 function ensureDefaultCategories(dbInstance) {
-  const catCountResult = dbInstance.prepare('SELECT COUNT(*) as count FROM categories').get();
-  const catCount = catCountResult ? (typeof catCountResult.count === 'number' ? catCountResult.count : parseInt(catCountResult.count, 10)) : 0;
-  if (catCount > 0) return;
-
-  const insertCat = dbInstance.prepare(`
-    INSERT INTO categories (id, slug, name, icon, description, sort_order, active, service_count)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const categories = [
-    ['cat-tech', 'technology', 'Technology', 'Code2', 'Software engineering, architecture, and system design', 1, 1, 0],
-    ['cat-ai', 'ai-data', 'AI & Data', 'Cpu', 'LLM fine-tuning, prompt engineering, data pipelines & ML models', 2, 1, 0],
-    ['cat-design', 'design', 'Design', 'Palette', 'UI/UX design, visual identity, Figma review & product design', 3, 1, 0],
-    ['cat-marketing', 'marketing', 'Marketing', 'Megaphone', 'B2B growth, paid acquisition, SEO strategy & brand positioning', 4, 1, 0],
-    ['cat-business', 'business', 'Business', 'Briefcase', 'Startup fundraising, business strategy & pitch deck reviews', 5, 1, 0],
-    ['cat-finance', 'finance', 'Finance & Tax', 'DollarSign', 'Tax advisory, financial modeling & fractional CFO consults', 6, 1, 0],
-    ['cat-legal', 'legal', 'Legal', 'Scale', 'Contract review, trademarking, IP protection & compliance', 7, 1, 0],
-    ['cat-career', 'career', 'Career & Resume', 'GraduationCap', 'Resume teardowns, mock interviews & engineering leadership coaching', 8, 1, 0],
-    ['cat-writing', 'writing', 'Writing & Copy', 'Feather', 'Technical documentation, copy editing & editorial strategy', 9, 1, 0],
-    ['cat-video', 'video-audio', 'Video & Audio', 'Video', 'Post-production, sound engineering & video editing consults', 10, 1, 0],
-    ['cat-productivity', 'productivity', 'Productivity', 'Zap', 'Notion workspace architecture, workflow automation & ops', 11, 1, 0],
-    ['cat-other', 'other', 'Other Consultations', 'HelpCircle', 'Specialized 1-on-1 consultations for niche fields', 12, 1, 0],
+  const universalCategories = [
+    {
+      id: 'cat-tech',
+      slug: 'technology',
+      name: 'Technology and Software',
+      icon: 'Code2',
+      description: 'Software engineering, AI/ML, data science, cybersecurity, cloud, web development, IT support.',
+      sort_order: 1,
+      is_regulated: 0,
+      subcategories: ['Software Engineering', 'AI & Machine Learning', 'Data Science', 'Cybersecurity', 'Cloud Architecture', 'Web Development', 'IT Support & DevOps']
+    },
+    {
+      id: 'cat-medical',
+      slug: 'medical-health-guidance',
+      name: 'Medical and Health Guidance',
+      icon: 'Stethoscope',
+      description: 'Eligible medical professionals and appropriate health consultations, subject to credential verification and applicable rules.',
+      sort_order: 2,
+      is_regulated: 1,
+      subcategories: ['General Health Guidance', 'Preventive Wellness', 'Nutrition & Dietetics', 'Medical Records Review', 'Second Opinion Consultations']
+    },
+    {
+      id: 'cat-legal',
+      slug: 'legal',
+      name: 'Legal Consultation',
+      icon: 'Scale',
+      description: 'Eligible legal professionals, legal information, and consultations within their authorized jurisdiction.',
+      sort_order: 3,
+      is_regulated: 1,
+      subcategories: ['Contract Review & Drafting', 'Intellectual Property & Patents', 'Corporate & Startup Law', 'Regulatory Compliance', 'Employment & Labor Advisory']
+    },
+    {
+      id: 'cat-mental-wellness',
+      slug: 'mental-wellness-psychology',
+      name: 'Mental Wellness and Psychology',
+      icon: 'HeartPulse',
+      description: 'Qualified mental-health professionals and appropriate wellness services, with credential checks and crisis-safety safeguards.',
+      sort_order: 4,
+      is_regulated: 1,
+      subcategories: ['Stress & Anxiety Management', 'Mindset Coaching', 'Workplace Burnout Support', 'Relationship Guidance', 'Mindfulness & Resilience']
+    },
+    {
+      id: 'cat-fitness',
+      slug: 'fitness-personal-training',
+      name: 'Fitness and Personal Training',
+      icon: 'Dumbbell',
+      description: 'Personal trainers, nutrition guidance where qualified, workout plans, strength training.',
+      sort_order: 5,
+      is_regulated: 0,
+      subcategories: ['Personal Training Sessions', 'Strength & Conditioning', 'Custom Workout Plans', 'Weight Management', 'Athletic Performance Coaching']
+    },
+    {
+      id: 'cat-yoga',
+      slug: 'yoga-meditation',
+      name: 'Yoga and Meditation',
+      icon: 'Flower2',
+      description: 'Yoga instructors, meditation teachers, mindfulness, breathing exercises.',
+      sort_order: 6,
+      is_regulated: 0,
+      subcategories: ['Hatha & Vinyasa Yoga', 'Guided Mindfulness Meditation', 'Pranayama & Breathwork', 'Stress Relief Yoga', 'Posture Alignment & Mobility']
+    },
+    {
+      id: 'cat-education',
+      slug: 'education-classes',
+      name: 'Education and Classes',
+      icon: 'GraduationCap',
+      description: 'Tutors, language teachers, academic support, professional skills, exam preparation.',
+      sort_order: 7,
+      is_regulated: 0,
+      subcategories: ['Academic Tutoring & STEM', 'Language Learning & Speaking', 'Exam Preparation', 'Professional Skill Coaching', 'Coding & Technical Mentoring']
+    },
+    {
+      id: 'cat-lifestyle',
+      slug: 'personal-care-lifestyle',
+      name: 'Personal Care and Lifestyle',
+      icon: 'Sparkles',
+      description: 'Appropriate personal-care professionals, grooming, lifestyle coaching, and other permitted services.',
+      sort_order: 8,
+      is_regulated: 0,
+      subcategories: ['Grooming & Personal Care', 'Wardrobe & Style Advisory', 'Daily Routine Coaching', 'Image & Personal Brand', 'Life Transition Mentoring']
+    },
+    {
+      id: 'cat-business',
+      slug: 'business',
+      name: 'Business and Professional Consulting',
+      icon: 'Briefcase',
+      description: 'Career guidance, entrepreneurship, marketing, finance-related education, operations, and professional mentoring.',
+      sort_order: 9,
+      is_regulated: 0,
+      subcategories: ['Career Strategy & Interviews', 'Startup Pitch & Fundraising', 'B2B Marketing & Growth', 'Financial Literacy & Modeling', 'Operations & Team Leadership']
+    },
+    {
+      id: 'cat-other',
+      slug: 'other',
+      name: 'Other Approved Services',
+      icon: 'HelpCircle',
+      description: 'New categories added through the admin panel without code changes.',
+      sort_order: 10,
+      is_regulated: 0,
+      subcategories: ['Specialized 1-on-1 Consultations', 'Niche Domain Advisory', 'Custom Guidance Inquiries']
+    }
   ];
 
-  for (const cat of categories) {
-    insertCat.run(...cat);
+  for (const cat of universalCategories) {
+    const existing = dbInstance.prepare('SELECT id FROM categories WHERE id = ? OR slug = ?').get(cat.id, cat.slug);
+    const subcatsJson = JSON.stringify(cat.subcategories);
+    if (!existing) {
+      dbInstance.prepare(`
+        INSERT INTO categories (id, slug, name, icon, description, sort_order, active, service_count, subcategories_json, is_regulated)
+        VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)
+      `).run(cat.id, cat.slug, cat.name, cat.icon, cat.description, cat.sort_order, subcatsJson, cat.is_regulated);
+    } else {
+      dbInstance.prepare(`
+        UPDATE categories 
+        SET name = ?, icon = ?, description = ?, sort_order = ?, subcategories_json = ?, is_regulated = ?
+        WHERE id = ?
+      `).run(cat.name, cat.icon, cat.description, cat.sort_order, subcatsJson, cat.is_regulated, existing.id);
+    }
+  }
+}
+
+function ensureDefaultBlogPosts(dbInstance) {
+  try {
+    const postCountResult = dbInstance.prepare('SELECT COUNT(*) as count FROM blog_posts').get();
+    const postCount = postCountResult ? Number(postCountResult.count) : 0;
+    if (postCount > 0) return;
+
+    const defaultPosts = [
+      {
+        id: 'post-prep-15min',
+        title: 'How to Prepare for a 15-Minute Expert Consultation to Get Maximum ROI',
+        slug: 'how-to-prepare-for-a-15-minute-expert-consultation',
+        excerpt: 'Turn short consultation windows into decisive breakthroughs with structured problem statements, logs, and targeted agendas.',
+        content: `# How to Prepare for a 15-Minute Expert Consultation to Get Maximum ROI
+
+When you need an urgent answer from a veteran engineer, legal strategist, or medical specialist, waiting days for an email exchange or paying a four-figure agency retainer makes little sense. **HireByMinute** makes precision 15-minute consultations accessible worldwide.
+
+However, to get maximum value out of a rapid consultation, preparation is essential. Here is the exact framework our highest-performing clients use.
+
+---
+
+### 1. Frame Your Problem as a Concrete Fork in the Road
+Do not spend the first 5 minutes giving background lore. Experts diagnose problems rapidly when you present a specific fork:
+- *Instead of:* "Tell me about cloud architectures."
+- *Ask:* "We are migrating 2TB PostgreSQL data from AWS RDS to Neon. Should we use logical replication or pg_dump given our 15-minute maintenance window limit?"
+
+### 2. Prepare Artifacts in Advance
+Upload or paste your code snippets, schema diagrams, or draft contract terms in the chat the moment your room activates. Having visual references cuts explanation time by 70%.
+
+### 3. Establish the Consultation Agenda Immediately
+When the room connects, open with:
+> "Hi! I have 3 specific questions on database replication failover. If we address #1 and #2 within 10 minutes, I would love your thoughts on #3."
+
+### 4. Review the Read-Only Session Transcript Afterwards
+Every HireByMinute consultation preserves your full chat transcript and shared files in permanent read-only mode after expiry. You never have to worry about frantically copying down terminal commands while on camera.
+
+---
+
+*Need immediate guidance on your current project? [Discover verified specialists on HireByMinute](/services).*`,
+        category: 'Technology and Software',
+        author_name: 'Vishal Chaudhary',
+        meta_title: 'How to Prepare for a 15-Minute Expert Consultation — HireByMinute',
+        meta_description: 'Maximize your ROI during precision 1-on-1 expert consultations with structured agendas, prepared artifacts, and clear problem statements.',
+        read_time_minutes: 4,
+        status: 'published'
+      },
+      {
+        id: 'post-minute-advisory',
+        title: 'Why By-the-Minute Advisory is Replacing Retainers for Engineering and Legal Triage',
+        slug: 'by-the-minute-advisory-replacing-expensive-retainers',
+        excerpt: 'Modern founders and engineering leads need quick domain verification without committing to multi-thousand dollar monthly retainers.',
+        content: `# Why By-the-Minute Advisory is Replacing Retainers for Engineering and Legal Triage
+
+For decades, the professional services industry has relied on an outdated economic model: the monthly retainer.
+
+Whether engaging an intellectual property attorney, an enterprise cloud architect, or a clinical consultant, clients were forced to choose between two extremes:
+1. Pay $5,000 to $15,000 every month regardless of actual utilization.
+2. Rely on unvetted internet forums and risk disastrous misinformation.
+
+---
+
+### The Precision Consultation Revolution
+**HireByMinute** introduces fractional, server-metered micro-consultations. If you only need 20 minutes to review a trademark clause or verify an authentication flow, you only pay for those exact 20 minutes.
+
+### Key Benefits of the Minute Model:
+- **Zero Lock-In:** No monthly subscription fees or mandatory minimum retainers.
+- **Transparent Pricing:** Every specialist has a published INR/minute rate disclosed before payment.
+- **Server-Authoritative Timing:** Synchronized countdown clocks prevent unexpected overtime billing.
+- **Re-hire on Demand:** Return to your trusted expert whenever a new challenge arises.
+
+---
+
+*Explore available specialists today: [Browse Expert Services](/services).*`,
+        category: 'Business and Professional Consulting',
+        author_name: 'Editorial Team',
+        meta_title: 'Why By-the-Minute Advisory is Replacing Expensive Retainers — HireByMinute',
+        meta_description: 'Discover why startups and agile businesses choose pay-per-minute consultations over heavy agency retainers.',
+        read_time_minutes: 5,
+        status: 'published'
+      },
+      {
+        id: 'post-aiml-pipeline',
+        title: '5 Critical Questions to Ask an AI/ML Architect Before Building Your Next Pipeline',
+        slug: '5-critical-questions-to-ask-an-aiml-architect',
+        excerpt: 'Avoid costly cloud compute surprises and hallucination pitfalls by evaluating data foundations with a veteran machine learning consultant.',
+        content: `# 5 Critical Questions to Ask an AI/ML Architect Before Building Your Next Pipeline
+
+Building generative AI features is easy with public APIs; building reliable, deterministic, cost-effective pipelines for enterprise scale is extraordinarily difficult.
+
+Before committing development budget to embeddings, vector databases, or model fine-tuning, consult an experienced AI practitioner with these 5 questions:
+
+---
+
+### 1. Do We Actually Need Fine-Tuning or Is RAG Sufficient?
+Over 80% of teams investing in model fine-tuning could achieve superior latency, modular updates, and lower GPU hosting costs with well-chunked Retrieval-Augmented Generation (RAG) and hybrid search.
+
+### 2. How Will We Quantify Retrieval Precision?
+If you cannot measure retrieval accuracy with standardized golden evaluation sets (e.g. RAGAS, TruLens), modifying prompt templates is guesswork.
+
+### 3. What is Our Cold-Start and Cache Strategy?
+Vector searches can become bottlenecked when semantic cache hit rates are ignored. Learn how caching embeddings saves thousands in monthly token costs.
+
+### 4. What Are the Hallucination Guardrails?
+Ask how structured output schemas (JSON modes) and strict regex validation prevent catastrophic downstream parser exceptions.
+
+### 5. What is the Total Cost of Inference per Active User?
+Calculate token throughput under peak concurrent user loads to prevent unsustainable cloud bills.
+
+---
+
+*Need an architectural review of your AI system? [Find an AI & Machine Learning specialist](/services?category=technology).*`,
+        category: 'Technology and Software',
+        author_name: 'Dr. Priya Sharma',
+        meta_title: '5 Critical Questions to Ask an AI/ML Architect — HireByMinute',
+        meta_description: 'Evaluate your AI/ML architecture with these 5 critical questions covering RAG vs fine-tuning, latency, semantic caching, and inference costs.',
+        read_time_minutes: 6,
+        status: 'published'
+      }
+    ];
+
+    const insertPost = dbInstance.prepare(`
+      INSERT INTO blog_posts (
+        id, title, slug, excerpt, content, author_name, category, 
+        meta_title, meta_description, read_time_minutes, status, published_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `);
+
+    for (const p of defaultPosts) {
+      insertPost.run(
+        p.id, p.title, p.slug, p.excerpt, p.content, p.author_name, p.category,
+        p.meta_title, p.meta_description, p.read_time_minutes, p.status
+      );
+    }
+  } catch (err) {
+    console.error('[Blog Seed Error]:', err.message);
   }
 }
 
@@ -1241,6 +1682,11 @@ function ensureSettingsAndAdmin(dbInstance) {
   insertSetting.run('platform_fee_percent', '15', 'Standard percentage fee taken from completed session payments');
   insertSetting.run('default_response_time', 'Within 15 mins', 'Target response time for verified providers');
   insertSetting.run('payout_schedule', 'Instant on completion', 'Frequency of expert earnings settlement');
+  insertSetting.run('reward_points_per_minute', '20', 'Points awarded to client per completed consultation minute');
+  insertSetting.run('reward_redemption_threshold', '1000', 'Points required for 5-minute free consultation credit');
+  insertSetting.run('reward_free_minutes', '5', 'Minutes credited upon reward redemption');
+  insertSetting.run('reward_max_credit_inr', '500.00', 'Maximum INR credit value for 5-minute reward session');
+  insertSetting.run('payouts_enabled', '0', 'Automated provider payouts flag (0=batch settlement, 1=enabled)');
   insertSetting.run('logo_url', '', 'Custom brand logo image URL');
   insertSetting.run('header_navigation', JSON.stringify([
     { id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true, is_external: false },

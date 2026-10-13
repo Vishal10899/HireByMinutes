@@ -8,6 +8,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const fs = require('fs');
+const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const TimerEngine = require('./timerEngine');
 const createRoutes = require('./routes');
@@ -375,8 +376,12 @@ const handleRobotsTxt = (req, res) => {
     'Allow: /refund-policy',
     'Allow: /expert-policy',
     'Allow: /acceptable-use',
+    'Allow: /blog',
+    'Allow: /blog/',
+    'Allow: /categories/',
     'Allow: /p/',
     'Allow: /sitemap.xml',
+    'Allow: /sitemap-blog.xml',
     'Allow: /favicon.svg',
     'Allow: /og-image.png',
     '',
@@ -398,7 +403,8 @@ const handleRobotsTxt = (req, res) => {
     'Disallow: /reset-password',
     'Disallow: /api/',
     '',
-    'Sitemap: https://hirebyminute.com/sitemap.xml'
+    'Sitemap: https://hirebyminute.com/sitemap.xml',
+    'Sitemap: https://hirebyminute.com/sitemap-blog.xml'
   ].join('\n');
 
   return res.send(fallbackRobots);
@@ -420,6 +426,7 @@ const handleSitemapXml = (req, res) => {
     { loc: 'https://hirebyminute.com/jobs', priority: '0.9', changefreq: 'daily' },
     { loc: 'https://hirebyminute.com/opportunities', priority: '0.8', changefreq: 'daily' },
     { loc: 'https://hirebyminute.com/how-it-works', priority: '0.8', changefreq: 'weekly' },
+    { loc: 'https://hirebyminute.com/blog', priority: '0.8', changefreq: 'daily' },
     { loc: 'https://hirebyminute.com/about', priority: '0.7', changefreq: 'monthly' },
     { loc: 'https://hirebyminute.com/contact', priority: '0.7', changefreq: 'monthly' },
     { loc: 'https://hirebyminute.com/terms', priority: '0.5', changefreq: 'monthly' },
@@ -432,6 +439,18 @@ const handleSitemapXml = (req, res) => {
   const dynamicUrls = [];
   try {
     if (db) {
+      // Include active categories
+      const activeCats = db.prepare("SELECT slug FROM categories WHERE active = 1").all();
+      if (Array.isArray(activeCats)) {
+        for (const c of activeCats) {
+          dynamicUrls.push({
+            loc: `https://hirebyminute.com/categories/${c.slug}`,
+            priority: '0.8',
+            changefreq: 'weekly'
+          });
+        }
+      }
+
       // Include active published services
       const activeServices = db.prepare("SELECT id, updated_at FROM services WHERE listing_status = 'active' LIMIT 500").all();
       if (Array.isArray(activeServices)) {
@@ -441,6 +460,19 @@ const handleSitemapXml = (req, res) => {
             priority: '0.7',
             changefreq: 'weekly',
             lastmod: s.updated_at ? new Date(s.updated_at).toISOString().split('T')[0] : undefined
+          });
+        }
+      }
+
+      // Include published blog posts
+      const publishedPosts = db.prepare("SELECT slug, updated_at FROM blog_posts WHERE status = 'published' LIMIT 500").all();
+      if (Array.isArray(publishedPosts)) {
+        for (const bp of publishedPosts) {
+          dynamicUrls.push({
+            loc: `https://hirebyminute.com/blog/${bp.slug}`,
+            priority: '0.7',
+            changefreq: 'weekly',
+            lastmod: bp.updated_at ? new Date(bp.updated_at).toISOString().split('T')[0] : undefined
           });
         }
       }
@@ -493,8 +525,47 @@ ${allUrls.map(u => `  <url>
   return res.send(xml);
 };
 
+// Dedicated /sitemap-blog.xml endpoint
+const handleBlogSitemapXml = (req, res) => {
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  if (req.method === 'HEAD') return res.status(200).end();
+
+  const blogUrls = [
+    { loc: 'https://hirebyminute.com/blog', priority: '1.0', changefreq: 'daily' }
+  ];
+  try {
+    if (db) {
+      const posts = db.prepare("SELECT slug, updated_at FROM blog_posts WHERE status = 'published'").all();
+      if (Array.isArray(posts)) {
+        for (const p of posts) {
+          blogUrls.push({
+            loc: `https://hirebyminute.com/blog/${p.slug}`,
+            priority: '0.8',
+            changefreq: 'weekly',
+            lastmod: p.updated_at ? new Date(p.updated_at).toISOString().split('T')[0] : undefined
+          });
+        }
+      }
+    }
+  } catch (e) {}
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${blogUrls.map(u => `  <url>
+    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>${u.lastmod}</lastmod>` : ''}
+    <changefreq>${u.changefreq}</changefreq>
+    <priority>${u.priority}</priority>
+  </url>`).join('\n')}
+</urlset>`;
+
+  return res.send(xml);
+};
+
 app.get('/sitemap.xml', handleSitemapXml);
 app.head('/sitemap.xml', handleSitemapXml);
+app.get('/sitemap-blog.xml', handleBlogSitemapXml);
+app.head('/sitemap-blog.xml', handleBlogSitemapXml);
 
 // Google Search Console file verification route
 app.get('/google:hash.html', (req, res, next) => {
@@ -625,8 +696,16 @@ function renderSeoHtml(templateHtml, reqPath) {
     html = html.replace(/<meta\s+name="twitter:url"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:url" content="${meta.canonical}" />`);
   }
 
-  // Inject Google Site Verification code if present in environment
-  const gscCode = process.env.GOOGLE_SITE_VERIFICATION;
+  // Inject Google Site Verification code if present in environment or platform_settings
+  let gscCode = process.env.GOOGLE_SITE_VERIFICATION;
+  if (!gscCode && db) {
+    try {
+      const gscSetting = db.prepare("SELECT value FROM platform_settings WHERE key = 'google_site_verification'").get();
+      if (gscSetting && gscSetting.value) {
+        gscCode = gscSetting.value.trim();
+      }
+    } catch {}
+  }
   if (gscCode) {
     html = html.replace(/<meta\s+name="google-site-verification"\s+content=".*?"\s*\/?>/i, `<meta name="google-site-verification" content="${gscCode}" />`);
   }
@@ -749,7 +828,7 @@ io.on('connection', (socket) => {
   });
 
   // Join live session room - strictly verified
-  socket.on('join_session', ({ sessionId }) => {
+  socket.on('join_session', async ({ sessionId }) => {
     if (!sessionId) return;
 
     // Authorization check: Verify authenticated user is client, provider, or admin of this session
@@ -762,10 +841,31 @@ io.on('connection', (socket) => {
     const room = `session_${sessionId}`;
     socket.join(room);
 
-    // Notify other participant using server-verified authenticated identity
+    // Get all sockets currently in this room
+    try {
+      const roomSockets = await io.in(room).fetchSockets();
+      const otherParticipants = roomSockets
+        .filter(s => s.user && s.user.id !== socket.user.id)
+        .map(s => ({
+          userId: s.user.id,
+          userName: s.user.full_name,
+          role: s.user.role
+        }));
+
+      // Tell the joining user about existing participants
+      socket.emit('session_participants', {
+        participants: otherParticipants,
+        peerPresent: otherParticipants.length > 0
+      });
+    } catch (e) {
+      // Non-blocking fallback
+    }
+
+    // Notify other participant(s) that this user has joined
     socket.to(room).emit('user_joined_session', {
       userId: socket.user.id,
       userName: socket.user.full_name,
+      role: socket.user.role,
       timestamp: new Date().toISOString()
     });
 
@@ -774,6 +874,15 @@ io.on('connection', (socket) => {
     if (details) {
       socket.emit('session_state_sync', details);
     }
+  });
+
+  // Signal that local media & peer connection are ready for WebRTC negotiation
+  socket.on('webrtc_ready', ({ sessionId }) => {
+    if (!sessionId) return;
+    socket.to(`session_${sessionId}`).emit('peer_ready', {
+      userId: socket.user.id,
+      userName: socket.user.full_name
+    });
   });
 
   // Leave live session room
@@ -809,6 +918,33 @@ io.on('connection', (socket) => {
       video, 
       screenSharing 
     });
+  });
+
+  // Real-time in-session chat messaging via Socket
+  socket.on('send_session_message', ({ sessionId, content }) => {
+    if (!sessionId || !content || !content.trim()) return;
+    if (!timerEngine.isCommunicationAllowed(sessionId, socket.user.id)) return;
+    const messageId = `msg-${uuidv4().slice(0, 8)}`;
+    const now = new Date().toISOString();
+    try {
+      db.prepare(`
+        INSERT INTO messages (id, session_id, sender_id, sender_name, sender_role, content, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(messageId, sessionId, socket.user.id, socket.user.full_name, socket.user.role, content.trim(), now);
+    } catch (err) {
+      console.error('[Socket Chat Persistence Error]:', err.message);
+    }
+    const msgObj = {
+      id: messageId,
+      session_id: sessionId,
+      sender_id: socket.user.id,
+      sender_name: socket.user.full_name,
+      sender_role: socket.user.role,
+      content: content.trim(),
+      created_at: now
+    };
+    io.to(`session_${sessionId}`).emit('new_message', msgObj);
+    io.to(`session_${sessionId}`).emit('session_message', msgObj);
   });
 
   socket.on('disconnect', () => {

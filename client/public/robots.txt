@@ -13,8 +13,12 @@ Allow: /privacy
 Allow: /refund-policy
 Allow: /expert-policy
 Allow: /acceptable-use
+Allow: /blog
+Allow: /blog/
+Allow: /categories/
 Allow: /p/
 Allow: /sitemap.xml
+Allow: /sitemap-blog.xml
 Allow: /favicon.svg
 Allow: /og-image.png
 
@@ -37,3 +41,4 @@ Disallow: /reset-password
 Disallow: /api/
 
 Sitemap: https://hirebyminute.com/sitemap.xml
+Sitemap: https://hirebyminute.com/sitemap-blog.xml
