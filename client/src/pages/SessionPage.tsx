@@ -24,7 +24,8 @@ import {
   User,
   Monitor,
   Radio,
-  Lock
+  Lock,
+  RotateCcw
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
@@ -179,16 +180,46 @@ export const SessionPage: React.FC = () => {
               video: { width: { ideal: 1280 }, height: { ideal: 720 } },
               audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
             });
-          } catch (e: any) {
-            console.warn('[WebRTC] Camera/Mic permission not granted, trying audio-only:', e);
-            try {
-              stream = await navigator.mediaDevices.getUserMedia({
-                audio: { echoCancellation: true, noiseSuppression: true }
-              });
-              setMediaError('Camera permission was denied or unavailable. Joined with microphone only.');
-            } catch (errAudio: any) {
-              console.warn('[WebRTC] Audio device also unavailable:', errAudio);
-              setMediaError('Microphone and camera permissions were denied. You can participate using live chat.');
+          } catch (err: any) {
+            console.warn('[WebRTC] 720p constraints failed:', err?.name, err?.message);
+            // Fallback to basic video + audio if constraints were overconstrained
+            if (err.name === 'OverconstrainedError' || err.name === 'ConstraintNotSatisfiedError') {
+              try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                  video: true,
+                  audio: { echoCancellation: true, noiseSuppression: true }
+                });
+              } catch (basicErr) {
+                console.warn('[WebRTC] Basic video fallback failed:', basicErr);
+              }
+            }
+
+            // If video is still not acquired, accurately identify why and fall back to audio
+            if (!stream) {
+              if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                setMediaError('Camera permission was denied in your browser settings. Please allow access and click "Retry Camera", or proceed with microphone.');
+              } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+                setMediaError('No camera detected on your device. Joined consultation with microphone only.');
+              } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                setMediaError('Camera is already in use by another application. Close it and click "Retry Camera".');
+              } else {
+                setMediaError('Camera unavailable. Attempting audio-only connection.');
+              }
+
+              try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                  audio: { echoCancellation: true, noiseSuppression: true }
+                });
+              } catch (audioErr: any) {
+                console.warn('[WebRTC] Audio-only fallback failed:', audioErr);
+                if (audioErr.name === 'NotAllowedError' || audioErr.name === 'PermissionDeniedError') {
+                  setMediaError('Camera and microphone permissions were denied. Please enable them in browser settings, or use live chat.');
+                } else if (audioErr.name === 'NotFoundError' || audioErr.name === 'DevicesNotFoundError') {
+                  setMediaError('No audio or video input devices detected. You can participate using live chat.');
+                } else {
+                  setMediaError('Media input devices are unavailable. You can participate using live chat.');
+                }
+              }
             }
           }
         }
@@ -200,12 +231,17 @@ export const SessionPage: React.FC = () => {
 
         if (stream) {
           localStreamRef.current = stream;
+          const hasVideoTrack = stream.getVideoTracks().length > 0;
+          const hasAudioTrack = stream.getAudioTracks().length > 0;
+          setHasMediaAccess(true);
+          setVideoEnabled(hasVideoTrack);
+          setMicEnabled(hasAudioTrack);
+
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
+            localVideoRef.current.muted = true;
+            localVideoRef.current.play().catch(() => {});
           }
-          setHasMediaAccess(true);
-          setVideoEnabled(stream.getVideoTracks().length > 0);
-          setMicEnabled(stream.getAudioTracks().length > 0);
         }
 
         // Dynamically fetch authoritative STUN/TURN ICE servers from backend
@@ -504,7 +540,15 @@ export const SessionPage: React.FC = () => {
       if (senderId === user.id) return;
       if (audio !== undefined) setRemoteHasAudio(audio);
       if (video !== undefined) setRemoteHasVideo(video);
-      if (peerScreen !== undefined) setRemoteIsScreenSharing(peerScreen);
+      if (peerScreen !== undefined) {
+        setRemoteIsScreenSharing(peerScreen);
+        if (peerScreen) {
+          setRemoteHasVideo(true);
+        }
+      }
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.play().catch(e => console.warn('[WebRTC] Remote video playback on state change:', e));
+      }
     });
 
     return () => {
@@ -526,12 +570,28 @@ export const SessionPage: React.FC = () => {
     };
   }, [socket, id, user?.id, session?.client_id]);
 
+  // Ensure video elements are properly bound and playing
+  useEffect(() => {
+    if (localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.muted = true;
+      localVideoRef.current.play().catch(() => {});
+    }
+  }, [hasMediaAccess, videoEnabled, screenSharing]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStreamRef.current) {
+      remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      remoteVideoRef.current.play().catch(() => {});
+    }
+  }, [remoteHasVideo, remoteIsScreenSharing]);
+
   // Auto-scroll chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 4. Media Controls (Mic, Video, Screen Share, End Call)
+  // 4. Media Controls (Mic, Video, Retry, Screen Share, End Call)
   const toggleMicrophone = () => {
     if (localStreamRef.current) {
       const audioTracks = localStreamRef.current.getAudioTracks();
@@ -568,34 +628,117 @@ export const SessionPage: React.FC = () => {
     }
   };
 
+  const retryCamera = async () => {
+    try {
+      setMediaError(null);
+      let newStream: MediaStream | null = null;
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+      } catch {
+        newStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      if (!newVideoTrack) return;
+
+      if (!localStreamRef.current) {
+        localStreamRef.current = newStream;
+      } else {
+        const oldTracks = localStreamRef.current.getVideoTracks();
+        oldTracks.forEach(t => {
+          t.stop();
+          localStreamRef.current?.removeTrack(t);
+        });
+        localStreamRef.current.addTrack(newVideoTrack);
+      }
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+        localVideoRef.current.muted = true;
+        localVideoRef.current.play().catch(e => console.warn('[WebRTC] Local video play error:', e));
+      }
+
+      setHasMediaAccess(true);
+      setVideoEnabled(true);
+      setMediaError(null);
+
+      // Replace or add track on active peer connection
+      if (peerConnectionRef.current) {
+        const pc = peerConnectionRef.current;
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video' || (s as any).kind === 'video');
+        if (sender) {
+          await sender.replaceTrack(newVideoTrack);
+        } else {
+          pc.addTrack(newVideoTrack, localStreamRef.current);
+          if (session && user && user.id === session.client_id) {
+            createAndSendOffer(pc);
+          }
+        }
+      }
+
+      socket?.emit('call_media_state', {
+        sessionId: id,
+        senderId: user?.id,
+        audio: micEnabled,
+        video: true,
+        screenSharing: false
+      });
+    } catch (err: any) {
+      console.warn('[WebRTC] Retry camera error:', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setMediaError('Camera permission is blocked in your browser. Please allow camera permissions in site settings.');
+      } else if (err.name === 'NotFoundError') {
+        setMediaError('No camera hardware was detected on your computer.');
+      } else {
+        setMediaError('Could not enable camera: ' + (err.message || err.name));
+      }
+    }
+  };
+
   const toggleScreenShare = async () => {
     if (!screenSharing) {
       try {
-        if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-          const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-          displayStreamRef.current = displayStream;
-          const screenTrack = displayStream.getVideoTracks()[0];
+        if (!navigator.mediaDevices?.getDisplayMedia) {
+          alert('Screen sharing is not supported by your browser or device.');
+          return;
+        }
 
-          if (peerConnectionRef.current) {
-            const sender = peerConnectionRef.current.getSenders().find(s => s.track?.kind === 'video');
-            if (sender) {
-              await sender.replaceTrack(screenTrack);
+        const displayStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false
+        });
+        displayStreamRef.current = displayStream;
+        const screenTrack = displayStream.getVideoTracks()[0];
+
+        if (!screenTrack) return;
+
+        if (peerConnectionRef.current) {
+          const pc = peerConnectionRef.current;
+          const sender = pc.getSenders().find(s => s.track?.kind === 'video' || (s as any).kind === 'video');
+          if (sender) {
+            await sender.replaceTrack(screenTrack);
+          } else {
+            pc.addTrack(screenTrack, displayStream);
+            if (session && user && user.id === session.client_id) {
+              createAndSendOffer(pc);
             }
           }
-
-          screenTrack.onended = () => {
-            stopScreenShare();
-          };
-
-          setScreenSharing(true);
-          socket?.emit('call_media_state', {
-            sessionId: id,
-            senderId: user?.id,
-            audio: micEnabled,
-            video: true,
-            screenSharing: true
-          });
         }
+
+        screenTrack.onended = () => {
+          stopScreenShare();
+        };
+
+        setScreenSharing(true);
+        socket?.emit('call_media_state', {
+          sessionId: id,
+          senderId: user?.id,
+          audio: micEnabled,
+          video: true,
+          screenSharing: true
+        });
       } catch (err) {
         console.warn('[WebRTC] Screen sharing cancelled or failed:', err);
       }
@@ -610,15 +753,15 @@ export const SessionPage: React.FC = () => {
       displayStreamRef.current = null;
     }
 
-    if (localStreamRef.current && peerConnectionRef.current) {
-      const originalVideoTrack = localStreamRef.current.getVideoTracks()[0];
-      if (originalVideoTrack) {
-        const sender = peerConnectionRef.current.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) {
-          sender.replaceTrack(originalVideoTrack);
-        }
+    if (peerConnectionRef.current) {
+      const pc = peerConnectionRef.current;
+      const sender = pc.getSenders().find(s => s.track?.kind === 'video' || (s as any).kind === 'video');
+      if (sender) {
+        const originalVideoTrack = localStreamRef.current?.getVideoTracks()[0];
+        sender.replaceTrack(videoEnabled && originalVideoTrack ? originalVideoTrack : null);
       }
     }
+
     setScreenSharing(false);
     socket?.emit('call_media_state', {
       sessionId: id,
@@ -823,10 +966,10 @@ export const SessionPage: React.FC = () => {
   const backLink = user?.role === 'provider' ? '/provider' : user?.role === 'admin' ? '/admin' : '/client';
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5">
+    <div className="w-full max-w-[1440px] mx-auto px-3 sm:px-5 lg:px-6 py-3 sm:py-4 flex flex-col min-h-0 flex-1 lg:h-[calc(100vh-4.5rem)] lg:max-h-[calc(100vh-4.5rem)] lg:overflow-hidden gap-3 sm:gap-4">
       
       {/* ---------------- TOP HEADER (Sticky on Mobile - Section 15) ---------------- */}
-      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-md rounded-2xl border border-timberwolf/70 p-3 sm:p-5 shadow-subtle flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
+      <div className="shrink-0 sticky top-0 z-30 bg-white/95 backdrop-blur-md rounded-2xl border border-timberwolf/70 p-3 sm:p-4 shadow-subtle flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
         
         {/* Back Link & Participant Identity */}
         <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -909,7 +1052,7 @@ export const SessionPage: React.FC = () => {
       </div>
 
       {/* ---------------- MOBILE WORKSPACE SEGMENTED CONTROLS (Section 15) ---------------- */}
-      <div className="lg:hidden flex rounded-xl bg-aliceblue p-1 border border-timberwolf/60">
+      <div className="shrink-0 lg:hidden flex rounded-xl bg-aliceblue p-1 border border-timberwolf/60">
         <button
           type="button"
           onClick={() => setMobileWorkspaceTab('video')}
@@ -939,7 +1082,7 @@ export const SessionPage: React.FC = () => {
 
       {/* Warning & Seamless Extension Bar (< 5 mins or warning active) */}
       {isSessionActive && (warningMessage || (remainingSeconds <= 300 && remainingSeconds > 0)) && (
-        <div className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-subtle animate-fade-in">
+        <div className="shrink-0 bg-amber-50 border-2 border-amber-400 rounded-2xl p-3 sm:p-4 flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4 shadow-subtle animate-fade-in">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
               <AlertTriangle className="w-5 h-5 text-amber-700 animate-pulse" />
@@ -984,16 +1127,16 @@ export const SessionPage: React.FC = () => {
         </div>
       )}
 
-      {/* ---------------- MAIN SESSION WORKSPACE ---------------- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-[580px]">
+      {/* ---------------- MAIN SESSION WORKSPACE (68% Video Stage / 32% Chat) ---------------- */}
+      <div className="flex-1 min-h-0 min-w-0 w-full grid grid-cols-1 lg:grid-cols-[minmax(0,68%)_minmax(0,32%)] gap-4 sm:gap-5">
         
         {/* ---------------- LEFT / MAIN AREA: Video & Media Workspace ---------------- */}
-        <div className={`lg:col-span-2 flex-col justify-between bg-midnight rounded-2xl border border-midnight shadow-card overflow-hidden relative p-4 sm:p-6 text-aliceblue min-h-[440px] lg:min-h-[580px] ${
+        <div className={`min-h-0 min-w-0 flex-col justify-between bg-midnight rounded-2xl border border-midnight shadow-card overflow-hidden relative text-aliceblue h-full ${
           mobileWorkspaceTab === 'video' ? 'flex' : 'hidden lg:flex'
         }`}>
           
           {/* Top Status Bar */}
-          <div className="flex items-center justify-between z-10">
+          <div className="shrink-0 p-3 sm:p-3.5 border-b border-timberwolf/10 flex items-center justify-between z-10 bg-midnight">
             <div className="flex items-center gap-2 bg-midnight-light/80 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-timberwolf/20 text-xs">
               <span className={`w-2 h-2 rounded-full ${
                 isSessionCompleted
@@ -1008,7 +1151,7 @@ export const SessionPage: React.FC = () => {
                   ? 'bg-rose-500'
                   : 'bg-slate-400'
               }`} />
-              <span className="font-medium">
+              <span className="font-medium text-[11px] sm:text-xs">
                 {isSessionCompleted
                   ? 'Stream Terminated'
                   : connectionStatus === 'connected'
@@ -1031,8 +1174,8 @@ export const SessionPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Main Video Viewport */}
-          <div className="relative my-auto w-full flex-1 flex items-center justify-center py-4">
+          {/* Main Video Viewport (Centered 16:9 Aspect Ratio) */}
+          <div className="relative flex-1 min-h-0 min-w-0 w-full flex items-center justify-center p-2 sm:p-3 overflow-hidden bg-midnight">
             
             {isSessionCompleted ? (
               // Session Completed Terminal State
@@ -1064,8 +1207,8 @@ export const SessionPage: React.FC = () => {
                 </div>
               </div>
             ) : isSessionActive && !callEndedManually ? (
-              // Active Video / Audio Viewport
-              <div className="w-full h-full flex items-center justify-center relative min-h-[300px] sm:min-h-[360px] rounded-xl overflow-hidden bg-midnight-light/50 border border-timberwolf/10">
+              // Active Video / Audio Viewport (Bounded 16:9 Aspect Ratio)
+              <div className="relative w-full h-full max-h-full aspect-video flex items-center justify-center rounded-xl overflow-hidden bg-midnight-light/50 border border-timberwolf/10">
                 
                 {/* Dedicated audio element for remote participant - plays uninterrupted even if camera is off */}
                 <audio ref={remoteAudioRef} autoPlay playsInline className="sr-only" />
@@ -1093,11 +1236,20 @@ export const SessionPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* Media Permission / Device Warning */}
+                {/* Media Permission / Device Warning with Retry Camera */}
                 {mediaError && (
-                  <div className="absolute top-3 right-3 max-w-xs bg-rose-950/90 border border-rose-500/80 p-2.5 rounded-xl text-[11px] text-rose-100 flex items-start gap-2 z-20 shadow-subtle">
+                  <div className="absolute top-3 right-3 max-w-xs sm:max-w-sm bg-rose-950/95 border border-rose-500/80 p-2.5 rounded-xl text-[11px] text-rose-100 flex items-start gap-2 z-20 shadow-subtle">
                     <AlertTriangle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
-                    <span>{mediaError}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="leading-snug">{mediaError}</p>
+                      <button
+                        type="button"
+                        onClick={retryCamera}
+                        className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] cursor-pointer transition-colors"
+                      >
+                        <RotateCcw className="w-3 h-3" /> Retry Camera
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -1107,20 +1259,20 @@ export const SessionPage: React.FC = () => {
                   autoPlay
                   playsInline
                   className={`w-full h-full rounded-xl transition-all ${
-                    remoteHasVideo ? 'block' : 'hidden'
+                    (remoteHasVideo || remoteIsScreenSharing) ? 'block' : 'hidden'
                   } ${
                     remoteIsScreenSharing ? 'object-contain bg-black' : 'object-cover'
                   }`}
                 />
 
-                {/* Remote Participant Avatar (Shown when remote camera is off or audio-only) */}
-                {!remoteHasVideo && (
+                {/* Remote Participant Avatar (Shown when remote camera is off and not sharing screen) */}
+                {!remoteHasVideo && !remoteIsScreenSharing && (
                   <div className="flex flex-col items-center justify-center space-y-3 p-6 text-center animate-fade-in">
                     <div className="relative">
                       <img
                         src={otherPersonAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherPersonName}`}
                         alt={otherPersonName}
-                        className="w-24 h-24 sm:w-32 sm:h-32 rounded-full object-cover border-4 border-moonstone shadow-elevated"
+                        className="w-20 h-20 sm:w-28 sm:h-28 rounded-full object-cover border-4 border-moonstone shadow-elevated"
                       />
                       <span className={`absolute bottom-1 right-1 w-5 h-5 rounded-full border-2 border-midnight flex items-center justify-center text-[10px] ${
                         remoteHasAudio ? 'bg-emerald-500' : 'bg-rose-500'
@@ -1129,7 +1281,7 @@ export const SessionPage: React.FC = () => {
                       </span>
                     </div>
                     <div>
-                      <h4 className="font-bold text-base text-aliceblue">{otherPersonName}</h4>
+                      <h4 className="font-bold text-sm sm:text-base text-aliceblue">{otherPersonName}</h4>
                       <p className="text-xs text-aliceblue/60">
                         {connectionStatus === 'connected'
                           ? 'Voice Connected (Camera Off)'
@@ -1144,21 +1296,26 @@ export const SessionPage: React.FC = () => {
                 )}
 
                 {/* Local Participant Picture-in-Picture Video */}
-                <div className="absolute bottom-3 right-3 w-28 h-20 sm:w-36 sm:h-24 rounded-xl overflow-hidden border-2 border-moonstone/60 shadow-elevated bg-midnight z-20">
+                <div className="absolute bottom-3 right-3 w-28 h-20 sm:w-38 sm:h-26 rounded-xl overflow-hidden border-2 border-moonstone shadow-elevated bg-midnight z-20">
                   <video
                     ref={localVideoRef}
                     autoPlay
                     muted
                     playsInline
-                    className={`w-full h-full object-cover ${videoEnabled && hasMediaAccess ? 'block' : 'hidden'}`}
+                    className={`w-full h-full object-cover ${videoEnabled && hasMediaAccess && !screenSharing ? 'block' : 'hidden'}`}
                   />
-                  {(!videoEnabled || !hasMediaAccess) && (
+                  {screenSharing ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-midnight text-aliceblue/80 text-[10px] p-1 text-center">
+                      <Monitor className="w-4 h-4 text-moonstone mb-0.5" />
+                      <span>Presenting Screen</span>
+                    </div>
+                  ) : (!videoEnabled || !hasMediaAccess) ? (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-midnight text-aliceblue/70 text-[10px]">
                       <User className="w-5 h-5 text-moonstone mb-0.5" />
                       <span>You (Camera Off)</span>
                     </div>
-                  )}
-                  <span className="absolute bottom-1 left-1 bg-midnight/80 px-1.5 py-0.5 rounded text-[9px] text-aliceblue/80">
+                  ) : null}
+                  <span className="absolute bottom-1 left-1 bg-midnight/80 px-1.5 py-0.5 rounded text-[9px] text-aliceblue/80 font-semibold">
                     You
                   </span>
                 </div>
@@ -1191,15 +1348,15 @@ export const SessionPage: React.FC = () => {
 
           </div>
 
-          {/* ---------------- BOTTOM MEDIA CONTROLS (Section 15: >=48px Touch Targets) ---------------- */}
+          {/* ---------------- BOTTOM MEDIA CONTROLS (>=48px Touch Targets) ---------------- */}
           {isSessionActive && !callEndedManually && (
-            <div className="flex items-center justify-center gap-2.5 sm:gap-3 z-10 pt-3 border-t border-timberwolf/10 flex-wrap">
+            <div className="shrink-0 p-2.5 sm:p-3 border-t border-timberwolf/15 bg-midnight-light/60 backdrop-blur-sm flex items-center justify-center gap-2 sm:gap-3 flex-wrap z-10">
               
               {/* Microphone */}
               <button
                 type="button"
                 onClick={toggleMicrophone}
-                className={`min-h-[48px] min-w-[48px] p-3 sm:px-4 rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold active:scale-95 ${
+                className={`min-h-[48px] min-w-[48px] px-3.5 sm:px-4 rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold active:scale-95 ${
                   micEnabled
                     ? 'bg-midnight-light border-timberwolf/30 text-aliceblue hover:bg-midnight-hover'
                     : 'bg-rose-500/20 border-rose-500/50 text-rose-400'
@@ -1214,7 +1371,7 @@ export const SessionPage: React.FC = () => {
               <button
                 type="button"
                 onClick={toggleCamera}
-                className={`min-h-[48px] min-w-[48px] p-3 sm:px-4 rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold active:scale-95 ${
+                className={`min-h-[48px] min-w-[48px] px-3.5 sm:px-4 rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold active:scale-95 ${
                   videoEnabled
                     ? 'bg-midnight-light border-timberwolf/30 text-aliceblue hover:bg-midnight-hover'
                     : 'bg-rose-500/20 border-rose-500/50 text-rose-400'
@@ -1225,11 +1382,24 @@ export const SessionPage: React.FC = () => {
                 <span className="hidden sm:inline">{videoEnabled ? 'Stop Video' : 'Start Video'}</span>
               </button>
 
-              {/* Screen Share (Hidden on small mobile screens where unsupported) */}
+              {/* Retry Camera Action if camera is off or errored */}
+              {(!videoEnabled || mediaError) && (
+                <button
+                  type="button"
+                  onClick={retryCamera}
+                  className="min-h-[48px] px-3 rounded-xl border border-moonstone/50 bg-moonstone/20 hover:bg-moonstone/30 text-aliceblue text-xs font-semibold flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                  title="Detect or retry camera access"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-moonstone" />
+                  <span className="hidden md:inline">Retry Camera</span>
+                </button>
+              )}
+
+              {/* Screen Share */}
               <button
                 type="button"
                 onClick={toggleScreenShare}
-                className={`min-h-[48px] min-w-[48px] p-3 sm:px-4 rounded-xl border transition-all cursor-pointer items-center justify-center gap-2 text-xs font-semibold active:scale-95 hidden sm:flex ${
+                className={`min-h-[48px] min-w-[48px] px-3.5 sm:px-4 rounded-xl border transition-all cursor-pointer items-center justify-center gap-2 text-xs font-semibold active:scale-95 hidden sm:flex ${
                   screenSharing
                     ? 'bg-moonstone border-moonstone text-white shadow-subtle'
                     : 'bg-midnight-light border-timberwolf/30 text-aliceblue hover:bg-midnight-hover'
@@ -1244,7 +1414,7 @@ export const SessionPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleEndCall}
-                className="min-h-[48px] min-w-[48px] p-3 sm:px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white border border-rose-500 shadow-subtle transition-all cursor-pointer flex items-center justify-center gap-2 text-xs font-bold active:scale-95"
+                className="min-h-[48px] min-w-[48px] px-3.5 sm:px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white border border-rose-500 shadow-subtle transition-all cursor-pointer flex items-center justify-center gap-2 text-xs font-bold active:scale-95"
                 title="Leave Media Stream"
               >
                 <PhoneOff className="w-4 h-4" />
@@ -1256,17 +1426,22 @@ export const SessionPage: React.FC = () => {
 
         </div>
 
-        {/* ---------------- RIGHT: CHAT & FILE SHARING PANEL (Section 15: Segmented on Mobile) ---------------- */}
-        <div className={`lg:col-span-1 bg-white rounded-2xl border border-timberwolf/70 shadow-subtle flex-col justify-between overflow-hidden h-[540px] lg:h-[580px] ${
+        {/* ---------------- RIGHT: CHAT & FILE SHARING PANEL (32%) ---------------- */}
+        <div className={`min-h-0 min-w-0 flex-col justify-between bg-white rounded-2xl border border-timberwolf/70 shadow-subtle overflow-hidden h-full relative ${
           mobileWorkspaceTab === 'chat' ? 'flex' : 'hidden lg:flex'
         }`}>
           
           {/* Chat Header */}
-          <div className="p-4 border-b border-timberwolf/40 bg-aliceblue/40 flex items-center justify-between">
+          <div className="shrink-0 p-3.5 border-b border-timberwolf/40 bg-aliceblue/40 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="font-bold text-xs text-midnight uppercase tracking-wider">
                 Live Chat & Files
               </span>
+              {messages.length > 0 && (
+                <span className="text-[10px] font-bold text-midnight/50 bg-white px-2 py-0.5 rounded-full border border-timberwolf/40">
+                  {messages.length}
+                </span>
+              )}
             </div>
             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
               isSessionActive ? 'bg-emerald-100 text-emerald-800' : 'bg-timberwolf/40 text-midnight/60'
@@ -1276,7 +1451,7 @@ export const SessionPage: React.FC = () => {
           </div>
 
           {/* Messages Stream */}
-          <div className="flex-1 p-4 overflow-y-auto space-y-3.5 text-xs">
+          <div className="flex-1 min-h-0 p-4 overflow-y-auto space-y-3.5 text-xs overscroll-contain">
             {messages.length === 0 ? (
               <div className="text-center py-16 text-midnight/50 space-y-2">
                 <FileText className="w-8 h-8 mx-auto text-timberwolf-dark" />
@@ -1331,8 +1506,8 @@ export const SessionPage: React.FC = () => {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Chat Input & File Attachment Bar */}
-          <div className="p-3 bg-aliceblue/30 border-t border-timberwolf/40">
+          {/* Chat Input & File Attachment Bar (Pinned at bottom) */}
+          <div className="shrink-0 p-3 bg-aliceblue/30 border-t border-timberwolf/40">
             {isSessionActive ? (
               <form onSubmit={handleSendMessage} className="flex items-center gap-2">
                 

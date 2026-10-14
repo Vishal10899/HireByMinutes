@@ -662,6 +662,21 @@ function initPostgresSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_blog_status ON blog_posts(status);
     CREATE INDEX IF NOT EXISTS idx_blog_category ON blog_posts(category);
 
+    CREATE TABLE IF NOT EXISTS contact_inquiries (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      email VARCHAR(255) NOT NULL,
+      category VARCHAR(64) DEFAULT 'general',
+      subject VARCHAR(255),
+      message TEXT NOT NULL,
+      ip_address VARCHAR(64),
+      status VARCHAR(32) DEFAULT 'new',
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_contact_created ON contact_inquiries(created_at);
+    CREATE INDEX IF NOT EXISTS idx_contact_email ON contact_inquiries(email);
+
     -- Safe Idempotent Schema Migrations (Run BEFORE cleanup and default seeding)
     ALTER TABLE categories ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
     ALTER TABLE categories ADD COLUMN IF NOT EXISTS active INTEGER DEFAULT 1;
@@ -1298,6 +1313,21 @@ function initSqliteSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_blog_slug ON blog_posts(slug);
     CREATE INDEX IF NOT EXISTS idx_blog_status ON blog_posts(status);
     CREATE INDEX IF NOT EXISTS idx_blog_category ON blog_posts(category);
+
+    CREATE TABLE IF NOT EXISTS contact_inquiries (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      category TEXT DEFAULT 'general',
+      subject TEXT,
+      message TEXT NOT NULL,
+      ip_address TEXT,
+      status TEXT DEFAULT 'new',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_contact_created ON contact_inquiries(created_at);
+    CREATE INDEX IF NOT EXISTS idx_contact_email ON contact_inquiries(email);
   `);
 
   try {

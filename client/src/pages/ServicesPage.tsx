@@ -560,12 +560,12 @@ export const ServicesPage: React.FC = () => {
       </div>
 
       {/* Main Layout: Filter Sidebar + Services Grid */}
-      <div className="w-full max-w-full min-w-0 grid grid-cols-1 lg:grid-cols-4 gap-6 lg:gap-8">
+      <div className="w-full max-w-full min-w-0 flex flex-col lg:flex-row gap-6 lg:gap-8 items-start">
         
         {/* ========================================================================= */}
         {/* DESKTOP FILTERS SIDEBAR (Sticky on desktop, hidden on mobile) */}
         {/* ========================================================================= */}
-        <aside className="hidden lg:block lg:col-span-1 space-y-6 bg-white p-5 sm:p-6 rounded-2xl border border-timberwolf/60 shadow-card h-fit sticky top-24">
+        <aside className="hidden lg:block w-[280px] shrink-0 space-y-6 bg-white p-5 rounded-2xl border border-timberwolf/60 shadow-card sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-contain">
           <div className="flex items-center justify-between pb-3 border-b border-timberwolf/40">
             <span className="font-bold text-sm text-midnight flex items-center gap-1.5">
               <Filter className="w-4 h-4 text-moonstone" />
@@ -653,7 +653,7 @@ export const ServicesPage: React.FC = () => {
         {/* ========================================================================= */}
         {/* SERVICES RESULTS GRID */}
         {/* ========================================================================= */}
-        <div className="w-full max-w-full min-w-0 lg:col-span-3">
+        <div className="w-full max-w-full min-w-0 flex-1">
           
           {/* Active Filter Summary & Sorting Bar */}
           <div className="w-full min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 p-3.5 bg-white rounded-xl border border-timberwolf/60 shadow-subtle">

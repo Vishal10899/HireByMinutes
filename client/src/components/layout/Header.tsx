@@ -103,7 +103,7 @@ export const Header: React.FC = () => {
           {/* Desktop Right CTA */}
           <div className="hidden md:flex items-center gap-3">
             {!authInitialized || loading ? (
-              <div className="w-28 h-8 rounded-lg bg-aliceblue/80 animate-pulse border border-timberwolf/40" />
+              <div className="w-40 sm:w-44 h-9 rounded-lg bg-aliceblue/80 animate-pulse border border-timberwolf/40" />
             ) : user ? (
               <div className="relative">
                 <button

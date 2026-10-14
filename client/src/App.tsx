@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SiteSettingsProvider } from './context/SiteSettingsContext';
@@ -9,6 +9,7 @@ import { ToastNotification } from './components/common/ToastNotification';
 import { CustomCursor } from './components/common/CustomCursor';
 import { BrandedLoadingScreen } from './components/common/BrandedLoadingScreen';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
+import { initAnalytics, trackPageView } from './services/analytics';
 
 import { HomePage } from './pages/HomePage';
 import { ServicesPage } from './pages/ServicesPage';
@@ -58,6 +59,16 @@ const AppRoutes: React.FC = () => {
     location.pathname.startsWith('/admin') ||
     location.pathname.startsWith('/session/') ||
     isAuthRoute;
+
+  // Initialize Google Analytics (GA4) if VITE_GA_MEASUREMENT_ID is configured
+  useEffect(() => {
+    initAnalytics();
+  }, []);
+
+  // Track page view on route transitions with debouncing
+  useEffect(() => {
+    trackPageView(location.pathname + location.search);
+  }, [location.pathname, location.search]);
 
   return (
     <div className="flex flex-col min-h-screen relative overflow-x-hidden selection:bg-lightblue selection:text-midnight bg-aliceblue text-midnight font-sans">

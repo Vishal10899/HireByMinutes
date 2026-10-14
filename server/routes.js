@@ -167,7 +167,7 @@ function getEffectiveListingFee() {
 function getDatabasePaymentSettings() {
   try {
     const rows = db.prepare(`
-      SELECT key, value FROM platform_settings 
+      SELECT key, value FROM platform_settings
       WHERE key IN ('razorpay_key_id', 'razorpay_key_secret', 'razorpay_webhook_secret')
     `).all();
     const map = {};
@@ -401,7 +401,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   router.get('/platform/settings', (req, res) => {
     try {
       const rows = db.prepare(`
-        SELECT key, value FROM platform_settings 
+        SELECT key, value FROM platform_settings
         WHERE key IN ('platform_name', 'logo_url', 'header_navigation', 'header_cta_label', 'header_cta_url')
       `).all();
 
@@ -550,6 +550,130 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     }
   });
 
+  // In-memory contact submission rate limiter (IP -> timestamps array)
+  const contactSubmissionRateMap = new Map();
+
+  // Public Platform Contact Form Submission
+  const handleContactSubmission = async (req, res) => {
+    try {
+      const clientIp = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+
+      // 1. Check if contact form is enabled in settings
+      const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'contact_settings'").get();
+      let contactSettings = {};
+      if (setting && setting.value) {
+        try { contactSettings = JSON.parse(setting.value); } catch (e) {}
+      }
+      if (contactSettings.contact_form_enabled === false) {
+        return res.status(403).json({ error: 'The contact form is temporarily disabled. Please email support directly.' });
+      }
+
+      // 2. Honeypot check (bots fill hidden field hp_website)
+      if (req.body.hp_website) {
+        console.warn(`[Contact Form Bot Detected] Honeypot triggered from IP ${clientIp}`);
+        return res.status(200).json({ success: true, message: 'Your support inquiry has been received.' });
+      }
+
+      // 3. Validation
+      const rawName = String(req.body.name || '').trim();
+      const rawEmail = String(req.body.email || '').trim().toLowerCase();
+      const rawSubject = String(req.body.subject || '').trim();
+      const rawCategory = String(req.body.category || 'general').trim().toLowerCase();
+      const rawMessage = String(req.body.message || '').trim();
+
+      if (!rawName || rawName.length < 2 || rawName.length > 100) {
+        return res.status(400).json({ error: 'Please provide your full name (2–100 characters).' });
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!rawEmail || !emailRegex.test(rawEmail) || rawEmail.length > 255) {
+        return res.status(400).json({ error: 'Please enter a valid email address.' });
+      }
+
+      if (!rawMessage || rawMessage.length < 10) {
+        return res.status(400).json({ error: 'Please enter a detailed message (minimum 10 characters).' });
+      }
+      if (rawMessage.length > 5000) {
+        return res.status(400).json({ error: 'Message cannot exceed 5,000 characters.' });
+      }
+
+      // 4. Rate Limiting (Max 5 submissions per 10 minutes per IP)
+      const now = Date.now();
+      const ipHistory = (contactSubmissionRateMap.get(clientIp) || []).filter(t => now - t < 10 * 60 * 1000);
+      if (ipHistory.length >= 5) {
+        return res.status(429).json({ error: 'Too many submissions from your connection. Please wait 10 minutes before submitting again.' });
+      }
+      ipHistory.push(now);
+      contactSubmissionRateMap.set(clientIp, ipHistory);
+
+      // 5. Duplicate Prevention (Identical email + message within last 5 minutes)
+      try {
+        const recentDuplicate = db.prepare(`
+          SELECT id FROM contact_inquiries
+          WHERE email = ? AND message = ? AND created_at > datetime('now', '-5 minutes')
+          LIMIT 1
+        `).get(rawEmail, rawMessage);
+        if (recentDuplicate) {
+          return res.status(400).json({ error: 'A message with identical content was already submitted recently. Please allow time for our team to review it.' });
+        }
+      } catch (dupCheckErr) {
+        // Non-blocking fallback if query dialect differs
+      }
+
+      // 6. Persistence in contact_inquiries
+      const inquiryId = `inq-${Date.now()}-${uuidv4().slice(0, 6)}`;
+      try {
+        db.prepare(`
+          INSERT INTO contact_inquiries (id, name, email, category, subject, message, ip_address, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'new')
+        `).run(inquiryId, rawName, rawEmail, rawCategory, rawSubject || null, rawMessage, String(clientIp).slice(0, 64));
+      } catch (insertErr) {
+        console.error('[Contact Submission DB Error]:', insertErr.message);
+      }
+
+      // 7. Dispatch Transactional Notifications via EmailService
+      const supportDest = contactSettings.support_email || 'support@hirebyminute.com';
+      try {
+        await emailService.sendContactNotification({
+          recipientEmail: supportDest,
+          name: rawName,
+          email: rawEmail,
+          category: rawCategory,
+          subject: rawSubject,
+          message: rawMessage,
+          inquiryId
+        });
+      } catch (notifErr) {
+        console.warn('[Contact Support Email Warning]:', notifErr.message);
+      }
+
+      try {
+        await emailService.sendContactConfirmation({
+          email: rawEmail,
+          name: rawName,
+          subject: rawSubject,
+          category: rawCategory,
+          message: rawMessage,
+          inquiryId
+        });
+      } catch (confErr) {
+        console.warn('[Contact Sender Confirmation Warning]:', confErr.message);
+      }
+
+      return res.status(200).json({
+        success: true,
+        inquiry_id: inquiryId,
+        message: 'Thank you for reaching out. Your inquiry has been received and logged. Our team will get back to you within 24 hours.'
+      });
+    } catch (err) {
+      console.error('[Contact Submission Error]:', err.message);
+      return res.status(500).json({ error: 'Failed to process inquiry. Please try again or email us directly.' });
+    }
+  };
+
+  router.post('/platform/contact', handleContactSubmission);
+  router.post('/contact', handleContactSubmission);
+
   // Public Homepage Settings
   router.get('/platform/homepage', (req, res) => {
     try {
@@ -687,8 +811,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const user = db.prepare(`
       SELECT id, email, username, full_name, role, avatar_url, bio, headline, location,
              country, state_region, city, area,
-             languages_json, skills_json, experience_years, rating, review_count, 
-             sessions_completed, verified, email_verified, is_suspended, response_time, member_since, created_at 
+             languages_json, skills_json, experience_years, rating, review_count,
+             sessions_completed, verified, email_verified, is_suspended, response_time, member_since, created_at
       FROM users WHERE id = ?
     `).get(decoded.id);
 
@@ -994,7 +1118,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     // Retrieve active token for user
     const tokenRecord = db.prepare(`
-      SELECT * FROM email_verification_tokens 
+      SELECT * FROM email_verification_tokens
       WHERE LOWER(email) = ? AND used_at IS NULL
       ORDER BY created_at DESC LIMIT 1
     `).get(targetEmail);
@@ -1082,8 +1206,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     // Check 60-second cooldown
     const cooldownSeconds = parseInt(process.env.OTP_RESEND_COOLDOWN_SECONDS, 10) || 60;
     const lastToken = db.prepare(`
-      SELECT * FROM email_verification_tokens 
-      WHERE LOWER(email) = ? 
+      SELECT * FROM email_verification_tokens
+      WHERE LOWER(email) = ?
       ORDER BY created_at DESC LIMIT 1
     `).get(targetEmail);
 
@@ -1267,7 +1391,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const tokenHash = crypto.createHash('sha256').update(String(token).trim()).digest('hex');
 
     const resetRecord = db.prepare(`
-      SELECT * FROM password_reset_tokens 
+      SELECT * FROM password_reset_tokens
       WHERE token_hash = ? AND used_at IS NULL
     `).get(tokenHash);
 
@@ -1546,12 +1670,12 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       skillsJson = JSON.stringify(skillsArray);
     }
 
-    const educationJson = education !== undefined 
-      ? JSON.stringify(Array.isArray(education) ? education : []) 
+    const educationJson = education !== undefined
+      ? JSON.stringify(Array.isArray(education) ? education : [])
       : (user.education_json || '[]');
 
-    const certificationsJson = certifications !== undefined 
-      ? JSON.stringify(Array.isArray(certifications) ? certifications : []) 
+    const certificationsJson = certifications !== undefined
+      ? JSON.stringify(Array.isArray(certifications) ? certifications : [])
       : (user.certifications_json || '[]');
 
     const newAvatarUrl = avatar_url !== undefined ? avatar_url : user.avatar_url;
@@ -1566,7 +1690,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     // Update user profile record (Strictly prevents editing username, role, id, verified, rating, etc.)
     db.prepare(`
-      UPDATE users 
+      UPDATE users
       SET full_name = ?, avatar_url = ?, bio = ?, headline = ?, location = ?,
           country = ?, state_region = ?, city = ?, area = ?,
           languages_json = ?, skills_json = ?, experience_years = ?,
@@ -1594,7 +1718,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     let updatedService = null;
     if (user.role === 'provider' || user.role === 'admin') {
       const existingService = db.prepare(`SELECT * FROM services WHERE provider_id = ? ORDER BY created_at DESC LIMIT 1`).get(user.id);
-      
+
       if (existingService) {
         let newPrice = existingService.price_per_minute;
         if (price_per_minute !== undefined) {
@@ -1612,8 +1736,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         const newAvailableNow = available_now !== undefined ? (available_now ? 1 : 0) : existingService.available_now;
 
         db.prepare(`
-          UPDATE services 
-          SET title = ?, description = ?, subcategory = ?, category_id = ?, price_per_minute = ?, 
+          UPDATE services
+          SET title = ?, description = ?, subcategory = ?, category_id = ?, price_per_minute = ?,
               country = ?, city = ?, skills_json = ?, languages_json = ?, experience_years = ?, available_now = ?,
               updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
@@ -1662,7 +1786,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // ==========================================
   router.get('/categories', (req, res) => {
     const categories = db.prepare(`
-      SELECT c.*, 
+      SELECT c.*,
              COUNT(s.id) as active_services_count
       FROM categories c
       LEFT JOIN services s ON c.id = s.category_id AND LOWER(s.listing_status) IN ('active', 'published')
@@ -1692,9 +1816,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // ==========================================
   router.get('/services/featured', (req, res) => {
     const services = db.prepare(`
-      SELECT s.*, 
-             u.full_name as provider_name, u.avatar_url as provider_avatar, 
-             u.headline as provider_headline, u.rating as provider_rating, 
+      SELECT s.*,
+             u.full_name as provider_name, u.avatar_url as provider_avatar,
+             u.headline as provider_headline, u.rating as provider_rating,
              u.review_count as provider_review_count, u.verified as provider_verified,
              u.response_time as provider_response_time, u.country as provider_country,
              u.city as provider_city, u.state_region as provider_state_region,
@@ -1784,14 +1908,14 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     if (search) {
       whereClause += ` AND (
-        s.title LIKE ? OR 
-        s.description LIKE ? OR 
+        s.title LIKE ? OR
+        s.description LIKE ? OR
         s.subcategory LIKE ? OR
-        s.skills_json LIKE ? OR 
-        s.languages_json LIKE ? OR 
-        u.full_name LIKE ? OR 
+        s.skills_json LIKE ? OR
+        s.languages_json LIKE ? OR
+        u.full_name LIKE ? OR
         u.username LIKE ? OR
-        u.headline LIKE ? OR 
+        u.headline LIKE ? OR
         u.bio LIKE ? OR
         u.country LIKE ? OR
         u.state_region LIKE ? OR
@@ -1864,9 +1988,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     // Fetch paginated slice
     const query = `
-      SELECT s.*, 
-             u.full_name as provider_name, u.avatar_url as provider_avatar, 
-             u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating, 
+      SELECT s.*,
+             u.full_name as provider_name, u.avatar_url as provider_avatar,
+             u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating,
              u.review_count as provider_review_count, u.verified as provider_verified,
              u.response_time as provider_response_time, u.sessions_completed,
              u.country as provider_country, u.state_region as provider_state_region,
@@ -1927,9 +2051,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   router.get('/services/:id', (req, res) => {
     try {
       const service = db.prepare(`
-        SELECT s.*, 
-               u.id as provider_id, u.full_name as provider_name, u.avatar_url as provider_avatar, 
-               u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating, 
+        SELECT s.*,
+               u.id as provider_id, u.full_name as provider_name, u.avatar_url as provider_avatar,
+               u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating,
                u.review_count as provider_review_count, u.verified as provider_verified,
                u.response_time as provider_response_time, u.sessions_completed, u.member_since,
                u.country as provider_country, u.state_region as provider_state_region,
@@ -1956,8 +2080,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       let total_session_minutes = 0;
       try {
         const totalMinutesRow = db.prepare(`
-          SELECT COALESCE(SUM(duration_minutes), 0) as total_minutes 
-          FROM sessions 
+          SELECT COALESCE(SUM(duration_minutes), 0) as total_minutes
+          FROM sessions
           WHERE provider_id = ? AND status = 'COMPLETED'
         `).get(service.provider_id);
         total_session_minutes = totalMinutesRow ? (parseInt(totalMinutesRow.total_minutes, 10) || 0) : 0;
@@ -1968,8 +2092,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       let isBusy = false;
       try {
         const activeSessionRow = db.prepare(`
-          SELECT COUNT(*) as count 
-          FROM sessions 
+          SELECT COUNT(*) as count
+          FROM sessions
           WHERE provider_id = ? AND status = 'ACTIVE'
         `).get(service.provider_id);
         isBusy = (parseInt(activeSessionRow?.count, 10) || 0) > 0;
@@ -2117,7 +2241,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     const wasActive = service.listing_status === 'active';
     db.prepare(`
-      UPDATE services 
+      UPDATE services
       SET listing_status = 'active', listing_fee_paid = 1, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(service.id);
@@ -2145,7 +2269,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     const wasActive = service.listing_status === 'active';
     db.prepare(`
-      UPDATE services 
+      UPDATE services
       SET listing_status = 'active', listing_fee_paid = 1, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(service.id);
@@ -2175,7 +2299,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     const wasActive = service.listing_status === 'active';
     db.prepare(`
-      UPDATE services 
+      UPDATE services
       SET listing_status = 'active', listing_fee_paid = 1, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(service.id);
@@ -2204,7 +2328,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     const wasActive = service.listing_status === 'active';
     db.prepare(`
-      UPDATE services 
+      UPDATE services
       SET listing_status = 'active', listing_fee_paid = 1, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(service.id);
@@ -2260,18 +2384,18 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         for (const reqItem of expiredList) {
           if (typeof db.runAsync === 'function') {
             await db.runAsync(`
-              UPDATE consultation_requests 
-              SET status = 'EXPIRED', expired_at = CURRENT_TIMESTAMP 
+              UPDATE consultation_requests
+              SET status = 'EXPIRED', expired_at = CURRENT_TIMESTAMP
               WHERE id = ?
             `, reqItem.id);
           } else {
             db.prepare(`
-              UPDATE consultation_requests 
-              SET status = 'EXPIRED', expired_at = CURRENT_TIMESTAMP 
+              UPDATE consultation_requests
+              SET status = 'EXPIRED', expired_at = CURRENT_TIMESTAMP
               WHERE id = ?
             `).run(reqItem.id);
           }
-          
+
           // Emit socket events
           if (ioInstance) {
             ioInstance.to(`user_${reqItem.client_id}`).emit('consultation_request_expired', {
@@ -2396,7 +2520,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     const startTime = scheduled_start ? new Date(scheduled_start) : new Date();
     const requestId = `cr-${uuidv4().slice(0, 8)}`;
-    
+
     // Server-authoritative 10-minute response deadline
     const responseDeadline = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
@@ -2497,7 +2621,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     checkAndExpireRequests(io);
 
     let query = `
-      SELECT cr.*, 
+      SELECT cr.*,
              s.title as service_title, s.category_id,
              c.full_name as client_name, c.avatar_url as client_avatar, c.email as client_email,
              p.full_name as provider_name, p.avatar_url as provider_avatar, p.email as provider_email, p.headline as provider_headline
@@ -2531,7 +2655,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     checkAndExpireRequests(io);
 
     const raw = db.prepare(`
-      SELECT cr.*, 
+      SELECT cr.*,
              s.title as service_title, s.price_per_minute as service_price_per_minute,
              c.full_name as client_name, c.avatar_url as client_avatar, c.email as client_email,
              p.full_name as provider_name, p.avatar_url as provider_avatar, p.email as provider_email, p.headline as provider_headline
@@ -2588,8 +2712,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     // Atomic update to ACCEPTED
     db.prepare(`
-      UPDATE consultation_requests 
-      SET status = 'ACCEPTED', accepted_at = CURRENT_TIMESTAMP 
+      UPDATE consultation_requests
+      SET status = 'ACCEPTED', accepted_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(request.id);
 
@@ -2666,8 +2790,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     }
 
     db.prepare(`
-      UPDATE consultation_requests 
-      SET status = 'DECLINED', declined_at = CURRENT_TIMESTAMP 
+      UPDATE consultation_requests
+      SET status = 'DECLINED', declined_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(request.id);
 
@@ -3134,7 +3258,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       );
 
       db.prepare(`
-        UPDATE consultation_requests 
+        UPDATE consultation_requests
         SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, payment_id = ?, session_id = ?
         WHERE id = ?
       `).run(paymentId, sessionId, request.id);
@@ -3334,7 +3458,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
             );
 
             db.prepare(`
-              UPDATE consultation_requests 
+              UPDATE consultation_requests
               SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, payment_id = ?, session_id = ?
               WHERE id = ?
             `).run(pId, sessionId, request.id);
@@ -3414,7 +3538,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
             }
 
             db.prepare(`
-              UPDATE services 
+              UPDATE services
               SET listing_status = 'active', listing_fee_paid = 1, listing_fee_payment_id = ?, updated_at = CURRENT_TIMESTAMP
               WHERE id = ?
             `).run(pId, service.id);
@@ -3518,8 +3642,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
               if (providerId) {
                 db.prepare(`
-                  UPDATE applications 
-                  SET payment_id = ? 
+                  UPDATE applications
+                  SET payment_id = ?
                   WHERE opportunity_id = ? AND provider_id = ? AND payment_id IS NULL
                 `).run(pId, opp.id, providerId);
               }
@@ -3554,7 +3678,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
         if (requestId) {
           const request = db.prepare(`
-            SELECT cr.client_id, s.title as service_title 
+            SELECT cr.client_id, s.title as service_title
             FROM consultation_requests cr
             LEFT JOIN services s ON cr.service_id = s.id
             WHERE cr.id = ?
@@ -3589,14 +3713,14 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
               db.prepare("UPDATE consultation_requests SET status = 'CANCELLED' WHERE id = ?").run(booking.id);
 
               const existingEarning = db.prepare(`
-                SELECT * FROM financial_ledger 
-                WHERE (booking_id = ? OR session_id IN (SELECT id FROM sessions WHERE booking_id = ?)) 
+                SELECT * FROM financial_ledger
+                WHERE (booking_id = ? OR session_id IN (SELECT id FROM sessions WHERE booking_id = ?))
                   AND entry_type = 'net_earning'
               `).get(booking.id, booking.id);
 
               if (existingEarning) {
                 const existingReversal = db.prepare(`
-                  SELECT id FROM financial_ledger 
+                  SELECT id FROM financial_ledger
                   WHERE (booking_id = ? OR session_id = ?) AND entry_type = 'refund_reversal'
                 `).get(booking.id, existingEarning.session_id);
 
@@ -3623,13 +3747,13 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
               }
 
               const redeemedRecord = db.prepare(`
-                SELECT * FROM reward_points_ledger 
+                SELECT * FROM reward_points_ledger
                 WHERE booking_id = ? AND entry_type = 'redeemed_consultation'
               `).get(booking.id);
 
               if (redeemedRecord) {
                 const alreadyRestored = db.prepare(`
-                  SELECT id FROM reward_points_ledger 
+                  SELECT id FROM reward_points_ledger
                   WHERE booking_id = ? AND entry_type = 'refund_restoration'
                 `).get(booking.id);
 
@@ -3644,13 +3768,13 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
               }
 
               const earnedRecord = db.prepare(`
-                SELECT * FROM reward_points_ledger 
+                SELECT * FROM reward_points_ledger
                 WHERE booking_id = ? AND entry_type = 'earned_session'
               `).get(booking.id);
 
               if (earnedRecord) {
                 const alreadyRevoked = db.prepare(`
-                  SELECT id FROM reward_points_ledger 
+                  SELECT id FROM reward_points_ledger
                   WHERE booking_id = ? AND entry_type = 'earned_revocation'
                 `).get(booking.id);
 
@@ -3746,7 +3870,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // Legacy Bookings list (for dashboard backwards compatibility)
   router.get('/bookings', authMiddleware, (req, res) => {
     let query = `
-      SELECT b.*, 
+      SELECT b.*,
              s.title as service_title, s.price_per_minute,
              c.full_name as client_name, c.avatar_url as client_avatar,
              p.full_name as provider_name, p.avatar_url as provider_avatar
@@ -3915,14 +4039,14 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     `).run(reviewId, session.booking_id, session.id, session.client_id, session.provider_id, session.service_id, Number(rating), comment);
 
     const stats = db.prepare(`
-      SELECT AVG(rating) as avg_rating, COUNT(*) as count 
-      FROM reviews 
+      SELECT AVG(rating) as avg_rating, COUNT(*) as count
+      FROM reviews
       WHERE provider_id = ?
     `).get(session.provider_id);
 
     db.prepare(`
-      UPDATE users 
-      SET rating = ?, review_count = ? 
+      UPDATE users
+      SET rating = ?, review_count = ?
       WHERE id = ?
     `).run(Number(stats.avg_rating.toFixed(2)), stats.count, session.provider_id);
 
@@ -4101,102 +4225,371 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // ==========================================
   // DASHBOARDS (CLIENT & PROVIDER)
   // ==========================================
-  router.get('/dashboards/client', authMiddleware, (req, res) => {
-    const userId = req.user.id;
+  function buildClientDashboardData(userId) {
     checkAndExpireRequests(io);
 
-    const activeSession = db.prepare(`
-      SELECT s.*, srv.title as service_title, p.full_name as provider_name, p.avatar_url as provider_avatar, p.headline as provider_headline
+    // 1. All valid sessions for this client
+    const sessions = db.prepare(`
+      SELECT s.*, srv.title as service_title, srv.price_per_minute, srv.category_id,
+             c.name as category_name,
+             p.id as provider_id, p.full_name as provider_name, p.avatar_url as provider_avatar,
+             p.headline as provider_headline, p.rating as provider_rating, p.review_count as provider_review_count,
+             r.id as review_id, r.rating as review_rating, r.comment as review_comment
       FROM sessions s
       JOIN services srv ON s.service_id = srv.id
+      LEFT JOIN categories c ON srv.category_id = c.id
       JOIN users p ON s.provider_id = p.id
-      WHERE s.client_id = ? AND s.status = 'ACTIVE'
-      ORDER BY s.created_at DESC
-      LIMIT 1
-    `).get(userId);
+      LEFT JOIN reviews r ON s.id = r.session_id
+      WHERE s.client_id = ?
+      ORDER BY COALESCE(s.actual_end, s.scheduled_start, s.created_at) DESC
+    `).all(userId);
 
+    // 2. All consultation requests for this client
     const consultationRequestsRaw = db.prepare(`
-      SELECT cr.*, srv.title as service_title, p.full_name as provider_name, p.avatar_url as provider_avatar, p.headline as provider_headline
+      SELECT cr.*, srv.title as service_title, srv.category_id,
+             c.name as category_name,
+             p.id as provider_id, p.full_name as provider_name, p.avatar_url as provider_avatar,
+             p.headline as provider_headline, p.rating as provider_rating
       FROM consultation_requests cr
       JOIN services srv ON cr.service_id = srv.id
+      LEFT JOIN categories c ON srv.category_id = c.id
       JOIN users p ON cr.provider_id = p.id
       WHERE cr.client_id = ?
       ORDER BY cr.created_at DESC
     `).all(userId);
     const consultationRequests = consultationRequestsRaw.map(formatConsultationRequest);
 
-    const upcomingBookings = db.prepare(`
-      SELECT b.*, srv.title as service_title, p.full_name as provider_name, p.avatar_url as provider_avatar, s.id as session_id, s.status as session_status
+    // 3. All bookings for this client
+    const bookings = db.prepare(`
+      SELECT b.*, srv.title as service_title, srv.category_id,
+             c.name as category_name,
+             p.id as provider_id, p.full_name as provider_name, p.avatar_url as provider_avatar,
+             p.headline as provider_headline,
+             s.id as session_id, s.status as session_status, s.duration_minutes as session_duration_minutes
       FROM bookings b
       JOIN services srv ON b.service_id = srv.id
+      LEFT JOIN categories c ON srv.category_id = c.id
       JOIN users p ON b.provider_id = p.id
       LEFT JOIN sessions s ON b.id = s.booking_id
-      WHERE b.client_id = ? AND b.status IN ('PENDING', 'ACCEPTED')
-      ORDER BY b.scheduled_start ASC
+      WHERE b.client_id = ?
+      ORDER BY b.scheduled_start DESC
     `).all(userId);
 
-    const pastSessions = db.prepare(`
-      SELECT s.*, srv.title as service_title, srv.price_per_minute, p.full_name as provider_name, p.avatar_url as provider_avatar,
-             p.headline as provider_headline, p.rating as provider_rating,
-             r.id as review_id, r.rating as review_rating, r.comment as review_comment
-      FROM sessions s
-      JOIN services srv ON s.service_id = srv.id
-      JOIN users p ON s.provider_id = p.id
-      LEFT JOIN reviews r ON s.id = r.session_id
-      WHERE s.client_id = ? AND s.status = 'COMPLETED'
-      ORDER BY s.actual_end DESC
+    // 4. Enriched payments
+    const paymentsRaw = db.prepare(`
+      SELECT
+        p.id, p.type, p.amount, p.status, p.reference_id, p.metadata_json, p.created_at,
+        COALESCE(srv.id, srv_ses.id, srv_cr.id) as service_id,
+        COALESCE(srv.title, srv_ses.title, srv_cr.title, opp.title, 'Consultation Session') as service_title,
+        COALESCE(cat.name, cat_ses.name, cat_cr.name, 'General Consultation') as category_name,
+        COALESCE(exp.id, exp_ses.id, exp_cr.id) as provider_id,
+        COALESCE(exp.full_name, exp_ses.full_name, exp_cr.full_name, 'Marketplace Expert') as provider_name,
+        COALESCE(exp.avatar_url, exp_ses.avatar_url, exp_cr.avatar_url) as provider_avatar,
+        COALESCE(s.id, s_ses.id, cr.session_id) as session_id,
+        COALESCE(b.id, b_ses.id, cr.id) as booking_id
+      FROM payments p
+      LEFT JOIN bookings b ON (b.id = p.reference_id OR b.payment_id = p.id)
+      LEFT JOIN services srv ON b.service_id = srv.id
+      LEFT JOIN categories cat ON srv.category_id = cat.id
+      LEFT JOIN users exp ON b.provider_id = exp.id
+      LEFT JOIN sessions s ON b.id = s.booking_id
+      LEFT JOIN sessions s_ses ON (s_ses.id = p.reference_id)
+      LEFT JOIN bookings b_ses ON (s_ses.booking_id = b_ses.id)
+      LEFT JOIN services srv_ses ON s_ses.service_id = srv_ses.id
+      LEFT JOIN categories cat_ses ON srv_ses.category_id = cat_ses.id
+      LEFT JOIN users exp_ses ON s_ses.provider_id = exp_ses.id
+      LEFT JOIN consultation_requests cr ON (cr.id = p.reference_id OR cr.payment_id = p.id)
+      LEFT JOIN services srv_cr ON cr.service_id = srv_cr.id
+      LEFT JOIN categories cat_cr ON srv_cr.category_id = cat_cr.id
+      LEFT JOIN users exp_cr ON cr.provider_id = exp_cr.id
+      LEFT JOIN opportunities opp ON (p.type = 'application_fee' AND opp.id = p.reference_id)
+      WHERE p.user_id = ?
+      ORDER BY p.created_at DESC
     `).all(userId);
 
-    const payments = db.prepare(`
-      SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC
-    `).all(userId);
+    // Map refunds
+    const refundedPaymentIds = new Set();
+    const paymentRefundMap = new Map();
+    for (const p of paymentsRaw) {
+      if (p.status === 'refunded') {
+        refundedPaymentIds.add(p.id);
+        paymentRefundMap.set(p.id, Math.round(Number(p.amount || 0) * 100));
+      }
+      if (p.type === 'refund' && p.status === 'succeeded') {
+        let origId = null;
+        try {
+          const meta = JSON.parse(p.metadata_json || '{}');
+          origId = meta.original_payment_id;
+        } catch {}
+        if (origId) {
+          const amtPaise = Math.round(Number(p.amount || 0) * 100);
+          paymentRefundMap.set(origId, (paymentRefundMap.get(origId) || 0) + amtPaise);
+        }
+      }
+    }
 
-    // Client overview stats
-    const totalExpertsHired = db.prepare(`
-      SELECT COUNT(DISTINCT provider_id) as count FROM sessions WHERE client_id = ? AND status = 'COMPLETED'
-    `).get(userId)?.count || 0;
+    const payments = paymentsRaw.map(p => {
+      const grossInr = Number(p.amount || 0);
+      const grossPaise = Math.round(grossInr * 100);
+      let refundPaise = 0;
+      if (p.status === 'refunded') {
+        refundPaise = grossPaise;
+      } else if (paymentRefundMap.has(p.id)) {
+        refundPaise = Math.min(grossPaise, paymentRefundMap.get(p.id));
+      }
 
-    const totalMinutes = db.prepare(`
+      const netPaise = p.type === 'refund' ? 0 : Math.max(0, grossPaise - refundPaise);
+      const refundInr = Number((refundPaise / 100).toFixed(2));
+      const netInr = Number((netPaise / 100).toFixed(2));
+
+      let parsedMeta = {};
+      try {
+        parsedMeta = JSON.parse(p.metadata_json || '{}');
+      } catch {}
+
+      return {
+        ...p,
+        amount: grossInr,
+        refund_amount: refundInr,
+        net_amount: netInr,
+        is_refunded: p.status === 'refunded' || refundPaise > 0,
+        gateway: parsedMeta.gateway || 'Razorpay',
+        order_id: parsedMeta.order_id || null
+      };
+    });
+
+    // Services Received / Unified Consultations
+    const seenConsultationKeys = new Set();
+    const consultations = [];
+
+    for (const cr of consultationRequests) {
+      const key = cr.session_id ? `ses-${cr.session_id}` : `cr-${cr.id}`;
+      seenConsultationKeys.add(key);
+
+      const linkedSes = cr.session_id ? sessions.find(s => s.id === cr.session_id) : null;
+      const linkedPayment = payments.find(p => p.reference_id === cr.id || (cr.session_id && p.reference_id === cr.session_id));
+
+      const isRefunded = linkedPayment?.is_refunded || false;
+      let displayStatus = cr.status;
+      if (isRefunded) displayStatus = 'REFUNDED';
+      else if (linkedSes?.status === 'COMPLETED') displayStatus = 'COMPLETED';
+      else if (linkedSes?.status === 'ACTIVE') displayStatus = 'ACTIVE';
+
+      consultations.push({
+        id: cr.id,
+        consultation_key: key,
+        request_id: cr.id,
+        session_id: cr.session_id || linkedSes?.id || null,
+        booking_id: linkedSes?.booking_id || null,
+        expert_id: cr.provider_id,
+        expert_name: cr.provider_name,
+        expert_avatar: cr.provider_avatar,
+        expert_headline: cr.provider_headline,
+        service_id: cr.service_id,
+        service_title: cr.service_title,
+        category_name: cr.category_name || 'Consultation',
+        request_date: cr.created_at,
+        consultation_date: linkedSes?.actual_start || cr.scheduled_start || cr.created_at,
+        duration_minutes: linkedSes?.duration_minutes || cr.duration_minutes,
+        status: displayStatus,
+        original_status: cr.status,
+        gross_amount: Number(cr.total_price || 0),
+        refund_amount: linkedPayment?.refund_amount || 0,
+        net_amount: isRefunded ? 0 : Number(cr.total_price || 0),
+        is_refunded: isRefunded,
+        problem_description: cr.problem_description,
+        review_rating: linkedSes?.review_rating || null,
+        review_comment: linkedSes?.review_comment || null,
+        review_id: linkedSes?.review_id || null,
+        remaining_seconds: cr.remaining_seconds
+      });
+    }
+
+    for (const ses of sessions) {
+      const key = `ses-${ses.id}`;
+      if (!seenConsultationKeys.has(key)) {
+        seenConsultationKeys.add(key);
+        const linkedPayment = payments.find(p => p.reference_id === ses.id || p.reference_id === ses.booking_id);
+        const isRefunded = linkedPayment?.is_refunded || ses.status === 'CANCELLED';
+
+        consultations.push({
+          id: ses.id,
+          consultation_key: key,
+          request_id: null,
+          session_id: ses.id,
+          booking_id: ses.booking_id,
+          expert_id: ses.provider_id,
+          expert_name: ses.provider_name,
+          expert_avatar: ses.provider_avatar,
+          expert_headline: ses.provider_headline,
+          service_id: ses.service_id,
+          service_title: ses.service_title,
+          category_name: ses.category_name || 'Consultation',
+          request_date: ses.created_at,
+          consultation_date: ses.actual_start || ses.scheduled_start || ses.created_at,
+          duration_minutes: ses.duration_minutes,
+          status: isRefunded ? 'REFUNDED' : ses.status,
+          original_status: ses.status,
+          gross_amount: Number(linkedPayment?.amount || (ses.price_per_minute * ses.duration_minutes) || 0),
+          refund_amount: linkedPayment?.refund_amount || 0,
+          net_amount: isRefunded ? 0 : Number(linkedPayment?.amount || 0),
+          is_refunded: isRefunded,
+          problem_description: null,
+          review_rating: ses.review_rating || null,
+          review_comment: ses.review_comment || null,
+          review_id: ses.review_id || null,
+          remaining_seconds: 0
+        });
+      }
+    }
+
+    consultations.sort((a, b) => new Date(b.consultation_date || b.request_date).getTime() - new Date(a.consultation_date || a.request_date).getTime());
+
+    // Net Total Spent in Integer Paise
+    let totalCapturedPaise = 0;
+    let totalRefundPaise = 0;
+    for (const p of payments) {
+      if (p.type === 'session_payment' && (p.status === 'succeeded' || p.status === 'refunded')) {
+        totalCapturedPaise += Math.round(Number(p.amount || 0) * 100);
+        totalRefundPaise += Math.round(Number(p.refund_amount || 0) * 100);
+      }
+    }
+    const totalCapturedInr = Number((totalCapturedPaise / 100).toFixed(2));
+    const totalRefundedInr = Number((totalRefundPaise / 100).toFixed(2));
+    const netTotalSpent = Number((Math.max(0, totalCapturedPaise - totalRefundPaise) / 100).toFixed(2));
+
+    // Distinct Experts Hired
+    const expertIdsRow = db.prepare(`
+      SELECT DISTINCT provider_id FROM (
+        SELECT provider_id FROM sessions WHERE client_id = ? AND status IN ('ACTIVE', 'COMPLETED')
+        UNION
+        SELECT provider_id FROM bookings WHERE client_id = ? AND status IN ('ACCEPTED', 'PAID', 'COMPLETED')
+        UNION
+        SELECT provider_id FROM consultation_requests WHERE client_id = ? AND status IN ('PAID', 'COMPLETED')
+      )
+    `).all(userId, userId, userId);
+    const totalExpertsHired = expertIdsRow.length;
+
+    // Verified Session Minutes Delivered
+    const totalSessionMinutes = db.prepare(`
       SELECT COALESCE(SUM(duration_minutes), 0) as mins FROM sessions WHERE client_id = ? AND status = 'COMPLETED'
     `).get(userId)?.mins || 0;
 
-    const completedCount = pastSessions.length;
+    const completedSessionsCount = db.prepare(`
+      SELECT COUNT(*) as count FROM sessions WHERE client_id = ? AND status = 'COMPLETED'
+    `).get(userId)?.count || 0;
+
+    const activeSessionsCount = db.prepare(`
+      SELECT COUNT(*) as count FROM sessions WHERE client_id = ? AND status = 'ACTIVE'
+    `).get(userId)?.count || 0;
+
+    const pendingRequestsCount = db.prepare(`
+      SELECT COUNT(*) as count FROM consultation_requests WHERE client_id = ? AND status = 'PENDING_EXPERT'
+    `).get(userId)?.count || 0;
+
+    const totalConsultations = consultations.length;
+
     const ratingsGiven = db.prepare(`
       SELECT COUNT(*) as count FROM reviews WHERE client_id = ?
     `).get(userId)?.count || 0;
 
-    const totalAmountPaidCalc = db.prepare(`
-      SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE user_id = ? AND status = 'succeeded' AND type = 'session_payment'
-    `).get(userId);
-    const totalAmountPaid = Number(totalAmountPaidCalc?.total || 0);
+    // Previously Hired Experts
+    const previouslyHiredExperts = expertIdsRow.map(row => {
+      const pId = row.provider_id;
+      const providerUser = db.prepare(`
+        SELECT id, full_name, avatar_url, headline, rating, review_count FROM users WHERE id = ?
+      `).get(pId) || { id: pId, full_name: 'Expert', headline: 'Consultant' };
 
-    const totalSessionsBooked = db.prepare(`
-      SELECT COUNT(*) as count FROM consultation_requests WHERE client_id = ?
-    `).get(userId)?.count || 0;
+      const latestSession = db.prepare(`
+        SELECT s.*, srv.title as service_title, srv.price_per_minute, srv.category_id, c.name as category_name
+        FROM sessions s
+        JOIN services srv ON s.service_id = srv.id
+        LEFT JOIN categories c ON srv.category_id = c.id
+        WHERE s.client_id = ? AND s.provider_id = ? AND s.status IN ('ACTIVE', 'COMPLETED')
+        ORDER BY COALESCE(s.actual_end, s.scheduled_start, s.created_at) DESC
+        LIMIT 1
+      `).get(userId, pId);
 
-    // Previously hired experts for quick 1-click "Hire Again"
-    const previouslyHired = db.prepare(`
-      SELECT DISTINCT p.id as provider_id, p.full_name, p.avatar_url, p.headline, p.rating,
-             srv.id as service_id, srv.title as service_title, srv.price_per_minute,
-             COUNT(s.id) as sessions_with_expert
-      FROM sessions s
-      JOIN users p ON s.provider_id = p.id
-      JOIN services srv ON s.service_id = srv.id
-      WHERE s.client_id = ? AND s.status = 'COMPLETED'
-      GROUP BY p.id, srv.id
-      ORDER BY MAX(s.actual_end) DESC
-    `).all(userId);
+      const latestBooking = db.prepare(`
+        SELECT b.*, srv.title as service_title, srv.price_per_minute, srv.category_id, c.name as category_name
+        FROM bookings b
+        JOIN services srv ON b.service_id = srv.id
+        LEFT JOIN categories c ON srv.category_id = c.id
+        WHERE b.client_id = ? AND b.provider_id = ?
+        ORDER BY b.scheduled_start DESC
+        LIMIT 1
+      `).get(userId, pId);
 
-    // Personalized expert recommendations based on past consultation categories or high platform rating
-    const usedCategories = db.prepare(`
-      SELECT DISTINCT srv.category_id 
-      FROM sessions s
-      JOIN services srv ON s.service_id = srv.id
-      WHERE s.client_id = ?
-    `).all(userId).map(r => r.category_id);
+      const latestReq = db.prepare(`
+        SELECT cr.*, srv.title as service_title, srv.price_per_minute, srv.category_id, c.name as category_name
+        FROM consultation_requests cr
+        JOIN services srv ON cr.service_id = srv.id
+        LEFT JOIN categories c ON srv.category_id = c.id
+        WHERE cr.client_id = ? AND cr.provider_id = ?
+        ORDER BY cr.created_at DESC
+        LIMIT 1
+      `).get(userId, pId);
 
+      const serviceId = latestSession?.service_id || latestBooking?.service_id || latestReq?.service_id;
+      const serviceTitle = latestSession?.service_title || latestBooking?.service_title || latestReq?.service_title || 'Expert Consultation';
+      const categoryName = latestSession?.category_name || latestBooking?.category_name || latestReq?.category_name || 'Consultation';
+      const pricePerMinute = Number(latestSession?.price_per_minute || latestBooking?.price_per_minute || latestReq?.price_per_minute || 50);
+
+      const expertConsultationsCount = consultations.filter(c => (c.expert_id === pId || c.provider_id === pId)).length || 1;
+
+      const expertDeliveredMins = db.prepare(`
+        SELECT COALESCE(SUM(duration_minutes), 0) as mins FROM sessions WHERE client_id = ? AND provider_id = ? AND status = 'COMPLETED'
+      `).get(userId, pId)?.mins || 0;
+
+      let expertNetSpentPaise = 0;
+      for (const p of payments) {
+        if (p.provider_id === pId && p.type === 'session_payment' && p.status === 'succeeded') {
+          const grossPaise = Math.round(Number(p.amount || 0) * 100);
+          const refPaise = Math.round(Number(p.refund_amount || 0) * 100);
+          expertNetSpentPaise += Math.max(0, grossPaise - refPaise);
+        }
+      }
+      const expertTotalSpentInr = Number((expertNetSpentPaise / 100).toFixed(2));
+
+      const activeSes = db.prepare(`
+        SELECT id FROM sessions WHERE client_id = ? AND provider_id = ? AND status = 'ACTIVE' LIMIT 1
+      `).get(userId, pId);
+      const pendingReq = db.prepare(`
+        SELECT id, status FROM consultation_requests WHERE client_id = ? AND provider_id = ? AND status IN ('PENDING_EXPERT', 'ACCEPTED') ORDER BY created_at DESC LIMIT 1
+      `).get(userId, pId);
+
+      let currentStatus = null;
+      if (activeSes) currentStatus = 'ACTIVE_SESSION';
+      else if (pendingReq?.status === 'ACCEPTED') currentStatus = 'PAYMENT_PENDING';
+      else if (pendingReq?.status === 'PENDING_EXPERT') currentStatus = 'AWAITING_EXPERT';
+
+      const lastDate = latestSession?.actual_end || latestSession?.scheduled_start || latestBooking?.scheduled_start || latestReq?.created_at;
+
+      return {
+        provider_id: providerUser.id,
+        provider_name: providerUser.full_name,
+        provider_avatar: providerUser.avatar_url,
+        provider_headline: providerUser.headline || 'Marketplace Expert',
+        provider_rating: Number(providerUser.rating || 5.0),
+        provider_review_count: Number(providerUser.review_count || 0),
+        service_id: serviceId,
+        service_title: serviceTitle,
+        category_name: categoryName,
+        price_per_minute: pricePerMinute,
+        last_consultation_date: lastDate,
+        total_consultations: expertConsultationsCount,
+        total_minutes: expertDeliveredMins,
+        total_spent_inr: expertTotalSpentInr,
+        current_status: currentStatus,
+        active_session_id: activeSes?.id || null,
+        pending_request_id: pendingReq?.id || null
+      };
+    }).sort((a, b) => new Date(b.last_consultation_date || 0).getTime() - new Date(a.last_consultation_date || 0).getTime());
+
+    // Recommendations
+    const usedCategories = Array.from(new Set(sessions.map(s => s.category_id).filter(Boolean)));
     let recSql = `
-      SELECT s.*, 
+      SELECT s.*,
              u.full_name as provider_name, u.avatar_url as provider_avatar,
              u.headline as provider_headline, u.rating as provider_rating,
              u.review_count as provider_review_count, u.verified as provider_verified,
@@ -4210,7 +4603,6 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         AND COALESCE(u.is_suspended, 0) = 0
     `;
     const recParams = [userId];
-
     if (usedCategories.length > 0) {
       const placeholders = usedCategories.map(() => '?').join(',');
       recSql += ` AND (s.category_id IN (${placeholders}) OR u.rating >= 4.8)`;
@@ -4218,39 +4610,198 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     } else {
       recSql += ` AND u.rating >= 4.5`;
     }
-
     recSql += ` ORDER BY u.rating DESC, u.sessions_completed DESC LIMIT 6`;
     const recommendedExperts = db.prepare(recSql).all(...recParams).map(s => {
       let skills = [];
-      try {
-        skills = JSON.parse(s.skills_json || '[]');
-      } catch {
-        skills = [];
-      }
-      return {
-        ...s,
-        skills
-      };
+      try { skills = JSON.parse(s.skills_json || '[]'); } catch { skills = []; }
+      return { ...s, skills };
     });
 
-    res.json({
-      activeSession,
+    return {
+      activeSession: sessions.find(s => s.status === 'ACTIVE') || null,
       consultationRequests,
-      upcomingBookings,
-      pastSessions,
+      upcomingBookings: bookings.filter(b => ['PENDING', 'ACCEPTED'].includes(b.status)),
+      pastSessions: sessions.filter(s => s.status === 'COMPLETED'),
       payments,
+      consultations,
+      previouslyHiredExperts,
+      previously_hired_experts: previouslyHiredExperts,
+      recommendedExperts,
+      spending_summary: {
+        total_captured_inr: totalCapturedInr,
+        total_refunded_inr: totalRefundedInr,
+        net_spent_inr: netTotalSpent
+      },
       stats: {
         totalExpertsHired,
-        totalSessionMinutes: totalMinutes,
-        completedSessions: completedCount,
+        totalConsultations,
+        completedConsultations: completedSessionsCount,
+        activeConsultations: activeSessionsCount,
+        totalSessionMinutes,
+        totalAmountPaid: netTotalSpent,
+        totalSpent: netTotalSpent,
+        completedSessions: completedSessionsCount,
+        pendingRequests: pendingRequestsCount,
         ratingsGiven,
-        totalAmountPaid,
-        totalSessionsBooked,
-        clientRating: req.user.rating || 5.0
-      },
-      previouslyHiredExperts: previouslyHired,
-      recommendedExperts
-    });
+        clientRating: 5.0
+      }
+    };
+  }
+
+  router.get('/dashboards/client', authMiddleware, (req, res) => {
+    try {
+      const data = buildClientDashboardData(req.user.id);
+      res.json({
+        success: true,
+        ...data,
+        summary: {
+          ...data.stats,
+          experts_hired: data.stats.totalExpertsHired,
+          total_consultations: data.stats.totalConsultations,
+          consultation_minutes: data.stats.totalSessionMinutes,
+          total_spent: data.stats.totalSpent,
+          completed_sessions: data.stats.completedSessions,
+          pending_requests: data.stats.pendingRequests
+        }
+      });
+    } catch (err) {
+      console.error('[Client Dashboard Error]', err);
+      res.status(500).json({ error: 'Failed to load client dashboard records.' });
+    }
+  });
+
+  router.get('/client/summary', authMiddleware, (req, res) => {
+    try {
+      const data = buildClientDashboardData(req.user.id);
+      const summaryObj = {
+        ...data.stats,
+        experts_hired: data.stats.totalExpertsHired,
+        total_consultations: data.stats.totalConsultations,
+        consultation_minutes: data.stats.totalSessionMinutes,
+        total_spent: data.stats.totalSpent,
+        completed_sessions: data.stats.completedSessions,
+        pending_requests: data.stats.pendingRequests
+      };
+      res.json({
+        success: true,
+        stats: data.stats,
+        summary: summaryObj
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load client summary.' });
+    }
+  });
+
+  router.get('/client/experts', authMiddleware, (req, res) => {
+    try {
+      const data = buildClientDashboardData(req.user.id);
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
+      const start = (page - 1) * limit;
+      const paginated = data.previouslyHiredExperts.slice(start, start + limit);
+      const expertsMapped = paginated.map(e => ({
+        ...e,
+        id: e.provider_id,
+        name: e.provider_name,
+        avatar: e.provider_avatar,
+        headline: e.provider_headline,
+        rating: e.provider_rating,
+        review_count: e.provider_review_count,
+        verified_minutes: e.total_minutes,
+        net_spent: e.total_spent_inr
+      }));
+      res.json({
+        success: true,
+        experts: expertsMapped,
+        total: data.previouslyHiredExperts.length,
+        page,
+        totalPages: Math.ceil(data.previouslyHiredExperts.length / limit) || 1,
+        pagination: {
+          total: data.previouslyHiredExperts.length,
+          page,
+          totalPages: Math.ceil(data.previouslyHiredExperts.length / limit) || 1
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load previously hired experts.' });
+    }
+  });
+
+  router.get('/client/consultations', authMiddleware, (req, res) => {
+    try {
+      const data = buildClientDashboardData(req.user.id);
+      let list = data.consultations;
+      const statusFilter = (req.query.status || 'all').toLowerCase();
+      if (statusFilter === 'active' || statusFilter === 'upcoming') {
+        list = list.filter(c => ['PENDING_EXPERT', 'ACCEPTED', 'PAID', 'ACTIVE', 'SCHEDULED'].includes(c.status));
+      } else if (statusFilter === 'completed') {
+        list = list.filter(c => c.status === 'COMPLETED');
+      } else if (statusFilter === 'cancelled' || statusFilter === 'refunded') {
+        list = list.filter(c => ['DECLINED', 'EXPIRED', 'CANCELLED', 'REFUNDED'].includes(c.status) || c.is_refunded);
+      }
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
+      const start = (page - 1) * limit;
+      const paginated = list.slice(start, start + limit);
+      res.json({
+        success: true,
+        consultations: paginated,
+        total: list.length,
+        page,
+        totalPages: Math.ceil(list.length / limit) || 1,
+        pagination: {
+          total: list.length,
+          page,
+          totalPages: Math.ceil(list.length / limit) || 1
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load consultation history.' });
+    }
+  });
+
+  router.get('/client/payments', authMiddleware, (req, res) => {
+    try {
+      const data = buildClientDashboardData(req.user.id);
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
+      const start = (page - 1) * limit;
+      const paginated = data.payments.slice(start, start + limit);
+
+      let totalCapturedPaise = 0;
+      let totalRefundedPaise = 0;
+      for (const p of data.payments) {
+        if (p.type === 'session_payment' && (p.status === 'succeeded' || p.status === 'refunded')) {
+          totalCapturedPaise += Math.round(Number(p.amount || 0) * 100);
+          totalRefundedPaise += Math.round(Number(p.refund_amount || 0) * 100);
+        }
+      }
+      const totalCapturedInr = Number((totalCapturedPaise / 100).toFixed(2));
+      const totalRefundedInr = Number((totalRefundedPaise / 100).toFixed(2));
+
+      res.json({
+        success: true,
+        payments: paginated,
+        total: data.payments.length,
+        page,
+        totalPages: Math.ceil(data.payments.length / limit) || 1,
+        pagination: {
+          total: data.payments.length,
+          page,
+          totalPages: Math.ceil(data.payments.length / limit) || 1
+        },
+        summary: {
+          totalCaptured: totalCapturedInr,
+          totalRefunded: totalRefundedInr,
+          netSpent: data.stats.totalSpent,
+          total_captured_inr: totalCapturedInr,
+          total_refunded_inr: totalRefundedInr,
+          net_spent_inr: data.stats.totalSpent
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to load payment history.' });
+    }
   });
 
   router.get('/dashboards/provider', authMiddleware, (req, res) => {
@@ -5211,7 +5762,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         });
       }
       const payment = db.prepare(`
-        SELECT * FROM payments 
+        SELECT * FROM payments
         WHERE id = ? AND user_id = ? AND type = 'application_fee' AND status = 'succeeded'
       `).get(payment_id, req.user.id);
 
@@ -5262,7 +5813,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // ==========================================
   // FIRST-CLASS ADMIN CONTROL CENTER APIS
   // ==========================================
-  
+
   // 1. Overview Dashboard Stats & Growth Analytics
   router.get('/admin/stats', adminAuthMiddleware, (req, res) => {
     const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
@@ -5314,15 +5865,15 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     // Conversion Rates (Strictly 0% - 100%, real database derived only)
     const completedConsultationRequests = db.prepare("SELECT COUNT(*) as count FROM consultation_requests WHERE status = 'COMPLETED'").get().count;
-    const requestToAcceptedRate = totalConsultationRequests > 0 
-      ? Math.min(100, Number(((acceptedRequests / totalConsultationRequests) * 100).toFixed(1))) 
+    const requestToAcceptedRate = totalConsultationRequests > 0
+      ? Math.min(100, Number(((acceptedRequests / totalConsultationRequests) * 100).toFixed(1)))
       : 0;
-    const acceptedToPaidRate = acceptedRequests > 0 
-      ? Math.min(100, Number(((paidRequests / acceptedRequests) * 100).toFixed(1))) 
+    const acceptedToPaidRate = acceptedRequests > 0
+      ? Math.min(100, Number(((paidRequests / acceptedRequests) * 100).toFixed(1)))
       : 0;
     const effectiveCompleted = completedConsultationRequests > 0 ? completedConsultationRequests : Math.min(completedSessions, paidRequests);
-    const paidToCompletedRate = paidRequests > 0 
-      ? Math.min(100, Number(((effectiveCompleted / paidRequests) * 100).toFixed(1))) 
+    const paidToCompletedRate = paidRequests > 0
+      ? Math.min(100, Number(((effectiveCompleted / paidRequests) * 100).toFixed(1)))
       : 0;
 
     // Analytics: Top Visited Experts, Top Listings, Top Categories, Top Countries
@@ -5464,10 +6015,10 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     const services = db.prepare('SELECT * FROM services WHERE provider_id = ?').all(user.id);
     const bookings = db.prepare(`
-      SELECT b.*, srv.title as service_title 
-      FROM bookings b 
-      JOIN services srv ON b.service_id = srv.id 
-      WHERE b.client_id = ? OR b.provider_id = ? 
+      SELECT b.*, srv.title as service_title
+      FROM bookings b
+      JOIN services srv ON b.service_id = srv.id
+      WHERE b.client_id = ? OR b.provider_id = ?
       ORDER BY b.created_at DESC
     `).all(user.id, user.id);
 
@@ -5481,7 +6032,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     `).all(user.id, user.id);
 
     const financial = db.prepare(`
-      SELECT 
+      SELECT
         (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE user_id = ? AND status = 'succeeded') as total_spent,
         (SELECT COALESCE(SUM(b.total_price), 0) FROM sessions s JOIN bookings b ON s.booking_id = b.id WHERE s.provider_id = ? AND s.status = 'COMPLETED') as total_earned
     `).get(user.id, user.id);
@@ -5879,10 +6430,10 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // 4. Categories Management
   router.get('/admin/categories', adminAuthMiddleware, (req, res) => {
     const categories = db.prepare(`
-      SELECT c.*, COUNT(s.id) as services_count 
-      FROM categories c 
-      LEFT JOIN services s ON c.id = s.category_id 
-      GROUP BY c.id 
+      SELECT c.*, COUNT(s.id) as services_count
+      FROM categories c
+      LEFT JOIN services s ON c.id = s.category_id
+      GROUP BY c.id
       ORDER BY c.sort_order ASC, c.name ASC
     `).all().map(c => {
       let subcats = [];
@@ -5960,16 +6511,16 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       }
     }
 
-    const subcatsJson = subcategories !== undefined 
-      ? JSON.stringify(Array.isArray(subcategories) ? subcategories : []) 
+    const subcatsJson = subcategories !== undefined
+      ? JSON.stringify(Array.isArray(subcategories) ? subcategories : [])
       : cat.subcategories_json;
 
     db.prepare(`
-      UPDATE categories 
-      SET name = COALESCE(?, name), 
-          slug = ?, 
-          icon = COALESCE(?, icon), 
-          description = COALESCE(?, description), 
+      UPDATE categories
+      SET name = COALESCE(?, name),
+          slug = ?,
+          icon = COALESCE(?, icon),
+          description = COALESCE(?, description),
           sort_order = COALESCE(?, sort_order),
           active = COALESCE(?, active),
           subcategories_json = ?,
@@ -6040,7 +6591,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     checkAndExpireRequests(io);
 
     const raw = db.prepare(`
-      SELECT cr.*, 
+      SELECT cr.*,
              s.title as service_title, s.price_per_minute as service_ppm,
              c.full_name as client_name, c.avatar_url as client_avatar, c.email as client_email,
              p.full_name as provider_name, p.avatar_url as provider_avatar, p.email as provider_email
@@ -6058,7 +6609,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // 6. Booking Management & Dispute Inspection
   router.get('/admin/bookings', adminAuthMiddleware, (req, res) => {
     const bookings = db.prepare(`
-      SELECT b.*, 
+      SELECT b.*,
              c.full_name as client_name, c.email as client_email,
              p.full_name as provider_name, p.email as provider_email,
              srv.title as service_title, srv.price_per_minute,
@@ -6163,14 +6714,14 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     // Reconcile financial ledger & claw back expert earnings if previously completed
     const existingEarning = db.prepare(`
-      SELECT * FROM financial_ledger 
-      WHERE (booking_id = ? OR session_id IN (SELECT id FROM sessions WHERE booking_id = ?)) 
+      SELECT * FROM financial_ledger
+      WHERE (booking_id = ? OR session_id IN (SELECT id FROM sessions WHERE booking_id = ?))
         AND entry_type = 'net_earning'
     `).get(booking.id, booking.id);
 
     if (existingEarning) {
       const existingReversal = db.prepare(`
-        SELECT id FROM financial_ledger 
+        SELECT id FROM financial_ledger
         WHERE (booking_id = ? OR session_id = ?) AND entry_type = 'refund_reversal'
       `).get(booking.id, existingEarning.session_id);
 
@@ -6198,13 +6749,13 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     // Restore redeemed reward points to client
     const redeemedRecord = db.prepare(`
-      SELECT * FROM reward_points_ledger 
+      SELECT * FROM reward_points_ledger
       WHERE booking_id = ? AND entry_type = 'redeemed_consultation'
     `).get(booking.id);
 
     if (redeemedRecord) {
       const alreadyRestored = db.prepare(`
-        SELECT id FROM reward_points_ledger 
+        SELECT id FROM reward_points_ledger
         WHERE booking_id = ? AND entry_type = 'refund_restoration'
       `).get(booking.id);
 
@@ -6220,13 +6771,13 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     // Revoke earned reward points if any
     const earnedRecord = db.prepare(`
-      SELECT * FROM reward_points_ledger 
+      SELECT * FROM reward_points_ledger
       WHERE booking_id = ? AND entry_type = 'earned_session'
     `).get(booking.id);
 
     if (earnedRecord) {
       const alreadyRevoked = db.prepare(`
-        SELECT id FROM reward_points_ledger 
+        SELECT id FROM reward_points_ledger
         WHERE booking_id = ? AND entry_type = 'earned_revocation'
       `).get(booking.id);
 
@@ -6279,7 +6830,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // 7. Session Monitoring (Privacy Respecting)
   router.get('/admin/sessions', adminAuthMiddleware, (req, res) => {
     const sessions = db.prepare(`
-      SELECT s.*, 
+      SELECT s.*,
              c.full_name as client_name, c.email as client_email,
              p.full_name as provider_name, p.email as provider_email,
              srv.title as service_title, b.total_price
@@ -6460,12 +7011,12 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   });
 
   router.patch('/admin/opportunities/:id', adminAuthMiddleware, (req, res) => {
-    const { 
-      status, title, description, short_description, budget, duration_minutes, 
-      category_id, subcategory, location, pricing_type, entry_fee_usd, entry_fee_inr, is_featured, 
-      skills, requirements, attachment_url, visibility, deadline, start_date, end_date 
+    const {
+      status, title, description, short_description, budget, duration_minutes,
+      category_id, subcategory, location, pricing_type, entry_fee_usd, entry_fee_inr, is_featured,
+      skills, requirements, attachment_url, visibility, deadline, start_date, end_date
     } = req.body;
-    
+
     const opp = db.prepare('SELECT * FROM opportunities WHERE id = ?').get(req.params.id);
     if (!opp) return res.status(404).json({ error: 'Opportunity not found' });
 
@@ -6588,7 +7139,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
   router.get('/admin/applications', adminAuthMiddleware, (req, res) => {
     const applications = db.prepare(`
-      SELECT a.*, 
+      SELECT a.*,
              o.title as opportunity_title, o.budget as opportunity_budget, o.status as opportunity_status,
              p.full_name as provider_name, p.email as provider_email, p.avatar_url as provider_avatar, p.rating as provider_rating
       FROM applications a
@@ -6637,8 +7188,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   router.patch('/admin/reports/:id', adminAuthMiddleware, (req, res) => {
     const { status, action_taken, admin_notes } = req.body;
     db.prepare(`
-      UPDATE reports 
-      SET status = ?, action_taken = ?, admin_notes = ? 
+      UPDATE reports
+      SET status = ?, action_taken = ?, admin_notes = ?
       WHERE id = ?
     `).run(status, action_taken || '', admin_notes || '', req.params.id);
 
@@ -6685,12 +7236,12 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   });
 
   router.put('/admin/settings', adminAuthMiddleware, (req, res) => {
-    const { 
-      platform_name, 
+    const {
+      platform_name,
       listing_fee_inr,
-      listing_fee_usd, 
-      platform_fee_percent, 
-      default_response_time, 
+      listing_fee_usd,
+      platform_fee_percent,
+      default_response_time,
       payout_schedule,
       logo_url,
       header_navigation,
@@ -6720,7 +7271,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       updateStmt.run('currency', CURRENCY, 'Platform base currency');
       updateStmt.run('currency_symbol', CURRENCY_SYMBOL, 'Platform base currency symbol');
     }
-    
+
     if (platform_fee_percent !== undefined) {
       const currentSetting = db.prepare("SELECT value FROM platform_settings WHERE key = 'platform_fee_percent'").get();
       const currentRate = currentSetting ? currentSetting.value : '15';
@@ -7158,8 +7709,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     try {
       const { placement } = req.query;
       let query = `
-        SELECT * FROM banners_announcements 
-        WHERE is_active = 1 
+        SELECT * FROM banners_announcements
+        WHERE is_active = 1
           AND (start_date IS NULL OR start_date <= CURRENT_TIMESTAMP)
           AND (end_date IS NULL OR end_date >= CURRENT_TIMESTAMP)
       `;
@@ -7878,7 +8429,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   router.get('/admin/reviews', adminAuthMiddleware, (req, res) => {
     try {
       const reviews = db.prepare(`
-        SELECT r.*, 
+        SELECT r.*,
                c.full_name as client_name, c.full_name as reviewer_name, c.email as client_email, c.avatar_url as client_avatar, c.avatar_url as reviewer_avatar,
                p.full_name as provider_name, p.email as provider_email, p.avatar_url as provider_avatar,
                srv.title as service_title
@@ -7909,7 +8460,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const note = moderation_note !== undefined ? String(moderation_note).trim() : (review.moderation_note || '');
 
     db.prepare(`
-      UPDATE reviews 
+      UPDATE reviews
       SET is_hidden = ?, moderation_note = ?, moderated_by = ?, moderated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(hiddenVal, note, req.user.id, review.id);
@@ -8082,7 +8633,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     }
 
     db.prepare(`
-      UPDATE registration_campaigns 
+      UPDATE registration_campaigns
       SET is_active = ?, status = ?, fee_usd = ?, name = ?, description = ?, end_time = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(newIsActive, newStatus, newFee, newName, newDesc, newEndTime, campaign.id);
@@ -8261,15 +8812,15 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     }
 
     const countQuery = `
-      SELECT COUNT(*) as count 
-      FROM jobs j 
+      SELECT COUNT(*) as count
+      FROM jobs j
       JOIN companies c ON j.company_id = c.id
       ${whereSql}
     `;
     const total = db.prepare(countQuery).get(...params).count;
 
     const dataQuery = `
-      SELECT j.*, 
+      SELECT j.*,
              c.name as company_name, c.logo_url as company_logo, c.website as company_website,
              c.industry as company_industry, c.company_size, c.location as company_location,
              c.description as company_description,
@@ -8298,14 +8849,14 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // 2. Featured Public Jobs (for Homepage and Showcases)
   router.get('/jobs/featured', (req, res) => {
     const rows = db.prepare(`
-      SELECT j.*, 
+      SELECT j.*,
              c.name as company_name, c.logo_url as company_logo, c.website as company_website,
              c.industry as company_industry, c.company_size, c.location as company_location,
              cat.name as category_name
       FROM jobs j
       JOIN companies c ON j.company_id = c.id
       LEFT JOIN categories cat ON j.category_id = cat.id
-      WHERE j.status = 'published' 
+      WHERE j.status = 'published'
         AND j.featured = 1
         AND (j.application_deadline IS NULL OR j.application_deadline >= CURRENT_TIMESTAMP)
         AND c.status = 'active'
@@ -8319,7 +8870,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   router.get('/jobs/:idOrSlug', optionalAuthMiddleware, (req, res) => {
     const { idOrSlug } = req.params;
     const row = db.prepare(`
-      SELECT j.*, 
+      SELECT j.*,
              c.name as company_name, c.logo_url as company_logo, c.website as company_website,
              c.industry as company_industry, c.company_size, c.location as company_location,
              c.description as company_description,
@@ -8344,8 +8895,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     let myApplication = null;
     if (req.user) {
       const app = db.prepare(`
-        SELECT id, status, resume_url, cover_note, relevant_experience, skills, created_at, updated_at 
-        FROM job_applications 
+        SELECT id, status, resume_url, cover_note, relevant_experience, skills, created_at, updated_at
+        FROM job_applications
         WHERE job_id = ? AND applicant_id = ?
       `).get(job.id, req.user.id);
       if (app) {
@@ -8366,9 +8917,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // 4. Submit Job Application (Authenticated Candidate)
   router.post('/jobs/:id/apply', authMiddleware, (req, res) => {
     const job = db.prepare(`
-      SELECT j.*, c.name as company_name 
-      FROM jobs j 
-      JOIN companies c ON j.company_id = c.id 
+      SELECT j.*, c.name as company_name
+      FROM jobs j
+      JOIN companies c ON j.company_id = c.id
       WHERE j.id = ? OR j.slug = ?
     `).get(req.params.id, req.params.id);
 
@@ -8456,9 +9007,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // 6. Candidate Withdraws Application
   router.post('/my/job-applications/:id/withdraw', authMiddleware, (req, res) => {
     const app = db.prepare(`
-      SELECT ja.*, j.title as job_title 
-      FROM job_applications ja 
-      JOIN jobs j ON ja.job_id = j.id 
+      SELECT ja.*, j.title as job_title
+      FROM job_applications ja
+      JOIN jobs j ON ja.job_id = j.id
       WHERE ja.id = ? AND ja.applicant_id = ?
     `).get(req.params.id, req.user.id);
 
@@ -8475,8 +9026,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     }
 
     db.prepare(`
-      UPDATE job_applications 
-      SET status = 'Withdrawn', updated_at = CURRENT_TIMESTAMP 
+      UPDATE job_applications
+      SET status = 'Withdrawn', updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(app.id);
 
@@ -8527,7 +9078,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
   router.get('/admin/companies', adminAuthMiddleware, (req, res) => {
     const companies = db.prepare(`
-      SELECT c.*, 
+      SELECT c.*,
              COUNT(j.id) as total_jobs,
              SUM(CASE WHEN j.status = 'published' THEN 1 ELSE 0 END) as active_jobs
       FROM companies c
@@ -8573,8 +9124,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     }
     const jobs = db.prepare(`
       SELECT j.*, (SELECT COUNT(*) FROM job_applications WHERE job_id = j.id) as applications_count
-      FROM jobs j 
-      WHERE j.company_id = ? 
+      FROM jobs j
+      WHERE j.company_id = ?
       ORDER BY j.created_at DESC
     `).all(company.id).map(formatJobResponse);
 
@@ -8593,7 +9144,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const cleanStatus = status && ['active', 'archived'].includes(status) ? status : company.status;
 
     db.prepare(`
-      UPDATE companies 
+      UPDATE companies
       SET name = ?, logo_url = ?, website = ?, industry = ?, company_size = ?, location = ?, description = ?, status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(
@@ -8654,15 +9205,15 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     const countQuery = `
-      SELECT COUNT(*) as count 
-      FROM jobs j 
+      SELECT COUNT(*) as count
+      FROM jobs j
       JOIN companies c ON j.company_id = c.id
       ${whereSql}
     `;
     const total = db.prepare(countQuery).get(...params).count;
 
     const dataQuery = `
-      SELECT j.*, 
+      SELECT j.*,
              c.name as company_name, c.logo_url as company_logo,
              cat.name as category_name,
              (SELECT COUNT(*) FROM job_applications WHERE job_id = j.id) as applications_count
@@ -8724,7 +9275,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     }
 
     const id = `job-${uuidv4().slice(0, 8)}`;
-    const cleanSlug = slug && slug.trim() 
+    const cleanSlug = slug && slug.trim()
       ? slug.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
       : `${title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}-${id.slice(4)}`;
 
@@ -8778,9 +9329,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     logAuditAction(req.user, 'ADMIN_JOB_CREATED', 'job', id, { title: title.trim(), status: cleanStatus, company_id });
     const created = db.prepare(`
-      SELECT j.*, c.name as company_name, c.logo_url as company_logo 
-      FROM jobs j 
-      JOIN companies c ON j.company_id = c.id 
+      SELECT j.*, c.name as company_name, c.logo_url as company_logo
+      FROM jobs j
+      JOIN companies c ON j.company_id = c.id
       WHERE j.id = ?
     `).get(id);
 
@@ -8789,7 +9340,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
   router.get('/admin/jobs/:id', adminAuthMiddleware, (req, res) => {
     const row = db.prepare(`
-      SELECT j.*, 
+      SELECT j.*,
              c.name as company_name, c.logo_url as company_logo, c.website as company_website,
              c.industry as company_industry, c.company_size, c.location as company_location,
              cat.name as category_name
@@ -8898,9 +9449,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     logAuditAction(req.user, 'ADMIN_JOB_UPDATED', 'job', job.id, { title: title.trim(), status: cleanStatus });
     const updated = db.prepare(`
-      SELECT j.*, c.name as company_name, c.logo_url as company_logo 
-      FROM jobs j 
-      JOIN companies c ON j.company_id = c.id 
+      SELECT j.*, c.name as company_name, c.logo_url as company_logo
+      FROM jobs j
+      JOIN companies c ON j.company_id = c.id
       WHERE j.id = ?
     `).get(job.id);
 
@@ -8992,7 +9543,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     const countQuery = `
-      SELECT COUNT(*) as count 
+      SELECT COUNT(*) as count
       FROM job_applications ja
       JOIN jobs j ON ja.job_id = j.id
       JOIN companies c ON j.company_id = c.id
@@ -9002,7 +9553,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const total = db.prepare(countQuery).get(...params).count;
 
     const dataQuery = `
-      SELECT ja.*, 
+      SELECT ja.*,
              j.title as job_title, j.employment_type, j.work_mode,
              c.name as company_name, c.logo_url as company_logo,
              u.full_name as applicant_name, u.email as applicant_email, u.avatar_url as applicant_avatar
@@ -9032,7 +9583,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
   router.get('/admin/job-applications/:id', adminAuthMiddleware, (req, res) => {
     const app = db.prepare(`
-      SELECT ja.*, 
+      SELECT ja.*,
              j.title as job_title, j.slug as job_slug, j.department, j.employment_type, j.work_mode, j.location_text,
              c.name as company_name, c.logo_url as company_logo,
              u.full_name as applicant_name, u.email as applicant_email, u.avatar_url as applicant_avatar, u.country as applicant_country
@@ -9077,10 +9628,10 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
   router.patch('/admin/job-applications/:id/status', adminAuthMiddleware, (req, res) => {
     const app = db.prepare(`
-      SELECT ja.*, j.title as job_title, c.name as company_name 
-      FROM job_applications ja 
-      JOIN jobs j ON ja.job_id = j.id 
-      JOIN companies c ON j.company_id = c.id 
+      SELECT ja.*, j.title as job_title, c.name as company_name
+      FROM job_applications ja
+      JOIN jobs j ON ja.job_id = j.id
+      JOIN companies c ON j.company_id = c.id
       WHERE ja.id = ?
     `).get(req.params.id);
 
@@ -9096,7 +9647,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
     const previousStatus = app.status;
     db.prepare(`
-      UPDATE job_applications 
+      UPDATE job_applications
       SET status = ?, admin_notes = COALESCE(?, admin_notes), updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(status, admin_notes !== undefined ? admin_notes : null, app.id);

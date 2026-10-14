@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
+import { api } from '../services/api';
 
 export const ContactPage: React.FC = () => {
   usePageSEO({
@@ -36,6 +37,8 @@ export const ContactPage: React.FC = () => {
   const [category, setCategory] = useState('general');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  const [hpWebsite, setHpWebsite] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
@@ -50,20 +53,47 @@ export const ContactPage: React.FC = () => {
     }
   }, [user]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim() || !message.trim()) {
-      alert('Please fill out all required fields.');
+    setErrorMessage(null);
+
+    const cleanName = name.trim();
+    const cleanEmail = email.trim();
+    const cleanMessage = message.trim();
+
+    if (!cleanName || !cleanEmail || !cleanMessage) {
+      setErrorMessage('Please fill out all required fields.');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      setErrorMessage('Please enter a valid email address.');
+      return;
+    }
+
+    if (cleanMessage.length < 10) {
+      setErrorMessage('Please enter at least 10 characters in your message.');
       return;
     }
 
     setSubmitting(true);
-    // Simulate support ticket dispatch
-    setTimeout(() => {
-      setSubmitting(false);
+    try {
+      await api.submitContactForm({
+        name: cleanName,
+        email: cleanEmail,
+        category,
+        subject: subject.trim(),
+        message: cleanMessage,
+        hp_website: hpWebsite.trim()
+      });
       setSubmitted(true);
       confetti({ particleCount: 60, spread: 60 });
-    }, 600);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to submit your support inquiry. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -137,6 +167,7 @@ export const ContactPage: React.FC = () => {
                       setSubmitted(false);
                       setSubject('');
                       setMessage('');
+                      setErrorMessage(null);
                     }}
                     className="px-4 py-2 rounded-xl bg-aliceblue text-midnight text-xs font-semibold border border-timberwolf/60 hover:bg-lightblue/30 transition-all cursor-pointer"
                   >
@@ -150,6 +181,34 @@ export const ContactPage: React.FC = () => {
                   <MessageSquare className="w-4 h-4 text-moonstone" />
                   <span>Submit a Support Request</span>
                 </h3>
+
+                {errorMessage && (
+                  <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between text-xs text-rose-800">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>{errorMessage}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setErrorMessage(null)}
+                      className="text-rose-600 font-bold hover:underline"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+
+                {/* Spam honeypot field (hidden from real users) */}
+                <div style={{ display: 'none' }} aria-hidden="true">
+                  <input
+                    type="text"
+                    name="hp_website"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    value={hpWebsite}
+                    onChange={(e) => setHpWebsite(e.target.value)}
+                  />
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>

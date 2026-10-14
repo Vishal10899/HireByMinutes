@@ -746,6 +746,99 @@ ${JSON.stringify(meta, null, 2)}`;
       text
     });
   }
+
+  // =========================================================================
+  // 10. CONTACT FORM INQUIRY -> SUPPORT & CONFIRMATION -> SENDER
+  // =========================================================================
+  async sendContactNotification({ recipientEmail, name, email, category, subject, message, inquiryId }) {
+    const config = this.getConfig();
+    const dest = recipientEmail || config.replyTo || 'support@hirebyminute.com';
+    const emailSubject = `[Support Inquiry] ${subject || category || 'General Help'} — from ${name}`;
+    const preheader = `New inquiry #${inquiryId.slice(0, 8)} from ${name} (${email}): "${(subject || message).slice(0, 60)}..."`;
+
+    const contentHtml = `
+      <p class="paragraph">A new customer inquiry was submitted through the HireByMinute contact form:</p>
+      <div class="info-card">
+        <div class="info-row"><strong>Inquiry ID:</strong> ${inquiryId}</div>
+        <div class="info-row"><strong>From:</strong> ${name} &lt;${email}&gt;</div>
+        <div class="info-row"><strong>Category:</strong> ${category || 'General'}</div>
+        ${subject ? `<div class="info-row"><strong>Subject:</strong> ${subject}</div>` : ''}
+        <div class="info-row"><strong>Submitted At:</strong> ${new Date().toUTCString()}</div>
+      </div>
+      <div style="background: #F4F8FA; border-left: 4px solid #004554; padding: 14px 18px; margin: 16px 0; border-radius: 4px;">
+        <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #1e3a42; white-space: pre-wrap;">${message}</p>
+      </div>
+      <p class="paragraph" style="font-size: 13px; color: #555;">You can reply directly to this ticket by writing to <strong>${email}</strong>.</p>
+    `;
+
+    const text = `HireByMinute Customer Support Inquiry:
+ID:       ${inquiryId}
+From:     ${name} <${email}>
+Category: ${category || 'General'}
+Subject:  ${subject || 'General Inquiry'}
+Time:     ${new Date().toUTCString()}
+
+Message:
+${message}
+
+Reply to: ${email}`;
+
+    return this.sendMail({
+      to: dest,
+      subject: emailSubject,
+      template: 'contact_inquiry_admin',
+      html: this.wrapHtml({
+        title: 'New Support Desk Inquiry',
+        preheader,
+        contentHtml
+      }),
+      text
+    });
+  }
+
+  async sendContactConfirmation({ email, name, subject, category, message, inquiryId }) {
+    const emailSubject = `We've received your inquiry — HireByMinute Support`;
+    const preheader = `Hi ${name}, thank you for contacting HireByMinute Support. Your ticket #${inquiryId.slice(0, 8)} has been logged.`;
+
+    const contentHtml = `
+      <p class="paragraph">Hi <strong>${name || 'there'}</strong>,</p>
+      <p class="paragraph">Thank you for contacting HireByMinute. We have received your message regarding <strong>${subject || category || 'your inquiry'}</strong>.</p>
+      <div class="info-card">
+        <div class="info-row"><strong>Ticket Reference:</strong> ${inquiryId}</div>
+        <div class="info-row"><strong>Category:</strong> ${category || 'General'}</div>
+        <div class="info-row"><strong>Status:</strong> Logged & Queued for Review</div>
+        <div class="info-row"><strong>Expected Response:</strong> Within 24 hours</div>
+      </div>
+      <p class="paragraph">Our support team is reviewing your details and will respond directly to this email address (<strong>${email}</strong>) as soon as possible.</p>
+      <div style="background: #F4F8FA; border: 1px solid #D3D0C8; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
+        <p style="margin: 0 0 6px 0; font-size: 12px; font-weight: 700; color: #004554;">Copy of your message:</p>
+        <p style="margin: 0; font-size: 13px; color: #555; white-space: pre-wrap;">${message.slice(0, 300)}${message.length > 300 ? '...' : ''}</p>
+      </div>
+    `;
+
+    const text = `Hi ${name || 'there'},
+
+Thank you for reaching out to HireByMinute Support.
+We have received your message regarding "${subject || category || 'your inquiry'}" (Ticket: ${inquiryId}).
+
+Our support team reviews inquiries in order of receipt and will get back to you within 24 hours.
+
+HireByMinute Support Team
+https://hirebyminute.com`;
+
+    return this.sendMail({
+      to: email,
+      subject: emailSubject,
+      template: 'contact_inquiry_receipt',
+      html: this.wrapHtml({
+        title: 'Support Inquiry Received',
+        preheader,
+        contentHtml,
+        warningNote: 'If you need immediate assistance during an active consultation session, use the in-session chat or the priority escalation options in your dashboard.'
+      }),
+      text
+    });
+  }
 }
 
 module.exports = new EmailService();

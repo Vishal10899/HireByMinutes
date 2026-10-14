@@ -24,7 +24,11 @@ const suites = [
   { name: 'Universal Marketplace Features Suite', file: path.join('marketplace', 'universal-marketplace-features.test.js') },
   { name: 'Frontend Runtime & Error Boundary Suite', file: path.join('frontend', 'error-boundary-runtime.test.js') },
   { name: 'PostgreSQL Schema & Migration Regression Suite', file: path.join('integrations', 'postgres-categories-migration.test.js') },
-  { name: 'Production Acceptance Audit Regression Suite', file: path.join('marketplace', 'production-audit-regression.test.js') }
+  { name: 'Production Acceptance Audit Regression Suite', file: path.join('marketplace', 'production-audit-regression.test.js') },
+  { name: 'Expert Marketplace Payout Notice UI Suite', file: path.join('frontend', 'expert-payout-notice.test.js') },
+  { name: 'Client Dashboard Production Upgrade Suite', file: path.join('frontend', 'client-dashboard-upgrade.test.js') },
+  { name: 'Live Consultation Workspace & Layout Stability Suite', file: path.join('frontend', 'session-workspace-layout-stability.test.js') },
+  { name: 'Contact Form & Email Delivery Suite', file: path.join('frontend', 'contact-form-delivery.test.js') }
 ];
 
 async function runSuite(suite) {

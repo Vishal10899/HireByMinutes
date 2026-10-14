@@ -708,6 +708,51 @@ export const api = {
     return res.json();
   },
 
+  getClientSummary: async () => {
+    const res = await fetch(`${API_BASE}/client/summary`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to load client summary');
+    return res.json();
+  },
+
+  getPreviouslyHiredExperts: async (params?: { page?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`${API_BASE}/client/experts${qs}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to load previously hired experts');
+    return res.json();
+  },
+
+  getClientConsultations: async (params?: { status?: string; page?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`${API_BASE}/client/consultations${qs}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to load consultation history');
+    return res.json();
+  },
+
+  getClientPaymentHistory: async (params?: { page?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`${API_BASE}/client/payments${qs}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to load payment history');
+    return res.json();
+  },
+
   getProviderDashboard: async () => {
     const res = await fetch(`${API_BASE}/dashboards/provider`, {
       headers: getAuthHeaders()
@@ -1384,6 +1429,22 @@ export const api = {
     const res = await fetch(`${API_BASE}/platform/contact`);
     if (!res.ok) throw new Error('Failed to fetch contact information');
     return res.json();
+  },
+
+  submitContactForm: async (data: {
+    name: string;
+    email: string;
+    category?: string;
+    subject?: string;
+    message: string;
+    hp_website?: string;
+  }) => {
+    const res = await fetch(`${API_BASE}/platform/contact`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return parseResponseOrThrow(res, 'Failed to submit contact inquiry');
   },
 
   updateAdminContact: async (contact: any) => {

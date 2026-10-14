@@ -197,8 +197,17 @@ export const ProviderDashboardPage: React.FC = () => {
     account_type: 'savings'
   });
   const [savingBank, setSavingBank] = useState(false);
-  const [payoutNoticeModalOpen, setPayoutNoticeModalOpen] = useState(false);
-  const [payoutNoticeMessage, setPayoutNoticeMessage] = useState<string | null>(null);
+  const [requestingPayout, setRequestingPayout] = useState(false);
+  const [payoutNotice, setPayoutNotice] = useState<{
+    isOpen: boolean;
+    status: 'pending_onboarding' | 'processing' | 'failed' | 'unknown';
+    title: string;
+    message?: string;
+  }>({
+    isOpen: false,
+    status: 'pending_onboarding',
+    title: 'Payouts & Earnings'
+  });
 
   // Handle URL tab parameter
   useEffect(() => {
@@ -466,18 +475,88 @@ export const ProviderDashboardPage: React.FC = () => {
 
   const handleRequestPayout = async () => {
     try {
+      setRequestingPayout(true);
       const res = await api.requestPayout();
-      setPayoutNoticeMessage(res.message || 'Marketplace payouts are in progress.');
-      setPayoutNoticeModalOpen(true);
+      if (res && (res.payouts_enabled === true || res.success === true)) {
+        setPayoutNotice({
+          isOpen: true,
+          status: 'processing',
+          title: 'Payout Request Submitted',
+          message: res.message || 'Your payout request has been received and is being processed according to the platform settlement schedule.'
+        });
+      } else {
+        setPayoutNotice({
+          isOpen: true,
+          status: 'pending_onboarding',
+          title: 'Payouts & Earnings',
+          message: res?.message || res?.payoutStatusNotice
+        });
+      }
     } catch (err: any) {
-      const msg =
-        err.message ||
-        err.data?.message ||
-        'Direct bank transfers are currently pending marketplace onboarding approval with our payment gateway partner. Your 85% net earnings are securely ledgered in integer paise and fully protected. Payouts will automatically resume once gateway marketplace onboarding is finalized.';
-      setPayoutNoticeMessage(msg);
-      setPayoutNoticeModalOpen(true);
+      const errData = err.data || {};
+      const errMsg = errData.error || errData.message || err.message || '';
+      const isPendingOnboarding =
+        errData.payouts_enabled === false ||
+        errData.status === 'payouts_disabled' ||
+        /onboarding|pending|disabled|review|batch settlement|gateway/i.test(errMsg);
+
+      if (isPendingOnboarding) {
+        setPayoutNotice({
+          isOpen: true,
+          status: 'pending_onboarding',
+          title: 'Payouts & Earnings',
+          message: errMsg
+        });
+      } else {
+        setPayoutNotice({
+          isOpen: true,
+          status: 'failed',
+          title: 'Payout Request Notice',
+          message: errMsg || 'Unable to process payout request at this time. Please check your bank details or try again later.'
+        });
+      }
+    } finally {
+      setRequestingPayout(false);
     }
   };
+
+  const closePayoutNoticeModal = () => {
+    try {
+      sessionStorage.setItem('hbm_payout_notice_dismissed', 'true');
+    } catch {
+      // Ignore if sessionStorage is not accessible
+    }
+    setPayoutNotice((prev) => ({ ...prev, isOpen: false }));
+  };
+
+  useEffect(() => {
+    if (!payoutNotice.isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closePayoutNoticeModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [payoutNotice.isOpen]);
+
+  const getRecordedEarnings = () => {
+    if (walletData && typeof walletData.availableBalance === 'number') {
+      return { amount: walletData.availableBalance, isVerified: true };
+    }
+    if (walletData && typeof walletData.payout_balance_inr === 'number') {
+      return { amount: walletData.payout_balance_inr, isVerified: true };
+    }
+    if (walletData && typeof walletData.netEarnings === 'number') {
+      return { amount: walletData.netEarnings, isVerified: true };
+    }
+    if (earnings && typeof earnings.total === 'number') {
+      return { amount: earnings.total, isVerified: true };
+    }
+    return { amount: null, isVerified: false };
+  };
+
+  const recordedEarnings = getRecordedEarnings();
 
   if (loading) {
     return (
@@ -490,7 +569,7 @@ export const ProviderDashboardPage: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-8 animate-fade-in">
-      
+
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-timberwolf/40">
         <div>
@@ -548,7 +627,7 @@ export const ProviderDashboardPage: React.FC = () => {
           <div>
             <span className="text-[11px] font-semibold text-midnight/60 uppercase tracking-wider">Net Earnings (85%)</span>
             <div className="text-2xl font-extrabold text-midnight font-mono mt-0.5">
-              {formatINR(walletData?.payout_balance_inr || earnings.total)}
+              {recordedEarnings.isVerified ? formatINR(recordedEarnings.amount) : '—'}
             </div>
             <span className="text-[10px] text-midnight/50 block mt-0.5">
               Gross: {formatINR(earnings.gross || 0)} • 15% platform fee
@@ -1276,7 +1355,7 @@ export const ProviderDashboardPage: React.FC = () => {
       {/* ========================================================================= */}
       {activeTab === 'payouts' && (
         <section className="space-y-6 animate-fade-in">
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Wallet Balance Card */}
             <div className="bg-gradient-to-br from-midnight to-midnight-light text-aliceblue rounded-2xl p-6 sm:p-7 shadow-card flex flex-col justify-between space-y-6">
@@ -1293,7 +1372,7 @@ export const ProviderDashboardPage: React.FC = () => {
 
                 <div className="mt-4">
                   <div className="text-3xl sm:text-4xl font-extrabold font-mono text-white tracking-tight">
-                    {formatINR(walletData?.payout_balance_inr || earnings.total)}
+                    {recordedEarnings.isVerified ? formatINR(recordedEarnings.amount) : '—'}
                   </div>
                   <p className="text-xs text-aliceblue/70 mt-1">
                     Available balance derived from 85% net consultation earnings.
@@ -1307,11 +1386,21 @@ export const ProviderDashboardPage: React.FC = () => {
                 </div>
                 <button
                   type="button"
+                  disabled={requestingPayout}
                   onClick={handleRequestPayout}
-                  className="btn-shine px-4 py-2.5 rounded-xl bg-moonstone hover:bg-moonstone-hover text-white text-xs font-bold shadow-subtle transition-all cursor-pointer min-h-[44px] flex items-center justify-center gap-1.5"
+                  className="btn-shine px-4 py-2.5 rounded-xl bg-moonstone hover:bg-moonstone-hover text-white text-xs font-bold shadow-subtle transition-all cursor-pointer min-h-[44px] flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <IndianRupee className="w-4 h-4" />
-                  <span>Request Payout</span>
+                  {requestingPayout ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Checking...</span>
+                    </>
+                  ) : (
+                    <>
+                      <IndianRupee className="w-4 h-4" />
+                      <span>Request Payout</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -1377,64 +1466,69 @@ export const ProviderDashboardPage: React.FC = () => {
           </div>
 
           {/* FINANCIAL LEDGER AUDIT TABLE */}
-          <div className="space-y-3 pt-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-midnight flex items-center gap-2">
-                <FileText className="w-4 h-4 text-moonstone" />
-                <span>Financial Ledger & Audit Trail ({walletData?.ledger?.length || 0})</span>
-              </h3>
-              <span className="text-[11px] text-midnight/50">Immutable server-authoritative ledger</span>
-            </div>
+          {(() => {
+            const ledgerEntries = walletData?.ledger || walletData?.transactions || [];
+            return (
+              <div className="space-y-3 pt-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold text-midnight flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-moonstone" />
+                    <span>Financial Ledger & Audit Trail ({ledgerEntries.length})</span>
+                  </h3>
+                  <span className="text-[11px] text-midnight/50">Immutable server-authoritative ledger</span>
+                </div>
 
-            {(!walletData?.ledger || walletData.ledger.length === 0) ? (
-              <div className="bg-white rounded-2xl border border-timberwolf/70 p-8 text-center text-xs text-midnight/60 shadow-subtle">
-                No financial ledger transactions recorded yet. When consultations complete, authoritative ledger credits and balance records will display here.
+                {ledgerEntries.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-timberwolf/70 p-8 text-center text-xs text-midnight/60 shadow-subtle">
+                    No financial ledger transactions recorded yet. When consultations complete, authoritative ledger credits and balance records will display here.
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-timberwolf/70 overflow-x-auto shadow-subtle">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-aliceblue/60 text-midnight/60 uppercase font-semibold border-b border-timberwolf/40">
+                        <tr>
+                          <th className="py-3 px-4">Date & Time</th>
+                          <th className="py-3 px-4">Type / Description</th>
+                          <th className="py-3 px-4">Gross Paid</th>
+                          <th className="py-3 px-4">Commission (15%)</th>
+                          <th className="py-3 px-4 text-emerald-800">Net Credit</th>
+                          <th className="py-3 px-4">Balance After</th>
+                          <th className="py-3 px-4">Reference</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-timberwolf/30 text-midnight/80 font-mono">
+                        {ledgerEntries.map((entry: any) => (
+                          <tr key={entry.id} className="hover:bg-aliceblue/30 font-sans">
+                            <td className="py-3 px-4 text-midnight/60 whitespace-nowrap">
+                              {new Date(entry.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="py-3 px-4 font-semibold text-midnight">
+                              {entry.entry_type === 'session_earning' ? 'Consultation Earning' : (entry.description || entry.entry_type)}
+                            </td>
+                            <td className="py-3 px-4 font-mono">
+                              {entry.gross_amount_inr ? formatINR(entry.gross_amount_inr) : '—'}
+                            </td>
+                            <td className="py-3 px-4 font-mono text-rose-700">
+                              {entry.platform_fee_inr ? `-${formatINR(entry.platform_fee_inr)}` : '—'}
+                            </td>
+                            <td className="py-3 px-4 font-mono font-extrabold text-emerald-700">
+                              +{formatINR(entry.amount_inr || entry.net_amount_inr)}
+                            </td>
+                            <td className="py-3 px-4 font-mono font-bold text-midnight">
+                              {entry.balance_after_inr ? formatINR(entry.balance_after_inr) : '—'}
+                            </td>
+                            <td className="py-3 px-4 text-[10px] text-midnight/50 font-mono">
+                              {entry.reference_id || entry.id}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="bg-white rounded-2xl border border-timberwolf/70 overflow-x-auto shadow-subtle">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-aliceblue/60 text-midnight/60 uppercase font-semibold border-b border-timberwolf/40">
-                    <tr>
-                      <th className="py-3 px-4">Date & Time</th>
-                      <th className="py-3 px-4">Type / Description</th>
-                      <th className="py-3 px-4">Gross Paid</th>
-                      <th className="py-3 px-4">Commission (15%)</th>
-                      <th className="py-3 px-4 text-emerald-800">Net Credit</th>
-                      <th className="py-3 px-4">Balance After</th>
-                      <th className="py-3 px-4">Reference</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-timberwolf/30 text-midnight/80 font-mono">
-                    {walletData.ledger.map((entry: any) => (
-                      <tr key={entry.id} className="hover:bg-aliceblue/30 font-sans">
-                        <td className="py-3 px-4 text-midnight/60 whitespace-nowrap">
-                          {new Date(entry.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                        </td>
-                        <td className="py-3 px-4 font-semibold text-midnight">
-                          {entry.entry_type === 'session_earning' ? 'Consultation Earning' : entry.entry_type}
-                        </td>
-                        <td className="py-3 px-4 font-mono">
-                          {entry.gross_amount_inr ? formatINR(entry.gross_amount_inr) : '—'}
-                        </td>
-                        <td className="py-3 px-4 font-mono text-rose-700">
-                          {entry.platform_fee_inr ? `-${formatINR(entry.platform_fee_inr)}` : '—'}
-                        </td>
-                        <td className="py-3 px-4 font-mono font-extrabold text-emerald-700">
-                          +{formatINR(entry.amount_inr || entry.net_amount_inr)}
-                        </td>
-                        <td className="py-3 px-4 font-mono font-bold text-midnight">
-                          {formatINR(entry.balance_after_inr)}
-                        </td>
-                        <td className="py-3 px-4 text-[10px] text-midnight/50 font-mono">
-                          {entry.reference_id || entry.id}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+            );
+          })()}
 
         </section>
       )}
@@ -1454,7 +1548,7 @@ export const ProviderDashboardPage: React.FC = () => {
                 Authentic reviews submitted by clients upon consultation completion.
               </p>
             </div>
-            
+
             {user?.rating ? (
               <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 font-bold text-sm w-fit">
                 <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
@@ -1828,44 +1922,159 @@ export const ProviderDashboardPage: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 3: HONEST PAYOUT STATUS NOTICE */}
+      {/* MODAL 3: PAYOUTS & EARNINGS NOTICE MODAL */}
       {/* ========================================================================= */}
-      {payoutNoticeModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 space-y-5 shadow-2xl border border-timberwolf animate-scale-up">
-            <div className="flex items-center justify-between pb-3 border-b border-timberwolf/40">
-              <h3 className="text-base font-bold text-midnight flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-moonstone" />
-                <span>Marketplace Payout Notice</span>
-              </h3>
+      {payoutNotice.isOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="payout-notice-title"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              closePayoutNoticeModal();
+            }
+          }}
+        >
+          <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-7 space-y-5 shadow-2xl border border-timberwolf/60 animate-scale-up my-auto">
+
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3.5 border-b border-timberwolf/40">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  payoutNotice.status === 'processing'
+                    ? 'bg-emerald-50 text-emerald-600'
+                    : payoutNotice.status === 'failed'
+                    ? 'bg-rose-50 text-rose-600'
+                    : 'bg-aliceblue text-moonstone'
+                }`}>
+                  {payoutNotice.status === 'processing' ? (
+                    <CheckCircle2 className="w-5 h-5" />
+                  ) : payoutNotice.status === 'failed' ? (
+                    <AlertCircle className="w-5 h-5" />
+                  ) : (
+                    <ShieldCheck className="w-5 h-5" />
+                  )}
+                </div>
+                <div>
+                  <h3 id="payout-notice-title" className="text-base sm:text-lg font-extrabold text-midnight tracking-tight">
+                    {payoutNotice.title || 'Payouts & Earnings'}
+                  </h3>
+                  <span className="text-[11px] text-midnight/50 font-medium">
+                    {payoutNotice.status === 'processing'
+                      ? 'Payout Status'
+                      : payoutNotice.status === 'failed'
+                      ? 'Notice'
+                      : 'Marketplace Transfer Status'}
+                  </span>
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={() => setPayoutNoticeModalOpen(false)}
-                className="p-1 rounded-lg text-midnight/50 hover:text-midnight cursor-pointer"
+                onClick={closePayoutNoticeModal}
+                aria-label="Close payout notice"
+                className="p-2 rounded-xl text-midnight/50 hover:text-midnight hover:bg-slate-100 transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs text-midnight/80 leading-relaxed">
-              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 font-medium">
-                {payoutNoticeMessage}
-              </div>
-              <p>
-                <strong>Your earnings are safe:</strong> All consultation earnings ({formatINR(walletData?.payout_balance_inr || earnings.total)}) are recorded in an immutable integer-paise financial ledger on our production database.
-              </p>
-              <p>
-                Under payment gateway marketplace regulations, merchant onboarding for <code className="bg-aliceblue px-1.5 py-0.5 rounded text-midnight font-mono font-bold">hirebyminute.com</code> is pending marketplace transfer activation. Direct automated bank payouts will activate immediately upon final gateway signoff.
-              </p>
+            {/* Modal Body */}
+            <div className="space-y-4 text-xs sm:text-sm text-midnight/80 leading-relaxed">
+
+              {payoutNotice.status === 'pending_onboarding' && (
+                <>
+                  <p className="text-midnight/90 leading-relaxed">
+                    Your consultation earnings are being recorded in your account ledger. Automatic bank payouts are not yet available because marketplace transfer activation is pending.
+                  </p>
+
+                  {/* Recorded Earnings Card */}
+                  <div className="p-4 sm:p-4.5 rounded-2xl bg-aliceblue/60 border border-moonstone/20 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase font-bold tracking-wider text-midnight/70">
+                        Your recorded earnings
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200/80 text-midnight/70 font-semibold font-mono">
+                        Ledger Recorded
+                      </span>
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-extrabold font-mono text-midnight tracking-tight">
+                      {recordedEarnings.isVerified
+                        ? formatINR(recordedEarnings.amount)
+                        : 'Unavailable'}
+                    </div>
+                    <p className="text-[11px] text-midnight/60">
+                      {recordedEarnings.isVerified
+                        ? 'Recorded in your account ledger • Funds are protected'
+                        : 'Earnings balance could not be retrieved from the server.'}
+                    </p>
+                  </div>
+
+                  <p className="text-xs text-midnight/70 leading-relaxed">
+                    Payout availability will be updated once the payment provider approves marketplace transfers. Until then, automatic withdrawals are unavailable.
+                  </p>
+                </>
+              )}
+
+              {payoutNotice.status === 'processing' && (
+                <>
+                  <p className="text-midnight/90 leading-relaxed">
+                    {payoutNotice.message || 'Your payout request has been received and is being processed according to the platform settlement schedule.'}
+                  </p>
+                  <div className="p-4 sm:p-4.5 rounded-2xl bg-emerald-50/60 border border-emerald-200/70 space-y-1.5">
+                    <span className="text-xs uppercase font-bold tracking-wider text-emerald-800">
+                      Requested Balance
+                    </span>
+                    <div className="text-2xl sm:text-3xl font-extrabold font-mono text-emerald-900 tracking-tight">
+                      {recordedEarnings.isVerified
+                        ? formatINR(recordedEarnings.amount)
+                        : '—'}
+                    </div>
+                    <p className="text-[11px] text-emerald-700/80">
+                      Processing bank disbursement to your linked payout account.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {payoutNotice.status === 'failed' && (
+                <>
+                  <div className="p-3.5 rounded-xl bg-rose-50/70 border border-rose-200/80 text-rose-900 text-xs leading-relaxed font-medium">
+                    {payoutNotice.message || 'Unable to process payout request at this time.'}
+                  </div>
+                  {recordedEarnings.isVerified && (
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70 space-y-1">
+                      <span className="text-xs font-semibold text-midnight/70">
+                        Your recorded ledger balance remains safe:
+                      </span>
+                      <div className="text-xl font-bold font-mono text-midnight">
+                        {formatINR(recordedEarnings.amount)}
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-xs text-midnight/70 leading-relaxed">
+                    Please verify that your bank account details are correct or contact platform support if this issue persists.
+                  </p>
+                </>
+              )}
+
+              {payoutNotice.status === 'unknown' && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70 text-xs text-midnight/70 space-y-2">
+                  <p className="font-semibold text-midnight">Payout Status Information</p>
+                  <p>{payoutNotice.message || 'Earnings and payout status are currently unavailable. Please refresh or try again later.'}</p>
+                </div>
+              )}
+
             </div>
 
-            <div className="pt-3 border-t border-timberwolf/40 flex items-center justify-end">
+            {/* Modal Actions */}
+            <div className="pt-3 border-t border-timberwolf/40 flex flex-col-reverse sm:flex-row items-center justify-end gap-2 sm:gap-3">
               <button
                 type="button"
-                onClick={() => setPayoutNoticeModalOpen(false)}
-                className="px-5 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle cursor-pointer min-h-[44px]"
+                onClick={closePayoutNoticeModal}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs sm:text-sm font-bold hover:bg-midnight-hover shadow-subtle cursor-pointer min-h-[44px] transition-colors flex items-center justify-center"
               >
-                Understood
+                Got it
               </button>
             </div>
           </div>
