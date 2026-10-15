@@ -44,6 +44,13 @@ import { BannerAnnouncement } from './components/common/BannerAnnouncement';
 import { ServerStatusBanner } from './components/common/ServerStatusBanner';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 
+// Long-Term Project Marketplace Pages
+import { ProjectsExplorePage } from './pages/ProjectsExplorePage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { ProjectCreatePage } from './pages/ProjectCreatePage';
+import { ProjectProposalsPage } from './pages/ProjectProposalsPage';
+import { ProjectContractPage } from './pages/ProjectContractPage';
+
 const AppRoutes: React.FC = () => {
   const location = useLocation();
 
@@ -91,6 +98,34 @@ const AppRoutes: React.FC = () => {
           <Route path="/opportunities" element={<OpportunitiesPage />} />
           <Route path="/blog" element={<BlogListPage />} />
           <Route path="/blog/:slug" element={<BlogPostPage />} />
+
+          {/* Long-Term Project Marketplace */}
+          <Route path="/projects" element={<ProjectsExplorePage />} />
+          <Route
+            path="/projects/new"
+            element={
+              <ProtectedRoute>
+                <ProjectCreatePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/projects/:id" element={<ProjectDetailPage />} />
+          <Route
+            path="/projects/:id/proposals"
+            element={
+              <ProtectedRoute>
+                <ProjectProposalsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/contracts/:id"
+            element={
+              <ProtectedRoute>
+                <ProjectContractPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Legal & Informational Routes */}
           <Route path="/about" element={<AboutPage />} />

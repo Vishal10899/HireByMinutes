@@ -2377,6 +2377,202 @@ export const api = {
       throw new Error(err.error || 'Failed to post reply to review');
     }
     return res.json();
+  },
+
+  // Long-Term Project Marketplace API
+  createProject: async (data: {
+    title: string;
+    description: string;
+    category_id?: string;
+    skills?: string[];
+    project_type?: 'fixed' | 'hourly';
+    budget_type?: 'fixed' | 'range';
+    budget_min?: number;
+    budget_max?: number;
+    currency?: string;
+    deadline?: string;
+    estimated_duration?: string;
+    experience_level?: 'entry' | 'intermediate' | 'expert';
+    screening_questions?: string[];
+  }) => {
+    const res = await fetch(`${API_BASE}/projects`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    return parseResponseOrThrow(res, 'Failed to create project');
+  },
+
+  getProjects: async (params?: {
+    search?: string;
+    category_id?: string;
+    project_type?: string;
+    experience_level?: string;
+    budget_min?: number;
+    budget_max?: number;
+    sort?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.category_id) query.append('category_id', params.category_id);
+    if (params?.project_type) query.append('project_type', params.project_type);
+    if (params?.experience_level) query.append('experience_level', params.experience_level);
+    if (params?.budget_min !== undefined) query.append('budget_min', String(params.budget_min));
+    if (params?.budget_max !== undefined) query.append('budget_max', String(params.budget_max));
+    if (params?.sort) query.append('sort', params.sort);
+    if (params?.page) query.append('page', String(params.page));
+    if (params?.limit) query.append('limit', String(params.limit));
+
+    const res = await fetch(`${API_BASE}/projects?${query.toString()}`, {
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to fetch projects');
+  },
+
+  getProject: async (id: string) => {
+    const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(id)}`, {
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to fetch project details');
+  },
+
+  updateProject: async (id: string, data: any) => {
+    const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    return parseResponseOrThrow(res, 'Failed to update project');
+  },
+
+  closeProject: async (id: string) => {
+    const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(id)}/close`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to close project');
+  },
+
+  getMyProjects: async (status?: string) => {
+    const q = status ? `?status=${encodeURIComponent(status)}` : '';
+    const res = await fetch(`${API_BASE}/my/projects${q}`, {
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to fetch your projects');
+  },
+
+  submitProposal: async (projectId: string, data: {
+    bid_amount: number;
+    estimated_days?: number;
+    delivery_time?: string;
+    cover_letter: string;
+    milestones?: Array<{ title: string; description?: string; amount: number; due_days?: number }>;
+    answers?: string[];
+  }) => {
+    const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/proposals`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    return parseResponseOrThrow(res, 'Failed to submit proposal');
+  },
+
+  getProjectProposals: async (projectId: string) => {
+    const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/proposals`, {
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to fetch project proposals');
+  },
+
+  getMyProposals: async () => {
+    const res = await fetch(`${API_BASE}/my/proposals`, {
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to fetch your proposals');
+  },
+
+  shortlistProposal: async (proposalId: string) => {
+    const res = await fetch(`${API_BASE}/proposals/${encodeURIComponent(proposalId)}/shortlist`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to shortlist proposal');
+  },
+
+  rejectProposal: async (proposalId: string, reason?: string) => {
+    const res = await fetch(`${API_BASE}/proposals/${encodeURIComponent(proposalId)}/reject`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ reason })
+    });
+    return parseResponseOrThrow(res, 'Failed to reject proposal');
+  },
+
+  withdrawProposal: async (proposalId: string) => {
+    const res = await fetch(`${API_BASE}/proposals/${encodeURIComponent(proposalId)}/withdraw`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to withdraw proposal');
+  },
+
+  hireProposal: async (proposalId: string) => {
+    const res = await fetch(`${API_BASE}/proposals/${encodeURIComponent(proposalId)}/hire`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to hire expert');
+  },
+
+  getContract: async (contractId: string) => {
+    const res = await fetch(`${API_BASE}/contracts/${encodeURIComponent(contractId)}`, {
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to fetch contract details');
+  },
+
+  getMyContracts: async () => {
+    const res = await fetch(`${API_BASE}/my/contracts`, {
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to fetch your contracts');
+  },
+
+  submitMilestone: async (contractId: string, milestoneId: string, notes?: string) => {
+    const res = await fetch(`${API_BASE}/contracts/${encodeURIComponent(contractId)}/milestones/${encodeURIComponent(milestoneId)}/submit`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ notes })
+    });
+    return parseResponseOrThrow(res, 'Failed to submit milestone');
+  },
+
+  approveMilestone: async (contractId: string, milestoneId: string) => {
+    const res = await fetch(`${API_BASE}/contracts/${encodeURIComponent(contractId)}/milestones/${encodeURIComponent(milestoneId)}/approve`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to approve milestone');
+  },
+
+  requestMilestoneRevision: async (contractId: string, milestoneId: string, reason: string) => {
+    const res = await fetch(`${API_BASE}/contracts/${encodeURIComponent(contractId)}/milestones/${encodeURIComponent(milestoneId)}/request-revision`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ reason })
+    });
+    return parseResponseOrThrow(res, 'Failed to request milestone revision');
+  },
+
+  completeContract: async (contractId: string) => {
+    const res = await fetch(`${API_BASE}/contracts/${encodeURIComponent(contractId)}/complete`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    return parseResponseOrThrow(res, 'Failed to complete contract');
   }
 };
+
 

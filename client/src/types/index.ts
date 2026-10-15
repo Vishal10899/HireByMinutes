@@ -402,3 +402,126 @@ export interface JobApplicationStatusHistory {
   created_at: string;
 }
 
+// Long-Term Project Marketplace Types
+export type ProjectStatus = 'OPEN' | 'REVIEWING_PROPOSALS' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'CLOSED';
+export type ProposalStatus = 'SUBMITTED' | 'SHORTLISTED' | 'ACCEPTED' | 'REJECTED' | 'WITHDRAWN' | 'HIRED';
+export type ContractStatus = 'PENDING_AGREEMENT' | 'ACTIVE' | 'SUBMITTED_FOR_REVIEW' | 'REVISION_REQUESTED' | 'COMPLETED' | 'CANCELLED';
+export type MilestoneStatus = 'PENDING' | 'IN_PROGRESS' | 'SUBMITTED' | 'APPROVED' | 'REVISION_REQUESTED' | 'CANCELLED';
+
+export interface Project {
+  id: string;
+  client_id: string;
+  title: string;
+  description: string;
+  category_id?: string | null;
+  category_name?: string | null;
+  skills: string[];
+  project_type: 'fixed' | 'hourly';
+  budget_type: 'fixed' | 'range';
+  budget_min: number;
+  budget_max: number;
+  currency: string;
+  deadline?: string | null;
+  estimated_duration?: string | null;
+  experience_level: 'entry' | 'intermediate' | 'expert';
+  status: ProjectStatus;
+  attachments?: string[];
+  screening_questions?: string[];
+  proposals_count: number;
+  hired_proposal_id?: string | null;
+  hired_provider_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  client: {
+    id: string;
+    name: string;
+    avatar_url?: string | null;
+    country?: string | null;
+    city?: string | null;
+    created_at?: string | null;
+    projects_count?: number;
+  };
+  has_applied?: boolean;
+  user_proposal_id?: string | null;
+}
+
+export interface ProjectProposal {
+  id: string;
+  project_id: string;
+  provider_id: string;
+  bid_amount: number;
+  estimated_days: number;
+  delivery_time: string;
+  cover_letter: string;
+  milestones?: Array<{
+    title: string;
+    description?: string;
+    amount: number;
+    due_days?: number;
+  }>;
+  answers?: string[];
+  attachments?: string[];
+  status: ProposalStatus;
+  rejection_reason?: string | null;
+  created_at: string;
+  updated_at?: string;
+  provider?: {
+    id: string;
+    full_name: string;
+    avatar_url?: string | null;
+    headline?: string;
+    rating?: number | null;
+    review_count?: number;
+    verified?: boolean;
+    experience_years?: number;
+    skills?: string[];
+  };
+}
+
+export interface ProjectMilestone {
+  id: string;
+  title: string;
+  description?: string | null;
+  amount: number;
+  order_index: number;
+  status: MilestoneStatus;
+  submission_notes?: string | null;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  created_at: string;
+}
+
+export interface ProjectContract {
+  id: string;
+  project_id: string;
+  proposal_id: string;
+  client_id: string;
+  provider_id: string;
+  title: string;
+  agreed_amount: number;
+  currency: string;
+  project_type: string;
+  status: ContractStatus;
+  work_notes?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  client?: {
+    id: string;
+    name: string;
+    avatar_url?: string | null;
+  };
+  provider?: {
+    id: string;
+    name: string;
+    avatar_url?: string | null;
+    headline?: string;
+  };
+  project?: {
+    id: string;
+    description?: string;
+    category_name?: string;
+    skills: string[];
+  };
+  milestones?: ProjectMilestone[];
+}
+

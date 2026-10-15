@@ -567,6 +567,100 @@ CREATE INDEX IF NOT EXISTS idx_blog_slug ON blog_posts(slug);
 CREATE INDEX IF NOT EXISTS idx_blog_status ON blog_posts(status);
 CREATE INDEX IF NOT EXISTS idx_blog_category ON blog_posts(category);
 
+-- Long-Term Project Marketplace Tables
+CREATE TABLE IF NOT EXISTS projects (
+  id VARCHAR(64) PRIMARY KEY,
+  client_id VARCHAR(64) NOT NULL REFERENCES users(id),
+  title VARCHAR(255) NOT NULL,
+  description TEXT NOT NULL,
+  category_id VARCHAR(64) REFERENCES categories(id),
+  category_name VARCHAR(255),
+  skills_json TEXT DEFAULT '[]',
+  project_type VARCHAR(32) NOT NULL DEFAULT 'fixed',
+  budget_type VARCHAR(32) DEFAULT 'fixed',
+  budget_min NUMERIC(12,2) DEFAULT 0.00,
+  budget_max NUMERIC(12,2) DEFAULT 0.00,
+  currency VARCHAR(8) DEFAULT 'INR',
+  deadline TIMESTAMP WITH TIME ZONE,
+  estimated_duration VARCHAR(64),
+  experience_level VARCHAR(32) DEFAULT 'intermediate',
+  status VARCHAR(32) DEFAULT 'OPEN',
+  attachments_json TEXT DEFAULT '[]',
+  screening_questions_json TEXT DEFAULT '[]',
+  proposals_count INTEGER DEFAULT 0,
+  hired_proposal_id VARCHAR(64),
+  hired_provider_id VARCHAR(64) REFERENCES users(id),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id);
+CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
+CREATE INDEX IF NOT EXISTS idx_projects_category ON projects(category_id);
+CREATE INDEX IF NOT EXISTS idx_projects_created ON projects(created_at);
+
+CREATE TABLE IF NOT EXISTS project_proposals (
+  id VARCHAR(64) PRIMARY KEY,
+  project_id VARCHAR(64) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  provider_id VARCHAR(64) NOT NULL REFERENCES users(id),
+  bid_amount NUMERIC(12,2) NOT NULL,
+  estimated_days INTEGER DEFAULT 7,
+  delivery_time VARCHAR(64),
+  cover_letter TEXT NOT NULL,
+  milestones_json TEXT DEFAULT '[]',
+  answers_json TEXT DEFAULT '[]',
+  attachments_json TEXT DEFAULT '[]',
+  status VARCHAR(32) DEFAULT 'SUBMITTED',
+  rejection_reason TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uq_project_provider UNIQUE(project_id, provider_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_proposals_project ON project_proposals(project_id);
+CREATE INDEX IF NOT EXISTS idx_proposals_provider ON project_proposals(provider_id);
+CREATE INDEX IF NOT EXISTS idx_proposals_status ON project_proposals(status);
+
+CREATE TABLE IF NOT EXISTS project_contracts (
+  id VARCHAR(64) PRIMARY KEY,
+  project_id VARCHAR(64) NOT NULL UNIQUE REFERENCES projects(id),
+  proposal_id VARCHAR(64) NOT NULL UNIQUE REFERENCES project_proposals(id),
+  client_id VARCHAR(64) NOT NULL REFERENCES users(id),
+  provider_id VARCHAR(64) NOT NULL REFERENCES users(id),
+  title VARCHAR(255) NOT NULL,
+  agreed_amount NUMERIC(12,2) NOT NULL,
+  currency VARCHAR(8) DEFAULT 'INR',
+  project_type VARCHAR(32) DEFAULT 'fixed',
+  status VARCHAR(32) DEFAULT 'ACTIVE',
+  work_notes TEXT,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_contracts_project ON project_contracts(project_id);
+CREATE INDEX IF NOT EXISTS idx_contracts_client ON project_contracts(client_id);
+CREATE INDEX IF NOT EXISTS idx_contracts_provider ON project_contracts(provider_id);
+
+CREATE TABLE IF NOT EXISTS project_milestones (
+  id VARCHAR(64) PRIMARY KEY,
+  contract_id VARCHAR(64) NOT NULL REFERENCES project_contracts(id) ON DELETE CASCADE,
+  project_id VARCHAR(64) NOT NULL REFERENCES projects(id),
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  amount NUMERIC(12,2) NOT NULL,
+  order_index INTEGER DEFAULT 0,
+  due_date TIMESTAMP WITH TIME ZONE,
+  status VARCHAR(32) DEFAULT 'PENDING',
+  submission_notes TEXT,
+  submitted_at TIMESTAMP WITH TIME ZONE,
+  approved_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_milestones_contract ON project_milestones(contract_id);
+
 -- Safe Idempotent Schema Migrations
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS active INTEGER DEFAULT 1;

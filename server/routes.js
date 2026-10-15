@@ -9869,5 +9869,1306 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     res.json({ success: true });
   });
 
+  // ==========================================
+  // LONG-TERM PROJECT MARKETPLACE ROUTES
+  // ==========================================
+
+  const safeJsonParse = (str, fallback = []) => {
+    if (!str) return fallback;
+    if (typeof str !== 'string') return str;
+    try {
+      return JSON.parse(str);
+    } catch {
+      return fallback;
+    }
+  };
+
+  const formatProjectRow = (row, currentUserId = null) => {
+    if (!row) return null;
+    const isOwner = Boolean(currentUserId && row.client_id === currentUserId);
+    return {
+      id: row.id,
+      client_id: row.client_id,
+      is_owner: isOwner,
+      title: row.title,
+      description: row.description,
+      category_id: row.category_id,
+      category_name: row.category_name,
+      skills: safeJsonParse(row.skills_json, []),
+      project_type: row.project_type || 'fixed',
+      budget_type: row.budget_type || 'fixed',
+      budget_fixed: Number(row.budget_min || 0),
+      budget_min: Number(row.budget_min || 0),
+      budget_max: Number(row.budget_max || 0),
+      currency: row.currency || 'INR',
+      deadline: row.deadline || null,
+      estimated_duration: row.estimated_duration || null,
+      experience_level: row.experience_level || 'intermediate',
+      status: row.status || 'OPEN',
+      attachments: safeJsonParse(row.attachments_json, []),
+      screening_questions: safeJsonParse(row.screening_questions_json, []),
+      proposals_count: Number(row.proposals_count || 0),
+      hired_proposal_id: isOwner ? row.hired_proposal_id : (row.status === 'IN_PROGRESS' || row.status === 'COMPLETED' ? row.hired_proposal_id : null),
+      hired_provider_id: row.hired_provider_id || null,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      client: {
+        id: row.client_id,
+        name: row.client_name || 'Marketplace Client',
+        avatar_url: row.client_avatar || null,
+        country: row.client_country || null,
+        city: row.client_city || null,
+        created_at: row.client_created_at || null,
+        projects_count: Number(row.client_projects_count || 1)
+      },
+      has_applied: Boolean(row.user_proposal_id),
+      user_proposal_id: row.user_proposal_id || null
+    };
+  };
+
+  const formatProposalRow = (row) => {
+    if (!row) return null;
+    return {
+      id: row.id,
+      project_id: row.project_id,
+      provider_id: row.provider_id,
+      bid_amount: Number(row.bid_amount || 0),
+      estimated_days: Number(row.estimated_days || 7),
+      delivery_time: row.delivery_time || `${row.estimated_days || 7} days`,
+      cover_letter: row.cover_letter,
+      milestones: safeJsonParse(row.milestones_json, []),
+      answers: safeJsonParse(row.answers_json, []),
+      attachments: safeJsonParse(row.attachments_json, []),
+      status: row.status,
+      rejection_reason: row.rejection_reason || null,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      provider: {
+        id: row.provider_id,
+        full_name: row.provider_name || 'Specialist',
+        avatar_url: row.provider_avatar || null,
+        headline: row.provider_headline || 'Expert Consultant',
+        rating: row.provider_rating ? Number(row.provider_rating) : null,
+        review_count: Number(row.provider_review_count || 0),
+        verified: Boolean(row.provider_verified),
+        experience_years: Number(row.provider_experience_years || 0),
+        skills: safeJsonParse(row.provider_skills_json, [])
+      }
+    };
+  };
+
+  // 1. Create and Publish a Project
+  router.post('/projects', authMiddleware, (req, res) => {
+    try {
+      const {
+        title,
+        description,
+        category_id,
+        skills = [],
+        project_type = 'fixed',
+        budget_type = 'fixed',
+        budget_min = 0,
+        budget_max = 0,
+        budget_fixed,
+        currency = 'INR',
+        deadline,
+        estimated_duration,
+        experience_level = 'intermediate',
+        attachments = [],
+        screening_questions = []
+      } = req.body;
+
+      if (!title || !title.trim() || title.trim().length < 5) {
+        return res.status(400).json({ error: 'Project title is required and must be at least 5 characters.' });
+      }
+      if (title.trim().length > 200) {
+        return res.status(400).json({ error: 'Project title cannot exceed 200 characters.' });
+      }
+
+      if (!description || !description.trim() || description.trim().length < 20) {
+        return res.status(400).json({ error: 'Project description is required and must be at least 20 characters.' });
+      }
+
+      const cleanSkills = Array.isArray(skills)
+        ? skills.filter(s => typeof s === 'string' && s.trim().length > 0).slice(0, 15).map(s => s.trim())
+        : [];
+
+      let cleanCategoryName = null;
+      if (category_id) {
+        const cat = db.prepare('SELECT name FROM categories WHERE id = ?').get(category_id);
+        if (cat) cleanCategoryName = cat.name;
+      }
+
+      const rawFixed = Number(budget_fixed) || 0;
+      const cleanMin = rawFixed > 0 ? rawFixed : Math.max(0, Number(budget_min) || 0);
+      const cleanMax = rawFixed > 0 ? rawFixed : Math.max(cleanMin, Number(budget_max) || cleanMin);
+
+      const cleanType = ['fixed', 'hourly'].includes(project_type) ? project_type : 'fixed';
+      const cleanBudgetType = ['fixed', 'range'].includes(budget_type) ? budget_type : 'fixed';
+      const cleanExp = ['entry', 'intermediate', 'expert'].includes(experience_level) ? experience_level : 'intermediate';
+
+      const projectId = `proj-${uuidv4().slice(0, 8)}`;
+
+      db.prepare(`
+        INSERT INTO projects (
+          id, client_id, title, description, category_id, category_name,
+          skills_json, project_type, budget_type, budget_min, budget_max, currency,
+          deadline, estimated_duration, experience_level, status,
+          attachments_json, screening_questions_json, proposals_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, 0)
+      `).run(
+        projectId,
+        req.user.id,
+        title.trim(),
+        description.trim(),
+        category_id || null,
+        cleanCategoryName,
+        JSON.stringify(cleanSkills),
+        cleanType,
+        cleanBudgetType,
+        cleanMin,
+        cleanMax,
+        currency,
+        deadline ? new Date(deadline).toISOString() : null,
+        estimated_duration ? estimated_duration.trim() : null,
+        cleanExp,
+        JSON.stringify(Array.isArray(attachments) ? attachments.slice(0, 5) : []),
+        JSON.stringify(Array.isArray(screening_questions) ? screening_questions.slice(0, 5) : [])
+      );
+
+      // Notification to client
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        req.user.id,
+        'Project Published',
+        `Your project "${title.trim()}" is now live and accepting proposals.`,
+        'success',
+        `/projects/${projectId}`
+      );
+
+      const created = db.prepare(`
+        SELECT p.*,
+               u.full_name as client_name, u.avatar_url as client_avatar, u.country as client_country,
+               u.city as client_city, u.created_at as client_created_at,
+               (SELECT COUNT(*) FROM projects cp WHERE cp.client_id = p.client_id) as client_projects_count
+        FROM projects p
+        JOIN users u ON p.client_id = u.id
+        WHERE p.id = ?
+      `).get(projectId);
+
+      res.status(201).json({ success: true, project: formatProjectRow(created, req.user.id) });
+    } catch (err) {
+      console.error('Error creating project:', err);
+      res.status(500).json({ error: 'Failed to create project.' });
+    }
+  });
+
+  // 2. Discover / List Open Projects (Public & Searchable)
+  router.get('/projects', optionalAuthMiddleware, (req, res) => {
+    try {
+      const {
+        search,
+        category_id,
+        project_type,
+        experience_level,
+        budget_min,
+        budget_max,
+        sort = 'newest',
+        page = 1,
+        limit = 10
+      } = req.query;
+
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 10));
+      const offset = (pageNum - 1) * limitNum;
+
+      const whereClauses = ["p.status IN ('OPEN', 'REVIEWING_PROPOSALS')"];
+      const params = [];
+
+      if (search && search.trim()) {
+        whereClauses.push('(LOWER(p.title) LIKE LOWER(?) OR LOWER(p.description) LIKE LOWER(?))');
+        const searchPattern = `%${search.trim()}%`;
+        params.push(searchPattern, searchPattern);
+      }
+
+      if (category_id && category_id.trim()) {
+        whereClauses.push('p.category_id = ?');
+        params.push(category_id.trim());
+      }
+
+      if (project_type && ['fixed', 'hourly'].includes(project_type)) {
+        whereClauses.push('p.project_type = ?');
+        params.push(project_type);
+      }
+
+      if (experience_level && ['entry', 'intermediate', 'expert'].includes(experience_level)) {
+        whereClauses.push('p.experience_level = ?');
+        params.push(experience_level);
+      }
+
+      if (budget_min && !isNaN(Number(budget_min))) {
+        whereClauses.push('p.budget_max >= ?');
+        params.push(Number(budget_min));
+      }
+
+      if (budget_max && !isNaN(Number(budget_max))) {
+        whereClauses.push('p.budget_min <= ?');
+        params.push(Number(budget_max));
+      }
+
+      const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+      let orderSql = 'ORDER BY p.created_at DESC';
+      if (sort === 'budget_high') {
+        orderSql = 'ORDER BY COALESCE(p.budget_max, p.budget_min, 0) DESC, p.created_at DESC';
+      } else if (sort === 'budget_low') {
+        orderSql = 'ORDER BY COALESCE(p.budget_min, p.budget_max, 0) ASC, p.created_at DESC';
+      } else if (sort === 'proposals_low') {
+        orderSql = 'ORDER BY p.proposals_count ASC, p.created_at DESC';
+      }
+
+      const countRow = db.prepare(`SELECT COUNT(*) as count FROM projects p ${whereSql}`).get(...params);
+      const total = countRow ? countRow.count : 0;
+
+      const currentUserId = req.user ? req.user.id : null;
+      const dataQuery = `
+        SELECT p.*,
+               u.full_name as client_name, u.avatar_url as client_avatar, u.country as client_country,
+               u.city as client_city, u.created_at as client_created_at,
+               (SELECT COUNT(*) FROM projects cp WHERE cp.client_id = p.client_id) as client_projects_count
+               ${currentUserId ? `, (SELECT id FROM project_proposals pp WHERE pp.project_id = p.id AND pp.provider_id = ?) as user_proposal_id` : ''}
+        FROM projects p
+        JOIN users u ON p.client_id = u.id
+        ${whereSql}
+        ${orderSql}
+        LIMIT ? OFFSET ?
+      `;
+
+      const queryParams = currentUserId ? [currentUserId, ...params, limitNum, offset] : [...params, limitNum, offset];
+      const rows = db.prepare(dataQuery).all(...queryParams);
+
+      res.json({
+        projects: rows.map(r => formatProjectRow(r, currentUserId)),
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum) || 1
+        }
+      });
+    } catch (err) {
+      console.error('Error fetching projects:', err);
+      res.status(500).json({ error: 'Failed to retrieve projects.' });
+    }
+  });
+
+  // 3. Get Project Detail
+  router.get('/projects/:id', optionalAuthMiddleware, (req, res) => {
+    try {
+      const currentUserId = req.user ? req.user.id : null;
+      const query = `
+        SELECT p.*,
+               u.full_name as client_name, u.avatar_url as client_avatar, u.country as client_country,
+               u.city as client_city, u.created_at as client_created_at,
+               (SELECT COUNT(*) FROM projects cp WHERE cp.client_id = p.client_id) as client_projects_count
+               ${currentUserId ? `, (SELECT id FROM project_proposals pp WHERE pp.project_id = p.id AND pp.provider_id = ?) as user_proposal_id` : ''}
+        FROM projects p
+        JOIN users u ON p.client_id = u.id
+        WHERE p.id = ?
+      `;
+
+      const row = currentUserId
+        ? db.prepare(query).get(currentUserId, req.params.id)
+        : db.prepare(query).get(req.params.id);
+
+      if (!row) {
+        return res.status(404).json({ error: 'Project not found.' });
+      }
+
+      let userProposal = null;
+      if (currentUserId && row.user_proposal_id) {
+        const propRow = db.prepare(`
+          SELECT pr.*, u.full_name as provider_name, u.avatar_url as provider_avatar,
+                 u.headline as provider_headline, u.rating as provider_rating,
+                 u.review_count as provider_review_count, u.verified as provider_verified,
+                 u.experience_years as provider_experience_years, u.skills_json as provider_skills_json
+          FROM project_proposals pr
+          JOIN users u ON pr.provider_id = u.id
+          WHERE pr.id = ?
+        `).get(row.user_proposal_id);
+        userProposal = formatProposalRow(propRow);
+      }
+
+      res.json({
+        project: formatProjectRow(row, currentUserId),
+        user_proposal: userProposal
+      });
+    } catch (err) {
+      console.error('Error fetching project detail:', err);
+      res.status(500).json({ error: 'Failed to retrieve project details.' });
+    }
+  });
+
+  // 4. Update Owned Project (Restricted when Hired / In Progress)
+  router.patch('/projects/:id', authMiddleware, (req, res) => {
+    try {
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found.' });
+      }
+
+      if (project.client_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. You do not own this project.' });
+      }
+
+      if (['IN_PROGRESS', 'COMPLETED', 'CLOSED'].includes(project.status)) {
+        return res.status(400).json({ error: `Cannot edit project details while status is ${project.status}.` });
+      }
+
+      const {
+        title,
+        description,
+        category_id,
+        skills,
+        budget_min,
+        budget_max,
+        deadline,
+        estimated_duration,
+        experience_level
+      } = req.body;
+
+      const updates = [];
+      const params = [];
+
+      if (title && title.trim()) {
+        updates.push('title = ?');
+        params.push(title.trim());
+      }
+      if (description && description.trim()) {
+        updates.push('description = ?');
+        params.push(description.trim());
+      }
+      if (category_id) {
+        updates.push('category_id = ?');
+        params.push(category_id);
+        const cat = db.prepare('SELECT name FROM categories WHERE id = ?').get(category_id);
+        if (cat) {
+          updates.push('category_name = ?');
+          params.push(cat.name);
+        }
+      }
+      if (Array.isArray(skills)) {
+        updates.push('skills_json = ?');
+        params.push(JSON.stringify(skills.slice(0, 15)));
+      }
+      if (budget_min !== undefined) {
+        updates.push('budget_min = ?');
+        params.push(Math.max(0, Number(budget_min) || 0));
+      }
+      if (budget_max !== undefined) {
+        updates.push('budget_max = ?');
+        params.push(Math.max(0, Number(budget_max) || 0));
+      }
+      if (deadline !== undefined) {
+        updates.push('deadline = ?');
+        params.push(deadline ? new Date(deadline).toISOString() : null);
+      }
+      if (estimated_duration !== undefined) {
+        updates.push('estimated_duration = ?');
+        params.push(estimated_duration ? estimated_duration.trim() : null);
+      }
+      if (experience_level && ['entry', 'intermediate', 'expert'].includes(experience_level)) {
+        updates.push('experience_level = ?');
+        params.push(experience_level);
+      }
+
+      if (updates.length === 0) {
+        return res.json({ success: true, project });
+      }
+
+      updates.push('updated_at = CURRENT_TIMESTAMP');
+      params.push(project.id);
+
+      db.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+      const updated = db.prepare(`
+        SELECT p.*,
+               u.full_name as client_name, u.avatar_url as client_avatar, u.country as client_country,
+               u.city as client_city, u.created_at as client_created_at,
+               (SELECT COUNT(*) FROM projects cp WHERE cp.client_id = p.client_id) as client_projects_count
+        FROM projects p
+        JOIN users u ON p.client_id = u.id
+        WHERE p.id = ?
+      `).get(project.id);
+
+      res.json({ success: true, project: formatProjectRow(updated, req.user.id) });
+    } catch (err) {
+      console.error('Error updating project:', err);
+      res.status(500).json({ error: 'Failed to update project.' });
+    }
+  });
+
+  // 5. Close / Cancel Owned Project
+  router.post('/projects/:id/close', authMiddleware, (req, res) => {
+    try {
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found.' });
+      }
+      if (project.client_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. You do not own this project.' });
+      }
+      if (project.status === 'IN_PROGRESS') {
+        return res.status(400).json({ error: 'Cannot close an active project directly. Please manage or cancel the active contract first.' });
+      }
+
+      db.prepare("UPDATE projects SET status = 'CLOSED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(project.id);
+
+      res.json({ success: true, message: 'Project closed successfully.' });
+    } catch (err) {
+      console.error('Error closing project:', err);
+      res.status(500).json({ error: 'Failed to close project.' });
+    }
+  });
+
+  // 6. List Client Owned Projects
+  router.get('/my/projects', authMiddleware, (req, res) => {
+    try {
+      const { status } = req.query;
+      let query = `
+        SELECT p.*,
+               u.full_name as client_name, u.avatar_url as client_avatar, u.country as client_country,
+               u.city as client_city, u.created_at as client_created_at,
+               (SELECT COUNT(*) FROM projects cp WHERE cp.client_id = p.client_id) as client_projects_count
+        FROM projects p
+        JOIN users u ON p.client_id = u.id
+        WHERE p.client_id = ?
+      `;
+      const params = [req.user.id];
+
+      if (status && status !== 'all') {
+        query += ' AND p.status = ?';
+        params.push(status.toUpperCase());
+      }
+      query += ' ORDER BY p.created_at DESC';
+
+      const rows = db.prepare(query).all(...params);
+      res.json({ projects: rows.map(r => formatProjectRow(r, req.user.id)) });
+    } catch (err) {
+      console.error('Error listing client projects:', err);
+      res.status(500).json({ error: 'Failed to retrieve your projects.' });
+    }
+  });
+
+  // 7. Submit a Proposal (Expert)
+  router.post('/projects/:id/proposals', authMiddleware, (req, res) => {
+    try {
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found.' });
+      }
+
+      if (project.status !== 'OPEN' && project.status !== 'REVIEWING_PROPOSALS') {
+        return res.status(400).json({ error: `Cannot submit proposal. Project is ${project.status}.` });
+      }
+
+      if (project.client_id === req.user.id) {
+        return res.status(400).json({ error: 'You cannot submit a proposal to your own project.' });
+      }
+
+      // Check duplicate proposal
+      const existing = db.prepare('SELECT id FROM project_proposals WHERE project_id = ? AND provider_id = ?').get(project.id, req.user.id);
+      if (existing) {
+        return res.status(400).json({ error: 'You have already submitted a proposal for this project.' });
+      }
+
+      const {
+        bid_amount,
+        estimated_days,
+        delivery_time,
+        cover_letter,
+        milestones = [],
+        proposed_milestones = [],
+        answers = [],
+        screening_answers = []
+      } = req.body;
+
+      const cleanAmount = Number(bid_amount);
+      if (isNaN(cleanAmount) || cleanAmount <= 0) {
+        return res.status(400).json({ error: 'Valid bid amount is required.' });
+      }
+
+      if (!cover_letter || !cover_letter.trim() || cover_letter.trim().length < 15) {
+        return res.status(400).json({ error: 'Cover letter is required and must be at least 15 characters.' });
+      }
+
+      const cleanDays = Math.max(1, parseInt(estimated_days, 10) || 7);
+      const cleanDelivery = delivery_time && delivery_time.trim() ? delivery_time.trim() : `${cleanDays} days`;
+
+      const finalMilestones = (Array.isArray(milestones) && milestones.length > 0)
+        ? milestones
+        : (Array.isArray(proposed_milestones) ? proposed_milestones : []);
+
+      const finalAnswers = (Array.isArray(answers) && answers.length > 0)
+        ? answers
+        : (Array.isArray(screening_answers) ? screening_answers : []);
+
+      const proposalId = `prop-${uuidv4().slice(0, 8)}`;
+
+      db.prepare(`
+        INSERT INTO project_proposals (
+          id, project_id, provider_id, bid_amount, estimated_days, delivery_time,
+          cover_letter, milestones_json, answers_json, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED')
+      `).run(
+        proposalId,
+        project.id,
+        req.user.id,
+        cleanAmount,
+        cleanDays,
+        cleanDelivery,
+        cover_letter.trim(),
+        JSON.stringify(finalMilestones.slice(0, 10)),
+        JSON.stringify(finalAnswers.slice(0, 10))
+      );
+
+      // Increment proposal count on project
+      db.prepare('UPDATE projects SET proposals_count = proposals_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(project.id);
+
+      // Notification to project owner (client)
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        project.client_id,
+        'New Proposal Received',
+        `${req.user.full_name || 'An expert'} submitted a proposal for "${project.title}".`,
+        'info',
+        `/projects/${project.id}/proposals`
+      );
+
+      // Notification to expert
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        req.user.id,
+        'Proposal Submitted',
+        `Your proposal for "${project.title}" has been successfully submitted.`,
+        'success',
+        `/projects/${project.id}`
+      );
+
+      const created = db.prepare(`
+        SELECT pr.*, u.full_name as provider_name, u.avatar_url as provider_avatar,
+               u.headline as provider_headline, u.rating as provider_rating,
+               u.review_count as provider_review_count, u.verified as provider_verified,
+               u.experience_years as provider_experience_years, u.skills_json as provider_skills_json
+        FROM project_proposals pr
+        JOIN users u ON pr.provider_id = u.id
+        WHERE pr.id = ?
+      `).get(proposalId);
+
+      res.status(201).json({ success: true, proposal: formatProposalRow(created) });
+    } catch (err) {
+      console.error('Error submitting proposal:', err);
+      res.status(500).json({ error: 'Failed to submit proposal.' });
+    }
+  });
+
+  // 8. List Proposals for a Project (Owner Client Only)
+  router.get('/projects/:id/proposals', authMiddleware, (req, res) => {
+    try {
+      const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found.' });
+      }
+
+      if (project.client_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. Only the project owner can view proposals.' });
+      }
+
+      const rows = db.prepare(`
+        SELECT pr.*, u.full_name as provider_name, u.avatar_url as provider_avatar,
+               u.headline as provider_headline, u.rating as provider_rating,
+               u.review_count as provider_review_count, u.verified as provider_verified,
+               u.experience_years as provider_experience_years, u.skills_json as provider_skills_json
+        FROM project_proposals pr
+        JOIN users u ON pr.provider_id = u.id
+        WHERE pr.project_id = ?
+        ORDER BY
+          CASE pr.status
+            WHEN 'HIRED' THEN 1
+            WHEN 'SHORTLISTED' THEN 2
+            WHEN 'SUBMITTED' THEN 3
+            ELSE 4
+          END,
+          pr.created_at DESC
+      `).all(project.id);
+
+      res.json({
+        project: formatProjectRow(project, req.user.id),
+        proposals: rows.map(formatProposalRow)
+      });
+    } catch (err) {
+      console.error('Error listing proposals for project:', err);
+      res.status(500).json({ error: 'Failed to retrieve proposals.' });
+    }
+  });
+
+  // 9. List Expert's Submitted Proposals
+  router.get('/my/proposals', authMiddleware, (req, res) => {
+    try {
+      const rows = db.prepare(`
+        SELECT pr.*,
+               p.title as project_title, p.status as project_status, p.budget_min, p.budget_max,
+               p.currency as project_currency, p.deadline as project_deadline,
+               u.full_name as client_name, u.avatar_url as client_avatar
+        FROM project_proposals pr
+        JOIN projects p ON pr.project_id = p.id
+        JOIN users u ON p.client_id = u.id
+        WHERE pr.provider_id = ?
+        ORDER BY pr.created_at DESC
+      `).all(req.user.id);
+
+      const proposals = rows.map(r => ({
+        id: r.id,
+        project_id: r.project_id,
+        project_title: r.project_title,
+        project_status: r.project_status,
+        project_budget_min: Number(r.budget_min || 0),
+        project_budget_max: Number(r.budget_max || 0),
+        project_currency: r.project_currency || 'INR',
+        project_deadline: r.project_deadline,
+        client_name: r.client_name,
+        client_avatar: r.client_avatar,
+        bid_amount: Number(r.bid_amount || 0),
+        estimated_days: Number(r.estimated_days || 7),
+        delivery_time: r.delivery_time,
+        cover_letter: r.cover_letter,
+        status: r.status,
+        rejection_reason: r.rejection_reason,
+        created_at: r.created_at
+      }));
+
+      res.json({ proposals });
+    } catch (err) {
+      console.error('Error listing user proposals:', err);
+      res.status(500).json({ error: 'Failed to retrieve your proposals.' });
+    }
+  });
+
+  // 10. Shortlist a Proposal (Project Owner Only)
+  router.post('/proposals/:id/shortlist', authMiddleware, (req, res) => {
+    try {
+      const proposal = db.prepare(`
+        SELECT pr.*, p.client_id, p.title as project_title
+        FROM project_proposals pr
+        JOIN projects p ON pr.project_id = p.id
+        WHERE pr.id = ?
+      `).get(req.params.id);
+
+      if (!proposal) {
+        return res.status(404).json({ error: 'Proposal not found.' });
+      }
+      if (proposal.client_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. Only the project owner can shortlist proposals.' });
+      }
+      if (proposal.status === 'HIRED') {
+        return res.status(400).json({ error: 'Cannot change status of a hired proposal.' });
+      }
+
+      db.prepare("UPDATE project_proposals SET status = 'SHORTLISTED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(proposal.id);
+
+      // Update project status to REVIEWING_PROPOSALS if it was OPEN
+      db.prepare("UPDATE projects SET status = 'REVIEWING_PROPOSALS', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'OPEN'").run(proposal.project_id);
+
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        proposal.provider_id,
+        'Proposal Shortlisted!',
+        `Your proposal for "${proposal.project_title}" has been shortlisted by the client.`,
+        'info',
+        `/projects/${proposal.project_id}`
+      );
+
+      const updatedProposal = db.prepare('SELECT * FROM project_proposals WHERE id = ?').get(proposal.id);
+      res.json({ success: true, message: 'Proposal shortlisted.', proposal: formatProposalRow(updatedProposal) });
+    } catch (err) {
+      console.error('Error shortlisting proposal:', err);
+      res.status(500).json({ error: 'Failed to shortlist proposal.' });
+    }
+  });
+
+  // 11. Reject a Proposal (Project Owner Only)
+  router.post('/proposals/:id/reject', authMiddleware, (req, res) => {
+    try {
+      const proposal = db.prepare(`
+        SELECT pr.*, p.client_id
+        FROM project_proposals pr
+        JOIN projects p ON pr.project_id = p.id
+        WHERE pr.id = ?
+      `).get(req.params.id);
+
+      if (!proposal) {
+        return res.status(404).json({ error: 'Proposal not found.' });
+      }
+      if (proposal.client_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. Only the project owner can reject proposals.' });
+      }
+      if (proposal.status === 'HIRED') {
+        return res.status(400).json({ error: 'Cannot reject a hired proposal.' });
+      }
+
+      const { reason } = req.body;
+      db.prepare(`
+        UPDATE project_proposals
+        SET status = 'REJECTED', rejection_reason = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(reason ? reason.trim() : null, proposal.id);
+
+      const updatedProposal = db.prepare('SELECT * FROM project_proposals WHERE id = ?').get(proposal.id);
+      res.json({ success: true, message: 'Proposal rejected.', proposal: formatProposalRow(updatedProposal) });
+    } catch (err) {
+      console.error('Error rejecting proposal:', err);
+      res.status(500).json({ error: 'Failed to reject proposal.' });
+    }
+  });
+
+  // 12. Withdraw a Proposal (Provider Author Only)
+  router.post('/proposals/:id/withdraw', authMiddleware, (req, res) => {
+    try {
+      const proposal = db.prepare('SELECT * FROM project_proposals WHERE id = ?').get(req.params.id);
+      if (!proposal) {
+        return res.status(404).json({ error: 'Proposal not found.' });
+      }
+      if (proposal.provider_id !== req.user.id) {
+        return res.status(403).json({ error: 'Forbidden. You can only withdraw your own proposal.' });
+      }
+      if (proposal.status === 'HIRED') {
+        return res.status(400).json({ error: 'Cannot withdraw a hired proposal.' });
+      }
+
+      db.prepare("UPDATE project_proposals SET status = 'WITHDRAWN', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(proposal.id);
+      db.prepare('UPDATE projects SET proposals_count = MAX(0, proposals_count - 1), updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(proposal.project_id);
+
+      const updatedProposal = db.prepare('SELECT * FROM project_proposals WHERE id = ?').get(proposal.id);
+      res.json({ success: true, message: 'Proposal withdrawn successfully.', proposal: formatProposalRow(updatedProposal) });
+    } catch (err) {
+      console.error('Error withdrawing proposal:', err);
+      res.status(500).json({ error: 'Failed to withdraw proposal.' });
+    }
+  });
+
+  // 13. ATOMIC HIRE ACTION (Client Accepts Winning Proposal & Starts Contract)
+  router.post('/proposals/:id/hire', authMiddleware, (req, res) => {
+    try {
+      const proposal = db.prepare(`
+        SELECT pr.*, p.client_id, p.title as project_title, p.status as project_status,
+               p.project_type, p.currency
+        FROM project_proposals pr
+        JOIN projects p ON pr.project_id = p.id
+        WHERE pr.id = ?
+      `).get(req.params.id);
+
+      if (!proposal) {
+        return res.status(404).json({ error: 'Proposal not found.' });
+      }
+
+      if (proposal.client_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. Only the project owner can hire an expert.' });
+      }
+
+      if (proposal.project_status !== 'OPEN' && proposal.project_status !== 'REVIEWING_PROPOSALS') {
+        return res.status(400).json({ error: `Cannot hire for this project. Current status is ${proposal.project_status}.` });
+      }
+
+      if (proposal.status === 'HIRED') {
+        return res.status(400).json({ error: 'This proposal has already been hired.' });
+      }
+
+      if (['REJECTED', 'WITHDRAWN'].includes(proposal.status)) {
+        return res.status(400).json({ error: `Cannot hire a proposal with status ${proposal.status}.` });
+      }
+
+      // Check if a contract already exists for this project (strict one-winner invariant)
+      const existingContract = db.prepare('SELECT id FROM project_contracts WHERE project_id = ?').get(proposal.project_id);
+      if (existingContract) {
+        return res.status(400).json({ error: 'A contract has already been established for this project.' });
+      }
+
+      const contractId = `contract-${uuidv4().slice(0, 8)}`;
+      const agreedAmount = Number(proposal.bid_amount);
+      const currency = proposal.currency || 'INR';
+
+      // 1. Create contract record
+      db.prepare(`
+        INSERT INTO project_contracts (
+          id, project_id, proposal_id, client_id, provider_id,
+          title, agreed_amount, currency, project_type, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+      `).run(
+        contractId,
+        proposal.project_id,
+        proposal.id,
+        req.user.id,
+        proposal.provider_id,
+        proposal.project_title,
+        agreedAmount,
+        currency,
+        proposal.project_type || 'fixed'
+      );
+
+      // 2. Insert milestones from req.body.milestones, proposed milestones or create full-deliverable milestone
+      const clientMilestones = (Array.isArray(req.body.milestones) && req.body.milestones.length > 0)
+        ? req.body.milestones
+        : safeJsonParse(proposal.milestones_json, []);
+
+      if (Array.isArray(clientMilestones) && clientMilestones.length > 0) {
+        const insertMilestone = db.prepare(`
+          INSERT INTO project_milestones (
+            id, contract_id, project_id, title, description, amount, order_index, status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
+        `);
+        clientMilestones.forEach((m, idx) => {
+          insertMilestone.run(
+            `mile-${uuidv4().slice(0, 8)}`,
+            contractId,
+            proposal.project_id,
+            m.title ? m.title.trim() : `Milestone ${idx + 1}`,
+            m.description ? m.description.trim() : null,
+            Number(m.amount || (agreedAmount / clientMilestones.length)),
+            idx
+          );
+        });
+      } else {
+        db.prepare(`
+          INSERT INTO project_milestones (
+            id, contract_id, project_id, title, description, amount, order_index, status
+          ) VALUES (?, ?, ?, ?, ?, ?, 0, 'IN_PROGRESS')
+        `).run(
+          `mile-${uuidv4().slice(0, 8)}`,
+          contractId,
+          proposal.project_id,
+          'Full Project Deliverable',
+          'Agreed scope and final deliverable as specified in project requirements',
+          agreedAmount
+        );
+      }
+
+      // 3. Mark selected proposal as HIRED
+      db.prepare("UPDATE project_proposals SET status = 'HIRED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(proposal.id);
+
+      // 4. Mark all other competing proposals as REJECTED with note
+      db.prepare(`
+        UPDATE project_proposals
+        SET status = 'REJECTED', rejection_reason = 'Another candidate was hired for this project', updated_at = CURRENT_TIMESTAMP
+        WHERE project_id = ? AND id != ? AND status IN ('SUBMITTED', 'SHORTLISTED')
+      `).run(proposal.project_id, proposal.id);
+
+      // 5. Update project state to IN_PROGRESS and link hired provider
+      db.prepare(`
+        UPDATE projects
+        SET status = 'IN_PROGRESS',
+            hired_proposal_id = ?,
+            hired_provider_id = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(proposal.id, proposal.provider_id, proposal.project_id);
+
+      // 6. Notify expert
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        proposal.provider_id,
+        '🎉 Proposal Accepted!',
+        `Congratulations! Your proposal for "${proposal.project_title}" has been accepted. Contract is now active.`,
+        'success',
+        `/contracts/${contractId}`
+      );
+
+      // 7. Notify client
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        req.user.id,
+        'Contract Active',
+        `You have hired an expert for "${proposal.project_title}". You can track milestones and work progress in your contract workspace.`,
+        'info',
+        `/contracts/${contractId}`
+      );
+
+      const contract = db.prepare('SELECT * FROM project_contracts WHERE id = ?').get(contractId);
+      const milestones = db.prepare('SELECT * FROM project_milestones WHERE contract_id = ? ORDER BY order_index ASC').all(contractId);
+
+      res.status(201).json({
+        success: true,
+        message: 'Expert hired and contract successfully established.',
+        contract: { ...contract, milestones }
+      });
+    } catch (err) {
+      console.error('Error hiring expert:', err);
+      res.status(500).json({ error: 'Failed to hire expert and establish contract.' });
+    }
+  });
+
+  // 14. Get Contract Details & Milestones
+  router.get('/contracts/:id', authMiddleware, (req, res) => {
+    try {
+      const contract = db.prepare(`
+        SELECT c.*,
+               u_client.full_name as client_name, u_client.avatar_url as client_avatar, u_client.email as client_email,
+               u_prov.full_name as provider_name, u_prov.avatar_url as provider_avatar, u_prov.email as provider_email,
+               u_prov.headline as provider_headline,
+               p.description as project_description, p.category_name, p.skills_json
+        FROM project_contracts c
+        JOIN users u_client ON c.client_id = u_client.id
+        JOIN users u_prov ON c.provider_id = u_prov.id
+        JOIN projects p ON c.project_id = p.id
+        WHERE c.id = ?
+      `).get(req.params.id);
+
+      if (!contract) {
+        return res.status(404).json({ error: 'Contract not found.' });
+      }
+
+      if (contract.client_id !== req.user.id && contract.provider_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. You do not have access to this contract.' });
+      }
+
+      const milestones = db.prepare(`
+        SELECT * FROM project_milestones WHERE contract_id = ? ORDER BY order_index ASC
+      `).all(contract.id);
+
+      res.json({
+        contract: {
+          id: contract.id,
+          project_id: contract.project_id,
+          proposal_id: contract.proposal_id,
+          client_id: contract.client_id,
+          provider_id: contract.provider_id,
+          title: contract.title,
+          agreed_amount: Number(contract.agreed_amount),
+          currency: contract.currency,
+          project_type: contract.project_type,
+          status: contract.status,
+          work_notes: contract.work_notes,
+          completed_at: contract.completed_at,
+          created_at: contract.created_at,
+          client: {
+            id: contract.client_id,
+            name: contract.client_name,
+            avatar_url: contract.client_avatar
+          },
+          provider: {
+            id: contract.provider_id,
+            name: contract.provider_name,
+            avatar_url: contract.provider_avatar,
+            headline: contract.provider_headline
+          },
+          project: {
+            id: contract.project_id,
+            description: contract.project_description,
+            category_name: contract.category_name,
+            skills: safeJsonParse(contract.skills_json, [])
+          },
+          milestones: milestones.map(m => ({
+            id: m.id,
+            title: m.title,
+            description: m.description,
+            amount: Number(m.amount),
+            order_index: m.order_index,
+            status: m.status,
+            submission_notes: m.submission_notes,
+            submitted_at: m.submitted_at,
+            approved_at: m.approved_at,
+            created_at: m.created_at
+          }))
+        }
+      });
+    } catch (err) {
+      console.error('Error fetching contract details:', err);
+      res.status(500).json({ error: 'Failed to retrieve contract.' });
+    }
+  });
+
+  // 15. List User Contracts (Client or Provider)
+  router.get('/my/contracts', authMiddleware, (req, res) => {
+    try {
+      const rows = db.prepare(`
+        SELECT c.*,
+               u_client.full_name as client_name, u_client.avatar_url as client_avatar,
+               u_prov.full_name as provider_name, u_prov.avatar_url as provider_avatar,
+               (SELECT COUNT(*) FROM project_milestones pm WHERE pm.contract_id = c.id) as milestones_count,
+               (SELECT COUNT(*) FROM project_milestones pm WHERE pm.contract_id = c.id AND pm.status = 'APPROVED') as approved_milestones_count
+        FROM project_contracts c
+        JOIN users u_client ON c.client_id = u_client.id
+        JOIN users u_prov ON c.provider_id = u_prov.id
+        WHERE c.client_id = ? OR c.provider_id = ?
+        ORDER BY c.created_at DESC
+      `).all(req.user.id, req.user.id);
+
+      const contracts = rows.map(r => ({
+        id: r.id,
+        project_id: r.project_id,
+        proposal_id: r.proposal_id,
+        client_id: r.client_id,
+        provider_id: r.provider_id,
+        title: r.title,
+        agreed_amount: Number(r.agreed_amount),
+        currency: r.currency,
+        status: r.status,
+        created_at: r.created_at,
+        client_name: r.client_name,
+        client_avatar: r.client_avatar,
+        provider_name: r.provider_name,
+        provider_avatar: r.provider_avatar,
+        milestones_count: Number(r.milestones_count || 0),
+        approved_milestones_count: Number(r.approved_milestones_count || 0)
+      }));
+
+      res.json({ contracts });
+    } catch (err) {
+      console.error('Error listing user contracts:', err);
+      res.status(500).json({ error: 'Failed to retrieve your contracts.' });
+    }
+  });
+
+  // 16. Submit Milestone Work (Expert)
+  router.post('/contracts/:id/milestones/:milestoneId/submit', authMiddleware, (req, res) => {
+    try {
+      const contract = db.prepare('SELECT * FROM project_contracts WHERE id = ?').get(req.params.id);
+      if (!contract) {
+        return res.status(404).json({ error: 'Contract not found.' });
+      }
+
+      if (contract.provider_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. Only the hired expert can submit milestone deliverables.' });
+      }
+
+      const milestone = db.prepare('SELECT * FROM project_milestones WHERE id = ? AND contract_id = ?').get(req.params.milestoneId, contract.id);
+      if (!milestone) {
+        return res.status(404).json({ error: 'Milestone not found for this contract.' });
+      }
+
+      if (milestone.status === 'APPROVED') {
+        return res.status(400).json({ error: 'This milestone is already approved.' });
+      }
+
+      const notes = (req.body.notes || req.body.deliverable_notes || (req.body.deliverable_url ? `Deliverable: ${req.body.deliverable_url}` : '')).trim();
+      db.prepare(`
+        UPDATE project_milestones
+        SET status = 'SUBMITTED', submission_notes = ?, submitted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(notes || null, milestone.id);
+
+      db.prepare("UPDATE project_contracts SET status = 'SUBMITTED_FOR_REVIEW', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(contract.id);
+
+      // Notify client
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        contract.client_id,
+        'Milestone Submitted for Review',
+        `Work deliverable for "${milestone.title}" has been submitted for your review.`,
+        'info',
+        `/contracts/${contract.id}`
+      );
+
+      const updated = db.prepare('SELECT * FROM project_milestones WHERE id = ?').get(milestone.id);
+      const updatedContract = db.prepare('SELECT * FROM project_contracts WHERE id = ?').get(contract.id);
+      res.json({ success: true, milestone: updated, contract: updatedContract });
+    } catch (err) {
+      console.error('Error submitting milestone:', err);
+      res.status(500).json({ error: 'Failed to submit milestone.' });
+    }
+  });
+
+  // 17. Approve Milestone Work (Client)
+  router.post('/contracts/:id/milestones/:milestoneId/approve', authMiddleware, (req, res) => {
+    try {
+      const contract = db.prepare('SELECT * FROM project_contracts WHERE id = ?').get(req.params.id);
+      if (!contract) {
+        return res.status(404).json({ error: 'Contract not found.' });
+      }
+
+      if (contract.client_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. Only the client can approve milestone deliverables.' });
+      }
+
+      const milestone = db.prepare('SELECT * FROM project_milestones WHERE id = ? AND contract_id = ?').get(req.params.milestoneId, contract.id);
+      if (!milestone) {
+        return res.status(404).json({ error: 'Milestone not found for this contract.' });
+      }
+
+      db.prepare(`
+        UPDATE project_milestones
+        SET status = 'APPROVED', approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(milestone.id);
+
+      // Check if all milestones are now approved
+      const pendingCount = db.prepare(`
+        SELECT COUNT(*) as count FROM project_milestones
+        WHERE contract_id = ? AND status != 'APPROVED'
+      `).get(contract.id)?.count || 0;
+
+      let contractCompleted = false;
+      if (pendingCount === 0) {
+        contractCompleted = true;
+        db.prepare("UPDATE project_contracts SET status = 'COMPLETED', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(contract.id);
+        db.prepare("UPDATE projects SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(contract.project_id);
+
+        db.prepare(`
+          INSERT INTO notifications (id, user_id, title, message, type, link)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(
+          `notif-${uuidv4().slice(0, 8)}`,
+          contract.provider_id,
+          '🎉 Contract Completed!',
+          `All milestones for "${contract.title}" have been approved. Project marked as completed.`,
+          'success',
+          `/contracts/${contract.id}`
+        );
+      } else {
+        db.prepare("UPDATE project_contracts SET status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(contract.id);
+      }
+
+      // Notify expert
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        contract.provider_id,
+        'Milestone Approved',
+        `Your deliverable for "${milestone.title}" has been approved by the client.`,
+        'success',
+        `/contracts/${contract.id}`
+      );
+
+      const updated = db.prepare('SELECT * FROM project_milestones WHERE id = ?').get(milestone.id);
+      const updatedContract = db.prepare('SELECT * FROM project_contracts WHERE id = ?').get(contract.id);
+      res.json({ success: true, milestone: updated, contract: updatedContract, contract_completed: contractCompleted });
+    } catch (err) {
+      console.error('Error approving milestone:', err);
+      res.status(500).json({ error: 'Failed to approve milestone.' });
+    }
+  });
+
+  // 18. Request Revision on Milestone Work (Client)
+  router.post('/contracts/:id/milestones/:milestoneId/request-revision', authMiddleware, (req, res) => {
+    try {
+      const contract = db.prepare('SELECT * FROM project_contracts WHERE id = ?').get(req.params.id);
+      if (!contract) {
+        return res.status(404).json({ error: 'Contract not found.' });
+      }
+
+      if (contract.client_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. Only the client can request revisions.' });
+      }
+
+      const milestone = db.prepare('SELECT * FROM project_milestones WHERE id = ? AND contract_id = ?').get(req.params.milestoneId, contract.id);
+      if (!milestone) {
+        return res.status(404).json({ error: 'Milestone not found for this contract.' });
+      }
+
+      const reason = (req.body.reason || req.body.revision_feedback || req.body.feedback || '').trim();
+      if (!reason) {
+        return res.status(400).json({ error: 'Reason for revision request is required.' });
+      }
+
+      db.prepare(`
+        UPDATE project_milestones
+        SET status = 'REVISION_REQUESTED', submission_notes = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(reason, milestone.id);
+
+      db.prepare("UPDATE project_contracts SET status = 'REVISION_REQUESTED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(contract.id);
+
+      // Notify expert
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        contract.provider_id,
+        'Revision Requested',
+        `Client requested revisions on milestone "${milestone.title}": ${reason.slice(0, 100)}...`,
+        'warning',
+        `/contracts/${contract.id}`
+      );
+
+      const updated = db.prepare('SELECT * FROM project_milestones WHERE id = ?').get(milestone.id);
+      const updatedContract = db.prepare('SELECT * FROM project_contracts WHERE id = ?').get(contract.id);
+      res.json({ success: true, milestone: updated, contract: updatedContract });
+    } catch (err) {
+      console.error('Error requesting milestone revision:', err);
+      res.status(500).json({ error: 'Failed to request revision.' });
+    }
+  });
+
+  // 19. Complete Full Contract (Client)
+  router.post('/contracts/:id/complete', authMiddleware, (req, res) => {
+    try {
+      const contract = db.prepare('SELECT * FROM project_contracts WHERE id = ?').get(req.params.id);
+      if (!contract) {
+        return res.status(404).json({ error: 'Contract not found.' });
+      }
+
+      if (contract.client_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. Only the client can complete the contract.' });
+      }
+
+      db.prepare("UPDATE project_milestones SET status = 'APPROVED', approved_at = COALESCE(approved_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE contract_id = ? AND status != 'APPROVED'").run(contract.id);
+      db.prepare("UPDATE project_contracts SET status = 'COMPLETED', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(contract.id);
+      db.prepare("UPDATE projects SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(contract.project_id);
+
+      // Notify both parties
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        contract.provider_id,
+        'Contract Completed',
+        `Contract "${contract.title}" has been marked as fully completed by the client.`,
+        'success',
+        `/contracts/${contract.id}`
+      );
+
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        contract.client_id,
+        'Contract Completed',
+        `Contract "${contract.title}" has been marked as completed. Thank you for using HireByMinute!`,
+        'success',
+        `/contracts/${contract.id}`
+      );
+
+      res.json({ success: true, message: 'Contract completed successfully.' });
+    } catch (err) {
+      console.error('Error completing contract:', err);
+      res.status(500).json({ error: 'Failed to complete contract.' });
+    }
+  });
+
   return router;
 };

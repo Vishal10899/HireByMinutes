@@ -126,7 +126,7 @@ export const ClientDashboardPage: React.FC = () => {
   const { socket } = useSocket();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'consultations' | 'experts' | 'payments' | 'rewards' | 'job_applications'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'consultations' | 'experts' | 'payments' | 'rewards' | 'job_applications' | 'projects'>('overview');
   const [activeSession, setActiveSession] = useState<any | null>(null);
   const [consultations, setConsultations] = useState<any[]>([]);
   const [consultationRequests, setConsultationRequests] = useState<ConsultationRequest[]>([]);
@@ -135,6 +135,8 @@ export const ClientDashboardPage: React.FC = () => {
   const [payments, setPayments] = useState<any[]>([]);
   const [previouslyHiredExperts, setPreviouslyHiredExperts] = useState<any[]>([]);
   const [jobApplications, setJobApplications] = useState<JobApplication[]>([]);
+  const [myProjects, setMyProjects] = useState<any[]>([]);
+  const [myContracts, setMyContracts] = useState<any[]>([]);
   const [rewardsData, setRewardsData] = useState<{ reward_points_balance: number; ledger: any[] } | null>(null);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const [recommendedExperts, setRecommendedExperts] = useState<any[]>([]);
@@ -308,10 +310,12 @@ export const ClientDashboardPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const [data, jobAppsRes, rewardsRes] = await Promise.all([
+      const [data, jobAppsRes, rewardsRes, projectsRes, contractsRes] = await Promise.all([
         api.getClientDashboard(),
         api.getMyJobApplications().catch(() => ({ applications: [] })),
-        api.getClientRewards().catch(() => ({ reward_points_balance: 0, ledger: [] }))
+        api.getClientRewards().catch(() => ({ reward_points_balance: 0, ledger: [] })),
+        api.getMyProjects().catch(() => ({ projects: [] })),
+        api.getMyContracts().catch(() => ({ contracts: [] }))
       ]);
       setActiveSession(data.activeSession || null);
       setConsultations(data.consultations || []);
@@ -322,6 +326,8 @@ export const ClientDashboardPage: React.FC = () => {
       setPreviouslyHiredExperts(data.previouslyHiredExperts || []);
       setRecommendedExperts(data.recommendedExperts || []);
       setJobApplications(jobAppsRes?.applications || []);
+      setMyProjects(projectsRes?.projects || []);
+      setMyContracts(contractsRes?.contracts || []);
       setRewardsData(rewardsRes);
       setStats(data.stats || null);
     } catch (err: any) {
@@ -767,6 +773,86 @@ export const ClientDashboardPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Dual Entry Point: What would you like to do? */}
+      <section className="bg-white rounded-2xl border border-timberwolf/70 p-5 sm:p-6 shadow-subtle space-y-4">
+        <div>
+          <h2 className="text-lg sm:text-xl font-bold text-midnight tracking-tight">
+            What would you like to do?
+          </h2>
+          <p className="text-xs sm:text-sm text-midnight/70 mt-0.5">
+            Choose the right hiring workflow for your goals — quick 1-on-1 consultations or milestone contracts.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Card A: Hire an Expert */}
+          <div className="p-5 rounded-2xl border-2 border-timberwolf/60 hover:border-moonstone/60 transition-all bg-gradient-to-br from-[#FAF8F5] to-white flex flex-col justify-between group">
+            <div className="space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-moonstone/10 border border-moonstone/30 text-moonstone flex items-center justify-center">
+                <Video className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-moonstone block mb-1">
+                  1-on-1 Consultations
+                </span>
+                <h3 className="text-base font-bold text-midnight group-hover:text-moonstone transition-colors">
+                  Hire an Expert
+                </h3>
+                <p className="text-xs text-midnight/70 mt-1 leading-relaxed">
+                  Connect immediately or schedule a live video/audio consultation billed by the minute. Ideal for architecture advisory, code debugging, and tactical guidance.
+                </p>
+              </div>
+            </div>
+            <div className="pt-4 mt-3 border-t border-timberwolf/30">
+              <Link
+                to="/services"
+                className="btn-shine inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle transition-all min-h-[44px] w-full sm:w-auto justify-center"
+              >
+                <Search className="w-4 h-4 text-moonstone" />
+                <span>Explore Marketplace Experts</span>
+                <ArrowRight className="w-3.5 h-3.5 ml-auto text-moonstone" />
+              </Link>
+            </div>
+          </div>
+
+          {/* Card B: Post a Project */}
+          <div className="p-5 rounded-2xl border-2 border-timberwolf/60 hover:border-moonstone/60 transition-all bg-gradient-to-br from-[#FAF8F5] to-white flex flex-col justify-between group">
+            <div className="space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center">
+                <Briefcase className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block mb-1">
+                  Milestone Contracts
+                </span>
+                <h3 className="text-base font-bold text-midnight group-hover:text-emerald-700 transition-colors">
+                  Post a Project
+                </h3>
+                <p className="text-xs text-midnight/70 mt-1 leading-relaxed">
+                  Scope out long-term deliverables with milestone approvals. Receive proposals from vetted specialists, compare qualifications, and hire single winners.
+                </p>
+              </div>
+            </div>
+            <div className="pt-4 mt-3 border-t border-timberwolf/30 flex flex-wrap items-center gap-3">
+              <Link
+                to="/projects/new"
+                className="btn-shine inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-moonstone text-white text-xs font-bold hover:bg-moonstone-hover shadow-subtle transition-all min-h-[44px] flex-1 justify-center"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Post a Project</span>
+                <ArrowRight className="w-3.5 h-3.5 ml-auto" />
+              </Link>
+              <Link
+                to="/projects"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-timberwolf/70 text-xs font-semibold text-midnight hover:bg-aliceblue transition-colors min-h-[44px]"
+              >
+                <span>Browse Projects</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* 6 Server-Authoritative Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
         {/* 1. Experts Hired */}
@@ -926,6 +1012,19 @@ export const ClientDashboardPage: React.FC = () => {
           }`}
         >
           Previously Hired Experts ({previouslyHiredExperts.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('projects')}
+          className={`min-h-[44px] px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+            activeTab === 'projects'
+              ? 'border-moonstone text-moonstone'
+              : 'border-transparent text-midnight/70 hover:text-midnight'
+          }`}
+        >
+          <Briefcase className="w-3.5 h-3.5 text-moonstone" />
+          <span>My Projects & Contracts ({myProjects.length + myContracts.length})</span>
         </button>
 
         <button
@@ -2442,6 +2541,196 @@ export const ClientDashboardPage: React.FC = () => {
               ))}
             </div>
           )}
+        </section>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 7: MY PROJECTS & CONTRACTS */}
+      {/* ========================================================================= */}
+      {activeTab === 'projects' && (
+        <section className="space-y-8 animate-fade-in">
+          {/* Section Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-timberwolf/40">
+            <div>
+              <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-moonstone" />
+                <span>My Projects & Contracts</span>
+              </h2>
+              <p className="text-xs text-midnight/60 mt-0.5">
+                Track long-term milestone projects you posted, evaluate submitted proposals, and manage active contracts.
+              </p>
+            </div>
+            <Link
+              to="/projects/new"
+              className="btn-shine inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-moonstone text-white font-bold text-xs hover:bg-moonstone-hover shadow-subtle transition-all min-h-[44px] self-start sm:self-auto"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Post a Project</span>
+            </Link>
+          </div>
+
+          {/* Section A: Active & Completed Contracts */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-midnight uppercase tracking-wider text-[11px]">
+                Active & Completed Contracts ({myContracts.length})
+              </h3>
+            </div>
+
+            {myContracts.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 text-center text-xs text-midnight/60 shadow-subtle space-y-2">
+                <Briefcase className="w-7 h-7 text-timberwolf-dark mx-auto" />
+                <p className="font-bold text-midnight">No active contracts yet</p>
+                <p>When you hire an expert from your submitted proposals, your milestone contract workspace will appear here.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {myContracts.map((c: any) => (
+                  <div
+                    key={c.id}
+                    className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-subtle hover:border-moonstone/60 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-midnight text-sm hover:text-moonstone transition-colors">
+                          {c.project_title || 'Milestone Contract'}
+                        </span>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${
+                          c.status === 'COMPLETED'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : c.status === 'SUBMITTED_FOR_REVIEW'
+                            ? 'bg-amber-50 text-amber-800 border-amber-200 animate-pulse'
+                            : c.status === 'REVISION_REQUESTED'
+                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                            : 'bg-blue-50 text-blue-800 border-blue-200'
+                        }`}>
+                          {c.status.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-midnight/70 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          {c.provider_avatar ? (
+                            <img
+                              src={c.provider_avatar}
+                              alt={c.provider_name}
+                              className="w-5 h-5 rounded-full object-cover border border-lightblue"
+                            />
+                          ) : null}
+                          <span className="font-medium text-midnight">Specialist: {c.provider_name}</span>
+                        </div>
+                        <span>•</span>
+                        <span className="font-mono font-bold text-midnight">
+                          {formatINR(c.total_amount)}
+                        </span>
+                        <span>•</span>
+                        <span>Started: {new Date(c.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      </div>
+                    </div>
+
+                    <Link
+                      to={`/contracts/${c.id}`}
+                      className="btn-shine inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle transition-all min-h-[44px] shrink-0"
+                    >
+                      <span>Contract Workspace</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Section B: Posted Projects */}
+          <div className="space-y-4 pt-4 border-t border-timberwolf/40">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-midnight uppercase tracking-wider text-[11px]">
+                Posted Projects ({myProjects.length})
+              </h3>
+            </div>
+
+            {myProjects.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-timberwolf/70 p-8 text-center text-xs text-midnight/60 shadow-subtle space-y-3">
+                <Briefcase className="w-8 h-8 text-timberwolf-dark mx-auto" />
+                <p className="font-bold text-midnight text-sm">No projects posted yet</p>
+                <p className="max-w-md mx-auto">
+                  Create a project to receive proposals from top verified specialists. You only commit funds once you review milestones and finalize the contract.
+                </p>
+                <Link
+                  to="/projects/new"
+                  className="btn-shine inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle transition-all min-h-[44px]"
+                >
+                  <Sparkles className="w-4 h-4 text-moonstone" />
+                  <span>Post a Project</span>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {myProjects.map((p: any) => (
+                  <div
+                    key={p.id}
+                    className="bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-subtle hover:border-moonstone/60 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          to={`/projects/${p.id}`}
+                          className="font-bold text-midnight text-sm hover:text-moonstone transition-colors"
+                        >
+                          {p.title}
+                        </Link>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${
+                          p.status === 'OPEN'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : p.status === 'REVIEWING_PROPOSALS'
+                            ? 'bg-blue-50 text-blue-800 border-blue-200'
+                            : p.status === 'IN_PROGRESS'
+                            ? 'bg-purple-50 text-purple-800 border-purple-200'
+                            : p.status === 'COMPLETED'
+                            ? 'bg-zinc-100 text-zinc-800 border-zinc-200'
+                            : 'bg-rose-50 text-rose-800 border-rose-200'
+                        }`}>
+                          {p.status.replace(/_/g, ' ')}
+                        </span>
+                        {p.category_name && (
+                          <span className="text-[10px] font-medium text-midnight/50 bg-aliceblue px-2 py-0.5 rounded">
+                            {p.category_name}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-3 text-xs text-midnight/60 flex-wrap">
+                        <span className="font-mono font-bold text-midnight">
+                          {p.budget_type === 'fixed'
+                            ? formatINR(p.budget_fixed || 0)
+                            : `${formatINR(p.budget_min || 0)} - ${formatINR(p.budget_max || 0)}/hr`}
+                        </span>
+                        <span>•</span>
+                        <span>{p.proposals_count || 0} proposals</span>
+                        <span>•</span>
+                        <span>Posted: {new Date(p.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <Link
+                        to={`/projects/${p.id}/proposals`}
+                        className="btn-shine inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-moonstone text-white text-xs font-bold hover:bg-moonstone-hover shadow-subtle transition-all min-h-[44px]"
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        <span>Review Proposals ({p.proposals_count || 0})</span>
+                      </Link>
+                      <Link
+                        to={`/projects/${p.id}`}
+                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-timberwolf text-xs font-semibold text-midnight hover:bg-aliceblue transition-colors min-h-[44px]"
+                      >
+                        <span>View Project</span>
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </section>
       )}
 

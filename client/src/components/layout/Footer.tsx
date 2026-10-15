@@ -13,12 +13,14 @@ import {
 const CLIENTS_FALLBACK = [
   { label: 'Find Experts', to: '/services' },
   { label: 'How It Works', to: '/how-it-works' },
+  { label: 'Project Marketplace', to: '/projects' },
   { label: 'Pricing', to: '/services' },
   { label: 'FAQ', to: '/faq' }
 ];
 
 const EXPERTS_FALLBACK = [
   { label: 'Join as an Expert', to: '/provider/onboard' },
+  { label: 'Find Projects', to: '/projects' },
   { label: 'Expert Guidelines', to: '/expert-policy' },
   { label: 'Earnings', to: '/provider' },
   { label: 'Support', to: '/contact' }

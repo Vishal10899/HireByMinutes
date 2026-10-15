@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSiteSettings, NavItem } from '../../context/SiteSettingsContext';
-import { Menu, X, ChevronDown, UserCheck, PlusCircle, LogOut, LayoutDashboard } from 'lucide-react';
+import { Menu, X, ChevronDown, UserCheck, PlusCircle, LogOut, LayoutDashboard, Briefcase } from 'lucide-react';
 import { BrandLogo } from '../common/BrandLogo';
 
 export const Header: React.FC = () => {
@@ -237,6 +237,26 @@ export const Header: React.FC = () => {
                         <span>Add New Service</span>
                       </Link>
                     )}
+
+                    {user.role === 'client' && (
+                      <Link
+                        to="/projects/new"
+                        onClick={() => setUserDropdownOpen(false)}
+                        className="flex items-center gap-2 px-4 py-2 text-midnight hover:bg-aliceblue transition-colors"
+                      >
+                        <PlusCircle className="w-4 h-4 text-moonstone" />
+                        <span>Post a Project</span>
+                      </Link>
+                    )}
+
+                    <Link
+                      to="/projects"
+                      onClick={() => setUserDropdownOpen(false)}
+                      className="flex items-center gap-2 px-4 py-2 text-midnight hover:bg-aliceblue transition-colors"
+                    >
+                      <Briefcase className="w-4 h-4 text-moonstone" />
+                      <span>Project Marketplace</span>
+                    </Link>
 
 
                     <div className="border-t border-timberwolf/30 mt-1 pt-1">
