@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSiteSettings, NavItem } from '../../context/SiteSettingsContext';
-import { Clock, Menu, X, ChevronDown, UserCheck, Shield, PlusCircle, LogOut, LayoutDashboard } from 'lucide-react';
+import { Menu, X, ChevronDown, UserCheck, PlusCircle, LogOut, LayoutDashboard } from 'lucide-react';
 import { BrandLogo } from '../common/BrandLogo';
 
 export const Header: React.FC = () => {
@@ -20,13 +20,84 @@ export const Header: React.FC = () => {
     return '/client';
   };
 
-  const isCurrent = (path: string) => location.pathname === path;
+  const isCurrent = (path: string) => {
+    if (path.startsWith('/#') || path.startsWith('#')) {
+      const hash = path.replace(/^\/?#/, '');
+      return location.pathname === '/' && location.hash === `#${hash}`;
+    }
+    return location.pathname === path;
+  };
 
-  // Filter and sort navigation items by order
+  // Navigation prioritizes Services, How It Works, and Blog
+  // Secondary features (Jobs/Opportunities) are excluded from the primary nav to maintain clarity
   const visibleNavItems = useMemo(() => {
-    return [...navItems]
-      .filter((item) => item.is_visible !== false)
+    const isExcluded = (item: NavItem) => {
+      const id = item.id?.toLowerCase() || '';
+      const url = item.url?.toLowerCase() || '';
+      const label = item.label?.trim().toLowerCase() || '';
+      return (
+        id === 'jobs' ||
+        url === '/jobs' ||
+        label === 'jobs' ||
+        id === 'opportunities' ||
+        url === '/opportunities' ||
+        label === 'opportunities'
+      );
+    };
+
+    let items = [...navItems]
+      .filter((item) => item.is_visible !== false && !isExcluded(item))
       .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+
+    // Ensure Services is present as primary item
+    const hasServices = items.some(
+      (item) => item.id === 'services' || item.url === '/services' || item.label?.trim().toLowerCase() === 'services'
+    );
+    if (!hasServices) {
+      items.unshift({
+        id: 'services',
+        label: 'Services',
+        url: '/services',
+        order: 1,
+        is_visible: true,
+        is_external: false
+      });
+    }
+
+    // Ensure How It Works is present
+    const hasHowItWorks = items.some(
+      (item) =>
+        item.id === 'how-it-works' ||
+        item.url.includes('how-it-works') ||
+        item.label?.trim().toLowerCase().includes('how it works')
+    );
+    if (!hasHowItWorks) {
+      items.splice(1, 0, {
+        id: 'how-it-works',
+        label: 'How It Works',
+        url: '/how-it-works',
+        order: 2,
+        is_visible: true,
+        is_external: false
+      });
+    }
+
+    // Ensure Blog is present
+    const hasBlog = items.some(
+      (item) => item.id === 'blog' || item.url === '/blog' || item.label?.trim().toLowerCase() === 'blog'
+    );
+    if (!hasBlog) {
+      items.push({
+        id: 'blog',
+        label: 'Blog',
+        url: '/blog',
+        order: 3,
+        is_visible: true,
+        is_external: false
+      });
+    }
+
+    return items;
   }, [navItems]);
 
   const renderNavLink = (item: NavItem, isMobile = false) => {
@@ -34,10 +105,12 @@ export const Header: React.FC = () => {
     const isExternal = item.is_external || item.url.startsWith('http://') || item.url.startsWith('https://');
 
     const baseClasses = isMobile
-      ? `flex items-center min-h-[44px] px-3 rounded-xl text-base font-medium transition-colors ${
-          isCurrent(item.url) ? 'text-moonstone font-semibold bg-lightblue/30' : 'text-midnight hover:bg-lightblue/30 hover:text-moonstone'
+      ? `flex items-center min-h-[44px] px-3 rounded-xl text-base font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone ${
+          isCurrent(item.url)
+            ? 'text-moonstone font-semibold bg-lightblue/30'
+            : 'text-midnight hover:bg-lightblue/30 hover:text-moonstone'
         }`
-      : `transition-colors hover:text-moonstone ${
+      : `transition-colors hover:text-moonstone focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone focus-visible:ring-offset-2 rounded-md py-0.5 px-1 ${
           isCurrent(item.url) ? 'text-moonstone font-semibold' : 'text-midnight/80'
         }`;
 
@@ -89,7 +162,7 @@ export const Header: React.FC = () => {
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-aliceblue/95 backdrop-blur-sm border-b border-timberwolf/40 transition-colors">
+    <header className="sticky top-0 z-40 bg-[#FAF8F5]/95 backdrop-blur-md border-b border-[#E7E2DA] transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-18">
           {/* Brand Logo */}
@@ -188,13 +261,13 @@ export const Header: React.FC = () => {
                   to="/login"
                   className="px-3.5 py-1.5 text-sm font-medium text-midnight hover:text-moonstone transition-colors"
                 >
-                  Sign In
+                  Login
                 </Link>
                 <Link
                   to={ctaUrl || '/signup'}
                   className="btn-shine px-4 py-2 text-sm font-semibold rounded-lg bg-midnight text-aliceblue hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
                 >
-                  {ctaLabel || 'Get Started'}
+                  {ctaLabel && ctaLabel !== 'Get Started' ? ctaLabel : 'Sign In / Join'}
                 </Link>
               </div>
             )}
@@ -232,10 +305,10 @@ export const Header: React.FC = () => {
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-timberwolf/40 bg-aliceblue px-4 pt-3 pb-6 space-y-2 animate-fade-in">
+        <div className="md:hidden border-t border-[#E7E2DA] bg-[#FAF8F5] px-4 pt-3 pb-6 space-y-2 animate-fade-in">
           {visibleNavItems.map((item) => renderNavLink(item, true))}
 
-          <div className="border-t border-timberwolf/40 pt-3 flex flex-col gap-2.5">
+          <div className="border-t border-[#E7E2DA] pt-3 flex flex-col gap-2.5">
             {!authInitialized || loading ? (
               <div className="w-full h-11 rounded-xl bg-aliceblue/80 animate-pulse border border-timberwolf/40" />
             ) : user ? (
@@ -271,14 +344,14 @@ export const Header: React.FC = () => {
                   onClick={() => setMobileMenuOpen(false)}
                   className="w-full min-h-[44px] flex items-center justify-center text-center py-2 text-midnight font-medium text-sm rounded-xl hover:bg-lightblue/30 transition-colors"
                 >
-                  Sign In
+                  Login
                 </Link>
                 <Link
                   to={ctaUrl || '/signup'}
                   onClick={() => setMobileMenuOpen(false)}
                   className="w-full min-h-[48px] flex items-center justify-center text-center py-2.5 rounded-xl bg-midnight text-aliceblue font-semibold text-sm hover:bg-midnight-hover shadow-subtle transition-colors"
                 >
-                  {ctaLabel || 'Get Started'}
+                  {ctaLabel && ctaLabel !== 'Get Started' ? ctaLabel : 'Sign In / Join'}
                 </Link>
               </>
             )}

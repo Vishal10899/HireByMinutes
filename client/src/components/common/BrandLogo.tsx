@@ -23,7 +23,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
   customSiteName,
   customLogoUrl
 }) => {
-  let contextSiteName = 'HireByMinute';
+  let contextSiteName = 'HireByMinutes';
   let contextLogoUrl = '';
   try {
     const settings = useSiteSettings();

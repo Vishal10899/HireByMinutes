@@ -71,7 +71,7 @@ const AppRoutes: React.FC = () => {
   }, [location.pathname, location.search]);
 
   return (
-    <div className="flex flex-col min-h-screen relative overflow-x-hidden selection:bg-lightblue selection:text-midnight bg-aliceblue text-midnight font-sans">
+    <div className="flex flex-col min-h-screen relative overflow-x-clip selection:bg-lightblue selection:text-midnight bg-[#FAF8F5] text-midnight font-sans">
       <CustomCursor />
       {/* Non-blocking Cold-Start Server Status Notification */}
       <ServerStatusBanner />

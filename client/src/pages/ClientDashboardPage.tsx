@@ -25,11 +25,39 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
-  Filter
+  Filter,
+  MessageSquare,
+  RotateCcw,
+  ChevronDown,
+  ChevronUp,
+  X,
+  Lock,
+  Download,
+  Send,
+  MessageCircle
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
 import { formatINR, CURRENCY } from '../utils/currency';
+
+// Helper to normalize and sanitize problem description / topic strings from JSON serialization artifacts
+export const normalizeTopic = (raw?: string | null): string => {
+  if (!raw || typeof raw !== 'string') return '';
+  let text = raw.trim();
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed === 'string') text = parsed.trim();
+    } catch {
+      text = text.replace(/^["']+|["']+$/g, '').trim();
+    }
+  }
+  text = text.replace(/\\"/g, '"').replace(/\\'/g, "'").trim();
+  while ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    text = text.slice(1, -1).trim();
+  }
+  return text;
+};
 
 // Real-time Countdown Timer for Client Consultation Request
 const ClientRequestTimer: React.FC<{ initialSeconds: number; onExpire?: () => void }> = ({
@@ -132,6 +160,149 @@ export const ClientDashboardPage: React.FC = () => {
   const [consultationFilter, setConsultationFilter] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
   const [consultationPage, setConsultationPage] = useState(1);
   const [paymentPage, setPaymentPage] = useState(1);
+
+  // Read Chats Drawer/Modal State
+  const [chatModalOpen, setChatModalOpen] = useState(false);
+  const [selectedChatExpert, setSelectedChatExpert] = useState<any | null>(null);
+  const [selectedChatSessionId, setSelectedChatSessionId] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [loadingChat, setLoadingChat] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+
+  // Rehire Modal State
+  const [rehireModalOpen, setRehireModalOpen] = useState(false);
+  const [rehireExpert, setRehireExpert] = useState<any | null>(null);
+  const [rehireDuration, setRehireDuration] = useState<number>(30);
+  const [rehireConnectType, setRehireConnectType] = useState<'now' | 'scheduled'>('now');
+  const [rehireScheduledStart, setRehireScheduledStart] = useState<string>('');
+  const [rehireProblemDescription, setRehireProblemDescription] = useState<string>('');
+  const [submittingRehire, setSubmittingRehire] = useState(false);
+  const [rehireError, setRehireError] = useState<string | null>(null);
+  const [rehireSuccess, setRehireSuccess] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  // Expanded sessions state for compact inbox rows
+  const [expandedExpertIds, setExpandedExpertIds] = useState<Set<string>>(new Set());
+  const toggleExpandExpert = (expertId: string) => {
+    setExpandedExpertIds(prev => {
+      const next = new Set(prev);
+      if (next.has(expertId)) next.delete(expertId);
+      else next.add(expertId);
+      return next;
+    });
+  };
+
+  const handleCancelRequest = async (requestId: string) => {
+    if (!window.confirm('Are you sure you want to cancel this consultation request?')) return;
+    try {
+      setCancellingId(requestId);
+      await api.cancelConsultationRequest(requestId);
+      await loadDashboard();
+    } catch (err: any) {
+      alert(err.message || 'Failed to cancel consultation request.');
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  const fetchSessionChat = async (sessionId: string) => {
+    try {
+      setLoadingChat(true);
+      setChatError(null);
+      const res = await api.getSession(sessionId);
+      setChatMessages(res?.messages || []);
+    } catch (err: any) {
+      console.error('Failed to load session messages', err);
+      setChatError(err.message || 'Unable to load message archive for this session.');
+    } finally {
+      setLoadingChat(false);
+    }
+  };
+
+  const openChatModal = (expertGroup: any, initialSessionId?: string) => {
+    const normalizedGroup = {
+      ...expertGroup,
+      expert_name: expertGroup.expert_name || expertGroup.provider_name || expertGroup.name || 'Marketplace Expert',
+      expert_avatar: expertGroup.expert_avatar || expertGroup.provider_avatar || expertGroup.avatar,
+      sessions: expertGroup.sessions || expertGroup.completed_sessions || []
+    };
+    setSelectedChatExpert(normalizedGroup);
+    const targetSessionId = initialSessionId ||
+      normalizedGroup.sessions?.[0]?.session_id ||
+      normalizedGroup.sessions?.[0]?.id ||
+      expertGroup.active_session_id;
+    setSelectedChatSessionId(targetSessionId);
+    setChatModalOpen(true);
+    setChatError(null);
+
+    if (targetSessionId) {
+      fetchSessionChat(targetSessionId);
+    }
+  };
+
+  const openRehireModal = (expert: any) => {
+    setRehireExpert({
+      ...expert,
+      expert_name: expert.expert_name || expert.provider_name || expert.name || 'Marketplace Expert',
+      expert_avatar: expert.expert_avatar || expert.provider_avatar || expert.avatar,
+      service_id: expert.service_id,
+      service_title: expert.service_title || 'Expert Consultation',
+      price_per_minute: Number(expert.price_per_minute || 50)
+    });
+    setRehireDuration(30);
+    setRehireConnectType('now');
+    setRehireScheduledStart('');
+    setRehireProblemDescription('');
+    setRehireError(null);
+    setRehireSuccess(null);
+    setRehireModalOpen(true);
+  };
+
+  const handleRehireSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rehireExpert) return;
+
+    if (!rehireProblemDescription.trim()) {
+      setRehireError('Please provide a brief problem description or topic for the expert.');
+      return;
+    }
+
+    if (rehireConnectType === 'scheduled' && !rehireScheduledStart) {
+      setRehireError('Please select a scheduled start date and time.');
+      return;
+    }
+
+    try {
+      setSubmittingRehire(true);
+      setRehireError(null);
+
+      const serviceId = rehireExpert.service_id;
+      if (!serviceId) {
+        throw new Error('Service ID not found for this expert. Please visit their profile to book.');
+      }
+
+      await api.createConsultationRequest({
+        service_id: serviceId,
+        duration_minutes: rehireDuration,
+        connect_type: rehireConnectType,
+        scheduled_start: rehireConnectType === 'scheduled' ? new Date(rehireScheduledStart).toISOString() : undefined,
+        problem_description: rehireProblemDescription.trim()
+      });
+
+      confetti({ particleCount: 70, spread: 60 });
+      setRehireSuccess(`Consultation request sent to ${rehireExpert.expert_name || rehireExpert.provider_name || 'the expert'}!`);
+      setTimeout(async () => {
+        setRehireModalOpen(false);
+        setRehireSuccess(null);
+        await loadDashboard();
+        setActiveTab('overview');
+      }, 1000);
+    } catch (err: any) {
+      setRehireError(err.message || 'Failed to submit consultation request. Please try again.');
+    } finally {
+      setSubmittingRehire(false);
+    }
+  };
 
   const loadDashboard = async () => {
     try {
@@ -328,7 +499,7 @@ export const ClientDashboardPage: React.FC = () => {
   const filteredConsultations = consultations.filter((c: any) => {
     if (consultationFilter === 'all') return true;
     if (consultationFilter === 'active') {
-      return ['PENDING_EXPERT', 'ACCEPTED', 'PAID', 'ACTIVE', 'SCHEDULED'].includes(c.status);
+      return ['PENDING_EXPERT', 'ACCEPTED', 'PAID', 'ACTIVE', 'SCHEDULED'].includes(c.status) && c.status !== 'COMPLETED';
     }
     if (consultationFilter === 'completed') {
       return c.status === 'COMPLETED';
@@ -340,12 +511,96 @@ export const ClientDashboardPage: React.FC = () => {
   });
 
   const activeConsultationsCount = consultations.filter((c: any) =>
-    ['PENDING_EXPERT', 'ACCEPTED', 'PAID', 'ACTIVE', 'SCHEDULED'].includes(c.status)
+    ['PENDING_EXPERT', 'ACCEPTED', 'PAID', 'ACTIVE', 'SCHEDULED'].includes(c.status) && c.status !== 'COMPLETED'
   ).length;
   const completedConsultationsCount = consultations.filter((c: any) => c.status === 'COMPLETED').length;
   const cancelledConsultationsCount = consultations.filter((c: any) =>
     ['DECLINED', 'EXPIRED', 'CANCELLED', 'REFUNDED'].includes(c.status) || c.is_refunded
   ).length;
+
+  // Group completed consultations by expert for compact inbox view
+  const completedExpertsMap = new Map<string, {
+    expert_id: string;
+    expert_name: string;
+    expert_avatar?: string;
+    expert_headline?: string;
+    category_name: string;
+    service_id?: string;
+    service_title?: string;
+    price_per_minute: number;
+    completed_count: number;
+    total_minutes: number;
+    total_net_spent: number;
+    latest_consultation_date: string;
+    sessions: any[];
+  }>();
+
+  consultations
+    .filter((c: any) => c.status === 'COMPLETED')
+    .forEach((c: any) => {
+      const expertId = c.expert_id || c.provider_id;
+      if (!expertId) return;
+
+      if (!completedExpertsMap.has(expertId)) {
+        const hiredMatch = previouslyHiredExperts.find((exp: any) => exp.provider_id === expertId);
+        completedExpertsMap.set(expertId, {
+          expert_id: expertId,
+          expert_name: c.expert_name || hiredMatch?.provider_name || 'Marketplace Expert',
+          expert_avatar: c.expert_avatar || hiredMatch?.provider_avatar,
+          expert_headline: c.expert_headline || hiredMatch?.provider_headline || 'Marketplace Consultant',
+          category_name: c.category_name || hiredMatch?.category_name || 'Consultation',
+          service_id: c.service_id || hiredMatch?.service_id,
+          service_title: c.service_title || hiredMatch?.service_title || 'Expert Consultation',
+          price_per_minute: Number(hiredMatch?.price_per_minute || 50),
+          completed_count: 0,
+          total_minutes: 0,
+          total_net_spent: 0,
+          latest_consultation_date: c.consultation_date || c.request_date,
+          sessions: []
+        });
+      }
+
+      const group = completedExpertsMap.get(expertId)!;
+      group.completed_count += 1;
+      group.total_minutes += Number(c.duration_minutes || 0);
+      group.total_net_spent += Number(c.net_amount || c.gross_amount || 0);
+      if (new Date(c.consultation_date || 0).getTime() > new Date(group.latest_consultation_date || 0).getTime()) {
+        group.latest_consultation_date = c.consultation_date;
+      }
+      group.sessions.push(c);
+    });
+
+  // Enrich or supplement from previouslyHiredExperts
+  previouslyHiredExperts.forEach((exp: any) => {
+    const expertId = exp.provider_id || exp.id;
+    if (!expertId) return;
+    if (!completedExpertsMap.has(expertId) && (exp.completed_sessions_count > 0 || (exp.completed_sessions && exp.completed_sessions.length > 0))) {
+      completedExpertsMap.set(expertId, {
+        expert_id: expertId,
+        expert_name: exp.provider_name || exp.name || 'Marketplace Expert',
+        expert_avatar: exp.provider_avatar || exp.avatar,
+        expert_headline: exp.provider_headline || exp.headline || 'Marketplace Consultant',
+        category_name: exp.category_name || 'Consultation',
+        service_id: exp.service_id,
+        service_title: exp.service_title || 'Expert Consultation',
+        price_per_minute: Number(exp.price_per_minute || 50),
+        completed_count: exp.completed_sessions_count || exp.completed_sessions?.length || 0,
+        total_minutes: Number(exp.total_minutes || exp.verified_minutes || 0),
+        total_net_spent: Number(exp.total_spent_inr || exp.net_spent || 0),
+        latest_consultation_date: exp.last_consultation_date || new Date().toISOString(),
+        sessions: exp.completed_sessions || []
+      });
+    } else if (completedExpertsMap.has(expertId)) {
+      const group = completedExpertsMap.get(expertId)!;
+      if (!group.service_id && exp.service_id) group.service_id = exp.service_id;
+      if (!group.service_title && exp.service_title) group.service_title = exp.service_title;
+      if (exp.price_per_minute) group.price_per_minute = Number(exp.price_per_minute);
+    }
+  });
+
+  const completedExpertGroups = Array.from(completedExpertsMap.values()).sort(
+    (a, b) => new Date(b.latest_consultation_date).getTime() - new Date(a.latest_consultation_date).getTime()
+  );
 
   const CONSULTATIONS_PER_PAGE = 8;
   const totalConsultationPages = Math.ceil(filteredConsultations.length / CONSULTATIONS_PER_PAGE) || 1;
@@ -753,17 +1008,17 @@ export const ClientDashboardPage: React.FC = () => {
       {activeTab === 'overview' && (
         <div className="space-y-8 animate-fade-in">
 
-          {/* Section: Consultation Requests */}
+          {/* Section: Consultation Requests (Active & Pending Only) */}
           <section className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
                   <Clock className="w-5 h-5 text-moonstone" />
-                  <span>Consultation Requests ({consultationRequests.length})</span>
+                  <span>Consultation Requests ({consultationRequests.filter(req => ['PENDING_EXPERT', 'ACCEPTED', 'ACTIVE', 'PAID'].includes(req.status) && req.status !== 'COMPLETED').length})</span>
                 </h2>
                 <p className="text-xs text-midnight/60 mt-0.5">Payment is only charged after the expert accepts your topic and timing.</p>
               </div>
-              {consultationRequests.length > 0 && (
+              {consultationRequests.filter(req => ['PENDING_EXPERT', 'ACCEPTED', 'ACTIVE', 'PAID'].includes(req.status) && req.status !== 'COMPLETED').length > 0 && (
                 <button
                   type="button"
                   onClick={() => { setActiveTab('consultations'); setConsultationFilter('active'); }}
@@ -774,250 +1029,324 @@ export const ClientDashboardPage: React.FC = () => {
               )}
             </div>
 
-            {consultationRequests.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-timberwolf/70 p-8 text-center shadow-subtle space-y-3">
-                <Clock className="w-8 h-8 text-timberwolf-dark mx-auto" />
-                <h4 className="text-sm font-bold text-midnight">No consultation requests yet</h4>
+            {consultationRequests.filter(req => ['PENDING_EXPERT', 'ACCEPTED', 'ACTIVE', 'PAID'].includes(req.status) && req.status !== 'COMPLETED').length === 0 ? (
+              <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 text-center shadow-subtle space-y-2">
+                <Clock className="w-7 h-7 text-timberwolf-dark mx-auto" />
+                <h4 className="text-sm font-bold text-midnight">No pending or active consultation requests</h4>
                 <p className="text-xs text-midnight/60 max-w-sm mx-auto leading-relaxed">
                   Browse our marketplace to find an expert. Request a consultation first, and pay only after the expert confirms availability.
                 </p>
                 <Link
                   to="/services"
-                  className="btn-shine inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle transition-all min-h-[44px]"
+                  className="btn-shine inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle transition-all min-h-[44px]"
                 >
                   <Search className="w-4 h-4 text-moonstone" />
                   <span>Find an Expert</span>
                 </Link>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {consultationRequests.slice(0, 4).map((req) => (
-                  <div
-                    key={req.id}
-                    className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-4 hover:border-moonstone/60 transition-all flex flex-col justify-between"
-                  >
-                    <div className="space-y-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={req.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(req.provider_name || 'expert')}`}
-                            alt={req.provider_name || 'Expert'}
-                            className="w-12 h-12 rounded-xl object-cover border border-lightblue shrink-0"
-                          />
-                          <div>
-                            <h4 className="font-bold text-sm text-midnight">{req.provider_name}</h4>
-                            <p className="text-xs text-midnight/70 line-clamp-1">{req.service_title}</p>
-                            <span className="text-[11px] text-midnight/60 block mt-0.5 font-mono">
-                              {req.duration_minutes} mins • {formatINR(req.total_price)}
-                            </span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {consultationRequests
+                  .filter(req => ['PENDING_EXPERT', 'ACCEPTED', 'ACTIVE', 'PAID'].includes(req.status) && req.status !== 'COMPLETED')
+                  .slice(0, 4)
+                  .map((req) => (
+                    <div
+                      key={req.id}
+                      className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-4 sm:p-5 shadow-card space-y-3 hover:border-moonstone/60 transition-all flex flex-col justify-between"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <img
+                              src={req.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(req.provider_name || 'expert')}`}
+                              alt={req.provider_name || 'Expert'}
+                              className="w-11 h-11 rounded-xl object-cover border border-lightblue shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <h4 className="font-bold text-sm text-midnight truncate">{req.provider_name}</h4>
+                              <p className="text-xs text-midnight/70 truncate">{req.service_title}</p>
+                              <span className="text-[11px] text-midnight/60 block mt-0.5 font-mono">
+                                {req.duration_minutes} mins • {formatINR(req.total_price)}
+                              </span>
+                            </div>
                           </div>
+
+                          {req.status === 'PENDING_EXPERT' && (
+                            <ClientRequestTimer
+                              initialSeconds={req.remaining_seconds || 600}
+                              onExpire={loadDashboard}
+                            />
+                          )}
+                          {req.status === 'ACCEPTED' && (
+                            <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shrink-0">
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              <span>Accepted</span>
+                            </span>
+                          )}
+                          {req.status === 'PAID' && (
+                            <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200 shrink-0">
+                              Confirmed
+                            </span>
+                          )}
                         </div>
 
-                        {req.status === 'PENDING_EXPERT' && (
-                          <ClientRequestTimer
-                            initialSeconds={req.remaining_seconds || 600}
-                            onExpire={loadDashboard}
-                          />
-                        )}
-                        {req.status === 'ACCEPTED' && (
-                          <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
-                            <Check className="w-3 h-3 text-emerald-600" />
-                            <span>Accepted</span>
-                          </span>
-                        )}
-                        {req.status === 'PAID' && (
-                          <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                            Confirmed
-                          </span>
-                        )}
-                        {req.status === 'DECLINED' && (
-                          <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
-                            Declined
-                          </span>
-                        )}
-                        {req.status === 'EXPIRED' && (
-                          <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-700 border border-zinc-300">
-                            Expired (10m)
-                          </span>
+                        {req.problem_description && (
+                          <div className="p-2.5 bg-aliceblue/50 rounded-xl border border-timberwolf/40 text-xs text-midnight/80">
+                            <span className="text-[10px] uppercase font-bold text-midnight/50 block mb-0.5">
+                              Your Topic:
+                            </span>
+                            <p className="italic leading-relaxed line-clamp-2">{normalizeTopic(req.problem_description)}</p>
+                          </div>
                         )}
                       </div>
 
-                      {req.problem_description && (
-                        <div className="p-3 bg-aliceblue/50 rounded-xl border border-timberwolf/40 text-xs text-midnight/80">
-                          <span className="text-[10px] uppercase font-bold text-midnight/50 block mb-0.5">
-                            Your Topic:
-                          </span>
-                          <p className="italic leading-relaxed line-clamp-2">"{req.problem_description}"</p>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="pt-2 border-t border-timberwolf/40">
-                      {req.status === 'PENDING_EXPERT' && (
-                        <div className="flex items-center justify-between text-xs text-midnight/60">
-                          <span className="flex items-center gap-1">
-                            <ShieldCheck className="w-3.5 h-3.5 text-moonstone" />
-                            <span>Awaiting expert acceptance</span>
-                          </span>
-                          <span className="text-[11px] font-medium text-midnight/40">Zero charge until accepted</span>
-                        </div>
-                      )}
-
-                      {req.status === 'ACCEPTED' && (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between text-xs text-emerald-800 font-semibold">
-                            <span>{req.provider_name} is ready!</span>
-                            <span className="font-mono text-sm">{formatINR(req.total_price)}</span>
+                      <div className="pt-2 border-t border-timberwolf/40">
+                        {req.status === 'PENDING_EXPERT' && (
+                          <div className="flex items-center justify-between gap-2 pt-1 text-xs">
+                            <span className="flex items-center gap-1 text-midnight/60">
+                              <ShieldCheck className="w-3.5 h-3.5 text-moonstone shrink-0" />
+                              <span>Awaiting expert reply</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleCancelRequest(req.id)}
+                              disabled={cancellingId === req.id}
+                              className="px-3 py-1.5 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 text-[11px] font-semibold transition cursor-pointer min-h-[36px]"
+                            >
+                              {cancellingId === req.id ? 'Cancelling...' : 'Cancel Request'}
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handlePayRequest(req.id)}
-                            disabled={payingId === req.id}
-                            className="btn-shine w-full py-2.5 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
-                          >
-                            {payingId === req.id ? (
-                              <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <>
-                                <span>Pay & Confirm Consultation</span>
-                                <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      )}
+                        )}
 
-                      {req.status === 'PAID' && req.session_id && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-emerald-700 font-medium">Session workspace ready</span>
-                          <Link
-                            to={`/session/${req.session_id}`}
-                            className="btn-shine px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover inline-flex items-center gap-1 min-h-[44px]"
-                          >
-                            <span>Enter Room</span>
-                            <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
-                          </Link>
-                        </div>
-                      )}
+                        {req.status === 'ACCEPTED' && !req.session_id && (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-xs text-emerald-800 font-semibold">
+                              <span>{req.provider_name} accepted your request!</span>
+                              <span className="font-mono text-sm">{formatINR(req.total_price)}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handlePayRequest(req.id)}
+                                disabled={payingId === req.id || cancellingId === req.id}
+                                className="btn-shine flex-1 py-2.5 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
+                              >
+                                {payingId === req.id ? (
+                                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <>
+                                    <span>Pay & Confirm Consultation</span>
+                                    <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleCancelRequest(req.id)}
+                                disabled={cancellingId === req.id || payingId === req.id}
+                                className="px-3 py-2.5 rounded-xl border border-timberwolf text-midnight/70 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 text-xs font-semibold transition cursor-pointer min-h-[44px]"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
-                      {(req.status === 'DECLINED' || req.status === 'EXPIRED') && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-midnight/60">
-                            {req.status === 'DECLINED' ? 'Expert unavailable • No charge' : 'Response timed out • No charge'}
-                          </span>
-                          <Link
-                            to="/services"
-                            className="px-3.5 py-1.5 rounded-xl bg-aliceblue text-midnight border border-timberwolf text-xs font-semibold hover:border-moonstone"
-                          >
-                            Find Another Expert
-                          </Link>
-                        </div>
-                      )}
+                        {(req.status === 'PAID' || req.status === 'ACTIVE') && req.session_id && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-emerald-700 font-medium">Session workspace ready</span>
+                            <Link
+                              to={`/session/${req.session_id}`}
+                              className="btn-shine px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover inline-flex items-center gap-1 min-h-[44px]"
+                            >
+                              <span>Enter Room</span>
+                              <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
+                            </Link>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             )}
           </section>
 
-          {/* Section: Previously Hired Experts Preview */}
+          {/* Section: Completed Consultation History (Compact Inbox Grouped by Expert) */}
           <section className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
-                  <Users className="w-5 h-5 text-moonstone" />
-                  <span>Previously Hired Experts ({previouslyHiredExperts.length})</span>
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <span>Completed Consultation History ({completedConsultationsCount})</span>
                 </h2>
-                <p className="text-xs text-midnight/60 mt-0.5">Specialists you've worked with before for quick 1-click re-booking.</p>
+                <p className="text-xs text-midnight/60 mt-0.5">
+                  Inbox view of concluded consultations grouped by expert with read-only transcripts and rehire.
+                </p>
               </div>
-              {previouslyHiredExperts.length > 2 && (
+              {completedConsultationsCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => setActiveTab('experts')}
-                  className="text-xs text-moonstone font-semibold hover:underline"
+                  onClick={() => { setActiveTab('consultations'); setConsultationFilter('completed'); }}
+                  className="text-xs font-semibold text-moonstone hover:underline"
                 >
-                  View all ({previouslyHiredExperts.length})
+                  View full history ({completedConsultationsCount})
                 </button>
               )}
             </div>
 
-            {previouslyHiredExperts.length === 0 ? (
+            {completedExpertGroups.length === 0 ? (
               <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 text-center shadow-subtle space-y-2">
-                <p className="text-xs text-midnight/60">You haven't hired any experts yet.</p>
+                <Calendar className="w-8 h-8 text-timberwolf-dark mx-auto" />
+                <h4 className="text-sm font-bold text-midnight">No completed consultations yet</h4>
+                <p className="text-xs text-midnight/60 max-w-sm mx-auto leading-relaxed">
+                  Concluded consultations and chat archives will be summarized here by expert.
+                </p>
                 <Link to="/services" className="text-xs text-moonstone font-bold hover:underline inline-flex items-center gap-1">
                   <span>Explore Marketplace Experts</span>
-                  <ArrowRight className="w-3 h-3" />
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {previouslyHiredExperts.slice(0, 2).map((exp) => (
-                  <div
-                    key={exp.provider_id}
-                    className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card flex flex-col justify-between gap-4 hover:border-moonstone/60 transition-all"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3.5">
-                        <img
-                          src={exp.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(exp.provider_name)}`}
-                          alt={exp.provider_name}
-                          className="w-12 h-12 rounded-xl object-cover border border-lightblue shrink-0"
-                        />
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <h4 className="font-bold text-sm text-midnight">{exp.provider_name}</h4>
-                            <span className="flex items-center gap-0.5 text-xs text-amber-600 font-bold">
-                              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                              {(Number(exp.provider_rating) || 5.0).toFixed(1)}
-                            </span>
+              <div className="bg-white rounded-2xl border border-timberwolf/70 divide-y divide-timberwolf/30 shadow-subtle overflow-hidden">
+                <div className="hidden md:grid md:grid-cols-12 gap-4 px-5 py-3 bg-aliceblue/60 text-[11px] font-bold text-midnight/60 uppercase tracking-wider">
+                  <div className="col-span-5">Expert & Professional Discipline</div>
+                  <div className="col-span-3">Completed Sessions & Time</div>
+                  <div className="col-span-2">Net Captured Spent</div>
+                  <div className="col-span-2 text-right">Actions</div>
+                </div>
+
+                {completedExpertGroups.slice(0, 5).map((group) => {
+                  const isExpanded = expandedExpertIds.has(group.expert_id);
+                  return (
+                    <div key={group.expert_id} className="transition-colors hover:bg-aliceblue/20">
+                      <div className="p-4 sm:p-5 flex flex-col md:grid md:grid-cols-12 gap-4 items-start md:items-center">
+                        <div className="md:col-span-5 flex items-center gap-3 w-full">
+                          <img
+                            src={group.expert_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(group.expert_name)}`}
+                            alt={group.expert_name}
+                            className="w-11 h-11 rounded-xl object-cover border border-lightblue shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <h4 className="font-bold text-sm text-midnight truncate">{group.expert_name}</h4>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-aliceblue text-moonstone font-semibold border border-timberwolf/40 shrink-0">
+                                {group.category_name}
+                              </span>
+                            </div>
+                            <p className="text-xs text-midnight/70 truncate">{group.expert_headline}</p>
                           </div>
-                          <p className="text-xs text-midnight/70 line-clamp-1">{exp.provider_headline}</p>
-                          <span className="inline-block mt-0.5 text-[10px] px-2 py-0.5 rounded-full bg-aliceblue text-moonstone font-semibold border border-timberwolf/40">
-                            {exp.category_name}
+                        </div>
+
+                        <div className="md:col-span-3 flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>{group.completed_count} {group.completed_count === 1 ? 'Session' : 'Sessions'}</span>
                           </span>
+                          <span className="text-xs font-mono font-medium text-midnight/70">
+                            {group.total_minutes}m (verified)
+                          </span>
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <span className="text-xs font-mono font-bold text-midnight block">
+                            {formatINR(group.total_net_spent)}
+                          </span>
+                          <span className="text-[10px] text-midnight/50">Captured Net</span>
+                        </div>
+
+                        <div className="md:col-span-2 flex items-center justify-end gap-1.5 w-full md:w-auto">
+                          <button
+                            type="button"
+                            onClick={() => openChatModal(group)}
+                            title="Open archived consultation transcript"
+                            className="btn-shine px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[40px] inline-flex items-center gap-1 cursor-pointer transition-all"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-moonstone" />
+                            <span>Read Chats</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openRehireModal(group)}
+                            title="Submit a new consultation request with this expert"
+                            className="btn-shine px-3 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[40px] inline-flex items-center gap-1 cursor-pointer shadow-subtle transition-all"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-moonstone" />
+                            <span>Rehire</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandExpert(group.expert_id)}
+                            title={isExpanded ? "Collapse sessions" : "Expand sessions"}
+                            className="p-2 rounded-xl border border-timberwolf/60 text-midnight/60 hover:text-midnight hover:bg-aliceblue min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer transition-all"
+                          >
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
                         </div>
                       </div>
 
-                      {exp.current_status === 'ACTIVE_SESSION' && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          Live
-                        </span>
+                      {isExpanded && (
+                        <div className="bg-aliceblue/30 px-5 py-3 border-t border-timberwolf/30 space-y-2">
+                          <div className="text-[11px] font-bold uppercase tracking-wider text-midnight/50 pb-1">
+                            Consultation Sessions Breakdown ({group.sessions.length})
+                          </div>
+                          <div className="divide-y divide-timberwolf/20">
+                            {group.sessions.map((s: any, idx: number) => (
+                              <div key={s.id || s.session_id || idx} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                                <div className="space-y-0.5 min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-bold text-midnight">
+                                      {s.consultation_date ? new Date(s.consultation_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Completed'}
+                                    </span>
+                                    <span>•</span>
+                                    <span className="font-mono text-midnight/70">{s.duration_minutes} mins</span>
+                                    <span>•</span>
+                                    <span className="font-mono font-bold text-midnight">{formatINR(s.net_amount || s.gross_amount)}</span>
+                                    {s.review_rating && (
+                                      <>
+                                        <span>•</span>
+                                        <span className="flex items-center gap-0.5 text-amber-600 font-bold">
+                                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                                          {s.review_rating}/5
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                  {s.problem_description && (
+                                    <p className="text-midnight/70 italic text-[11px] line-clamp-1">
+                                      Topic: {normalizeTopic(s.problem_description)}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => openChatModal(group, s.session_id || s.id)}
+                                    className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <MessageSquare className="w-3 h-3 text-moonstone" />
+                                    <span>View Session Chat</span>
+                                  </button>
+                                  {s.session_id && (
+                                    <Link
+                                      to={`/session/${s.session_id}`}
+                                      className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1"
+                                    >
+                                      <FileText className="w-3.5 h-3.5 text-moonstone" />
+                                      <span>View Notes</span>
+                                    </Link>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       )}
                     </div>
-
-                    <div className="grid grid-cols-3 gap-2 py-2 px-3 rounded-xl bg-aliceblue/40 border border-timberwolf/30 text-center text-xs">
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-midnight/50 block">Bookings</span>
-                        <span className="font-mono font-bold text-midnight">{exp.total_consultations}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-midnight/50 block">Minutes</span>
-                        <span className="font-mono font-bold text-midnight">{exp.total_minutes}m</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-midnight/50 block">Spent</span>
-                        <span className="font-mono font-bold text-midnight">{formatINR(exp.total_spent_inr)}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 pt-2 border-t border-timberwolf/40">
-                      <Link
-                        to={exp.service_id ? `/services/${exp.service_id}` : '/services'}
-                        className="flex-1 py-2 px-3 rounded-xl border border-timberwolf text-xs font-bold text-midnight hover:bg-aliceblue text-center transition-colors min-h-[44px] flex items-center justify-center"
-                      >
-                        View Profile
-                      </Link>
-                      <Link
-                        to={exp.service_id ? `/services/${exp.service_id}` : '/services'}
-                        className="flex-1 btn-shine py-2 px-3 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle text-center flex items-center justify-center gap-1 min-h-[44px]"
-                      >
-                        <span>Book Again</span>
-                        <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
-                      </Link>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>
@@ -1180,11 +1509,155 @@ export const ClientDashboardPage: React.FC = () => {
                 <span>Find an Expert</span>
               </Link>
             </div>
+          ) : consultationFilter === 'completed' ? (
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl border border-timberwolf/70 divide-y divide-timberwolf/30 shadow-subtle overflow-hidden">
+                <div className="hidden md:grid md:grid-cols-12 gap-4 px-5 py-3 bg-aliceblue/60 text-[11px] font-bold text-midnight/60 uppercase tracking-wider">
+                  <div className="col-span-5">Expert & Professional Category</div>
+                  <div className="col-span-3">Completed Sessions & Time</div>
+                  <div className="col-span-2">Net Captured Spent</div>
+                  <div className="col-span-2 text-right">Actions</div>
+                </div>
+
+                {completedExpertGroups.map((group) => {
+                  const isExpanded = expandedExpertIds.has(group.expert_id);
+                  return (
+                    <div key={group.expert_id} className="transition-colors hover:bg-aliceblue/20">
+                      <div className="p-4 sm:p-5 flex flex-col md:grid md:grid-cols-12 gap-4 items-start md:items-center">
+                        <div className="md:col-span-5 flex items-center gap-3 w-full">
+                          <img
+                            src={group.expert_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(group.expert_name)}`}
+                            alt={group.expert_name}
+                            className="w-11 h-11 rounded-xl object-cover border border-lightblue shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <h4 className="font-bold text-sm text-midnight truncate">{group.expert_name}</h4>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-aliceblue text-moonstone font-semibold border border-timberwolf/40 shrink-0">
+                                {group.category_name}
+                              </span>
+                            </div>
+                            <p className="text-xs text-midnight/70 truncate">{group.expert_headline}</p>
+                          </div>
+                        </div>
+
+                        <div className="md:col-span-3 flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>{group.completed_count} {group.completed_count === 1 ? 'Session' : 'Sessions'}</span>
+                          </span>
+                          <span className="text-xs font-mono font-medium text-midnight/70">
+                            {group.total_minutes}m (verified)
+                          </span>
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <span className="text-xs font-mono font-bold text-midnight block">
+                            {formatINR(group.total_net_spent)}
+                          </span>
+                          <span className="text-[10px] text-midnight/50">Captured Net</span>
+                        </div>
+
+                        <div className="md:col-span-2 flex items-center justify-end gap-1.5 w-full md:w-auto">
+                          <button
+                            type="button"
+                            onClick={() => openChatModal(group)}
+                            title="Open archived consultation transcript"
+                            className="btn-shine px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[40px] inline-flex items-center gap-1 cursor-pointer transition-all"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-moonstone" />
+                            <span>Read Chats</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openRehireModal(group)}
+                            title="Submit a new consultation request with this expert"
+                            className="btn-shine px-3 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[40px] inline-flex items-center gap-1 cursor-pointer shadow-subtle transition-all"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-moonstone" />
+                            <span>Rehire</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandExpert(group.expert_id)}
+                            title={isExpanded ? "Collapse sessions" : "Expand sessions"}
+                            className="p-2 rounded-xl border border-timberwolf/60 text-midnight/60 hover:text-midnight hover:bg-aliceblue min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer transition-all"
+                          >
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="bg-aliceblue/30 px-5 py-3 border-t border-timberwolf/30 space-y-2">
+                          <div className="text-[11px] font-bold uppercase tracking-wider text-midnight/50 pb-1">
+                            Consultation Sessions Breakdown ({group.sessions.length})
+                          </div>
+                          <div className="divide-y divide-timberwolf/20">
+                            {group.sessions.map((s: any, idx: number) => (
+                              <div key={s.id || s.session_id || idx} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                                <div className="space-y-0.5 min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-bold text-midnight">
+                                      {s.consultation_date ? new Date(s.consultation_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Completed'}
+                                    </span>
+                                    <span>•</span>
+                                    <span className="font-mono text-midnight/70">{s.duration_minutes} mins</span>
+                                    <span>•</span>
+                                    <span className="font-mono font-bold text-midnight">{formatINR(s.net_amount || s.gross_amount)}</span>
+                                    {s.review_rating && (
+                                      <>
+                                        <span>•</span>
+                                        <span className="flex items-center gap-0.5 text-amber-600 font-bold">
+                                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                                          {s.review_rating}/5
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                  {s.problem_description && (
+                                    <p className="text-midnight/70 italic text-[11px] line-clamp-1">
+                                      Topic: {normalizeTopic(s.problem_description)}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => openChatModal(group, s.session_id || s.id)}
+                                    className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <MessageSquare className="w-3 h-3 text-moonstone" />
+                                    <span>View Session Chat</span>
+                                  </button>
+                                  {s.session_id && (
+                                    <Link
+                                      to={`/session/${s.session_id}`}
+                                      className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1"
+                                    >
+                                      <FileText className="w-3.5 h-3.5 text-moonstone" />
+                                      <span>View Notes</span>
+                                    </Link>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           ) : (
             <div className="space-y-4">
               <div className="bg-white rounded-2xl border border-timberwolf/70 divide-y divide-timberwolf/30 shadow-subtle overflow-hidden">
                 {paginatedConsultations.map((c: any) => (
-                  <div key={c.consultation_key || c.id} className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-aliceblue/20 transition-colors">
+                  <div key={c.consultation_key || c.id} className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-aliceblue/20 transition-colors">
                     <div className="flex items-start gap-4">
                       <img
                         src={c.expert_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(c.expert_name || 'Expert')}`}
@@ -1225,7 +1698,7 @@ export const ClientDashboardPage: React.FC = () => {
 
                         {c.problem_description && (
                           <p className="text-xs text-midnight/70 italic line-clamp-1 pt-1">
-                            Topic: "{c.problem_description}"
+                            Topic: {normalizeTopic(c.problem_description)}
                           </p>
                         )}
 
@@ -1240,20 +1713,41 @@ export const ClientDashboardPage: React.FC = () => {
                     </div>
 
                     {/* Action buttons */}
-                    <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
-                      {c.status === 'ACCEPTED' && (
+                    <div className="flex items-center gap-2 self-start md:self-auto shrink-0 flex-wrap">
+                      {c.status === 'PENDING_EXPERT' && (
                         <button
                           type="button"
-                          onClick={() => handlePayRequest(c.request_id || c.id)}
-                          disabled={payingId === (c.request_id || c.id)}
-                          className="btn-shine px-4 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle min-h-[44px] cursor-pointer flex items-center gap-1.5"
+                          onClick={() => handleCancelRequest(c.request_id || c.id)}
+                          disabled={cancellingId === (c.request_id || c.id)}
+                          className="px-3 py-1.5 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 text-[11px] font-semibold transition cursor-pointer min-h-[36px]"
                         >
-                          <span>Pay & Confirm</span>
-                          <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
+                          {cancellingId === (c.request_id || c.id) ? 'Cancelling...' : 'Cancel Request'}
                         </button>
                       )}
 
-                      {(c.status === 'ACTIVE' || (c.status === 'PAID' && c.session_id)) && (
+                      {c.status === 'ACCEPTED' && !c.session_id && c.status !== 'COMPLETED' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handlePayRequest(c.request_id || c.id)}
+                            disabled={payingId === (c.request_id || c.id) || cancellingId === (c.request_id || c.id)}
+                            className="btn-shine px-4 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle min-h-[44px] cursor-pointer flex items-center gap-1.5"
+                          >
+                            <span>Pay & Confirm Consultation</span>
+                            <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelRequest(c.request_id || c.id)}
+                            disabled={cancellingId === (c.request_id || c.id) || payingId === (c.request_id || c.id)}
+                            className="px-3 py-2.5 rounded-xl border border-timberwolf text-midnight/70 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 text-xs font-semibold transition cursor-pointer min-h-[44px]"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      )}
+
+                      {(c.status === 'ACTIVE' || (c.status === 'PAID' && c.session_id)) && c.status !== 'COMPLETED' && (
                         <Link
                           to={`/session/${c.session_id}`}
                           className="btn-shine px-4 py-2.5 rounded-xl bg-moonstone hover:bg-moonstone-hover text-white text-xs font-bold shadow-subtle min-h-[44px] inline-flex items-center gap-1.5"
@@ -1261,6 +1755,42 @@ export const ClientDashboardPage: React.FC = () => {
                           <Video className="w-3.5 h-3.5" />
                           <span>Enter Room</span>
                         </Link>
+                      )}
+
+                      {c.status === 'COMPLETED' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => openChatModal({
+                              expert_id: c.expert_id || c.provider_id,
+                              expert_name: c.expert_name,
+                              expert_avatar: c.expert_avatar,
+                              service_id: c.service_id,
+                              service_title: c.service_title,
+                              price_per_minute: 50,
+                              sessions: [c]
+                            }, c.session_id || c.id)}
+                            className="px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[40px] inline-flex items-center gap-1 cursor-pointer transition-all"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-moonstone" />
+                            <span>Read Chats</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openRehireModal({
+                              expert_name: c.expert_name,
+                              expert_avatar: c.expert_avatar,
+                              service_id: c.service_id,
+                              service_title: c.service_title,
+                              price_per_minute: 50
+                            })}
+                            className="btn-shine px-3 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[40px] inline-flex items-center gap-1 cursor-pointer shadow-subtle transition-all"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-moonstone" />
+                            <span>Rehire</span>
+                          </button>
+                        </>
                       )}
 
                       {c.status === 'COMPLETED' && c.session_id && (
@@ -1352,95 +1882,177 @@ export const ClientDashboardPage: React.FC = () => {
               </Link>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {previouslyHiredExperts.map((exp) => (
-                <div
-                  key={exp.provider_id}
-                  className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card flex flex-col justify-between gap-4 hover:border-moonstone/60 transition-all"
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3.5">
+            <div className="bg-white rounded-2xl border border-timberwolf/70 divide-y divide-timberwolf/30 shadow-subtle overflow-hidden">
+              <div className="hidden md:grid md:grid-cols-12 gap-4 px-5 py-3 bg-aliceblue/60 text-[11px] font-bold text-midnight/60 uppercase tracking-wider">
+                <div className="col-span-5">Expert & Professional Category</div>
+                <div className="col-span-3">Completed Sessions & Time</div>
+                <div className="col-span-2">Net Captured Spent</div>
+                <div className="col-span-2 text-right">Actions</div>
+              </div>
+
+              {previouslyHiredExperts.map((exp) => {
+                const isExpanded = expandedExpertIds.has(exp.provider_id);
+                const sessionsList = exp.completed_sessions || [];
+                return (
+                  <div key={exp.provider_id} className="transition-colors hover:bg-aliceblue/20">
+                    <div className="p-4 sm:p-5 flex flex-col md:grid md:grid-cols-12 gap-4 items-start md:items-center">
+                      <div className="md:col-span-5 flex items-center gap-3 w-full">
                         <img
                           src={exp.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(exp.provider_name)}`}
                           alt={exp.provider_name}
-                          className="w-12 h-12 rounded-xl object-cover border border-lightblue shrink-0"
+                          className="w-11 h-11 rounded-xl object-cover border border-lightblue shrink-0"
                         />
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <h4 className="font-bold text-sm text-midnight">{exp.provider_name}</h4>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4 className="font-bold text-sm text-midnight truncate">{exp.provider_name}</h4>
                             <span className="flex items-center gap-0.5 text-xs text-amber-600 font-bold">
                               <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
                               {(Number(exp.provider_rating) || 5.0).toFixed(1)}
                             </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-aliceblue text-moonstone font-semibold border border-timberwolf/40 shrink-0">
+                              {exp.category_name}
+                            </span>
+                            {exp.current_status === 'ACTIVE_SESSION' && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                Live Now
+                              </span>
+                            )}
                           </div>
-                          <p className="text-xs text-midnight/70 line-clamp-1">{exp.provider_headline}</p>
-                          <span className="inline-block mt-0.5 text-[10px] px-2 py-0.5 rounded-full bg-aliceblue text-moonstone font-semibold border border-timberwolf/40">
-                            {exp.category_name}
-                          </span>
+                          <p className="text-xs text-midnight/70 truncate">{exp.provider_headline}</p>
                         </div>
                       </div>
 
-                      {exp.current_status === 'ACTIVE_SESSION' && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          Live Now
+                      <div className="md:col-span-3 flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>{exp.completed_sessions_count || exp.total_consultations} {(exp.completed_sessions_count || exp.total_consultations) === 1 ? 'Session' : 'Sessions'}</span>
                         </span>
-                      )}
-                      {exp.current_status === 'PAYMENT_PENDING' && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                          Accepted
+                        <span className="text-xs font-mono font-medium text-midnight/70">
+                          {exp.total_minutes}m (verified)
                         </span>
-                      )}
-                      {exp.current_status === 'AWAITING_EXPERT' && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                          Awaiting
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <span className="text-xs font-mono font-bold text-midnight block">
+                          {formatINR(exp.total_spent_inr)}
                         </span>
-                      )}
+                        <span className="text-[10px] text-midnight/50">
+                          {exp.total_consultations} bookings
+                        </span>
+                      </div>
+
+                      <div className="md:col-span-2 flex items-center justify-end gap-1.5 w-full md:w-auto">
+                        <button
+                          type="button"
+                          onClick={() => openChatModal(exp)}
+                          title="Open archived consultation transcript"
+                          className="btn-shine px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[40px] inline-flex items-center gap-1 cursor-pointer transition-all"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-moonstone" />
+                          <span>Read Chats</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openRehireModal(exp)}
+                          title="Submit a new consultation request with this expert"
+                          className="btn-shine px-3 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[40px] inline-flex items-center gap-1 cursor-pointer shadow-subtle transition-all"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 text-moonstone" />
+                          <span>Rehire</span>
+                        </button>
+
+                        <Link
+                          to={exp.service_id ? `/services/${exp.service_id}` : '/services'}
+                          title="View expert service profile"
+                          className="hidden lg:inline-flex px-2.5 py-2 rounded-xl border border-timberwolf text-xs font-bold text-midnight hover:bg-aliceblue min-h-[40px] items-center justify-center"
+                        >
+                          View Profile
+                        </Link>
+
+                        <Link
+                          to={exp.service_id ? `/services/${exp.service_id}` : '/services'}
+                          title="Book Again"
+                          className="hidden"
+                        >
+                          Book Again
+                        </Link>
+
+                        {sessionsList.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandExpert(exp.provider_id)}
+                            title={isExpanded ? "Collapse sessions" : "Expand sessions"}
+                            className="p-2 rounded-xl border border-timberwolf/60 text-midnight/60 hover:text-midnight hover:bg-aliceblue min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer transition-all"
+                          >
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 py-2 px-3 rounded-xl bg-aliceblue/40 border border-timberwolf/30 text-center text-xs">
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-midnight/50 block">Bookings</span>
-                        <span className="font-mono font-bold text-midnight">{exp.total_consultations}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-midnight/50 block">Minutes</span>
-                        <span className="font-mono font-bold text-midnight">{exp.total_minutes}m</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-midnight/50 block">Spent</span>
-                        <span className="font-mono font-bold text-midnight">{formatINR(exp.total_spent_inr)}</span>
-                      </div>
-                    </div>
+                    {isExpanded && sessionsList.length > 0 && (
+                      <div className="bg-aliceblue/30 px-5 py-3 border-t border-timberwolf/30 space-y-2">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-midnight/50 pb-1">
+                          Consultation Sessions Breakdown ({sessionsList.length})
+                        </div>
+                        <div className="divide-y divide-timberwolf/20">
+                          {sessionsList.map((s: any, idx: number) => (
+                            <div key={s.id || s.session_id || idx} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                              <div className="space-y-0.5 min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-midnight">
+                                    {s.consultation_date ? new Date(s.consultation_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Completed'}
+                                  </span>
+                                  <span>•</span>
+                                  <span className="font-mono text-midnight/70">{s.duration_minutes} mins</span>
+                                  <span>•</span>
+                                  <span className="font-mono font-bold text-midnight">{formatINR(s.amount || s.net_amount || s.gross_amount)}</span>
+                                  {s.review_rating && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="flex items-center gap-0.5 text-amber-600 font-bold">
+                                        <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                                        {s.review_rating}/5
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                                {s.problem_description && (
+                                  <p className="text-midnight/70 italic text-[11px] line-clamp-1">
+                                    Topic: {normalizeTopic(s.problem_description)}
+                                  </p>
+                                )}
+                              </div>
 
-                    {exp.last_consultation_date && (
-                      <div className="text-[11px] text-midnight/50 flex items-center justify-between pt-1">
-                        <span>Most recent consultation:</span>
-                        <span className="font-medium text-midnight/70">
-                          {new Date(exp.last_consultation_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => openChatModal(exp, s.session_id || s.id)}
+                                  className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  <MessageSquare className="w-3 h-3 text-moonstone" />
+                                  <span>View Session Chat</span>
+                                </button>
+                                {s.session_id && (
+                                  <Link
+                                    to={`/session/${s.session_id}`}
+                                    className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1"
+                                  >
+                                    <FileText className="w-3.5 h-3.5 text-moonstone" />
+                                    <span>View Notes</span>
+                                  </Link>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
-
-                  <div className="flex items-center gap-2 pt-2 border-t border-timberwolf/40">
-                    <Link
-                      to={exp.service_id ? `/services/${exp.service_id}` : '/services'}
-                      className="flex-1 py-2 px-3 rounded-xl border border-timberwolf text-xs font-bold text-midnight hover:bg-aliceblue text-center transition-colors min-h-[44px] flex items-center justify-center"
-                    >
-                      View Profile
-                    </Link>
-                    <Link
-                      to={exp.service_id ? `/services/${exp.service_id}` : '/services'}
-                      className="flex-1 btn-shine py-2 px-3 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle text-center flex items-center justify-center gap-1 min-h-[44px]"
-                    >
-                      <span>Book Again</span>
-                      <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
-                    </Link>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
@@ -1831,6 +2443,332 @@ export const ClientDashboardPage: React.FC = () => {
             </div>
           )}
         </section>
+      )}
+
+      {/* ========================================================================= */}
+      {/* READ-ONLY CHAT ARCHIVE MODAL */}
+      {/* ========================================================================= */}
+      {chatModalOpen && selectedChatExpert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-midnight/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl border border-timberwolf/70 shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-scale-in">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-timberwolf/40 flex items-center justify-between gap-3 bg-aliceblue/40 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src={selectedChatExpert.expert_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(selectedChatExpert.expert_name)}`}
+                  alt={selectedChatExpert.expert_name}
+                  className="w-10 h-10 rounded-xl object-cover border border-lightblue shrink-0"
+                />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-midnight truncate">{selectedChatExpert.expert_name}</h3>
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700 border border-zinc-300 shrink-0">
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>Read-Only Archive</span>
+                    </span>
+                  </div>
+                  <p className="text-xs text-midnight/60 truncate">{selectedChatExpert.expert_headline || selectedChatExpert.category_name}</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setChatModalOpen(false)}
+                className="p-2 rounded-xl text-midnight/60 hover:text-midnight hover:bg-white border border-transparent hover:border-timberwolf/60 min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Session Selector (If multiple sessions exist with this expert) */}
+            {selectedChatExpert.sessions && selectedChatExpert.sessions.length > 1 && (
+              <div className="px-5 py-2.5 bg-aliceblue/80 border-b border-timberwolf/30 flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0">
+                <span className="text-[11px] font-bold text-midnight/50 uppercase tracking-wider shrink-0">
+                  Select Session:
+                </span>
+                {selectedChatExpert.sessions.map((s: any, idx: number) => {
+                  const sId = s.session_id || s.id;
+                  const isSelected = selectedChatSessionId === sId;
+                  const dateStr = s.consultation_date ? new Date(s.consultation_date).toLocaleDateString([], { month: 'short', day: 'numeric' }) : `Session ${idx + 1}`;
+                  return (
+                    <button
+                      key={sId || idx}
+                      type="button"
+                      onClick={() => {
+                        setSelectedChatSessionId(sId);
+                        fetchSessionChat(sId);
+                      }}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer min-h-[32px] ${
+                        isSelected
+                          ? 'bg-midnight text-aliceblue shadow-subtle'
+                          : 'bg-white text-midnight/70 hover:text-midnight border border-timberwolf/40'
+                      }`}
+                    >
+                      {dateStr} ({s.duration_minutes}m)
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Chat Transcript Stream */}
+            <div className="flex-1 min-h-[280px] max-h-[440px] p-5 overflow-y-auto space-y-3.5 text-xs overscroll-contain">
+              {loadingChat ? (
+                <div className="py-20 text-center space-y-2 text-midnight/60">
+                  <div className="w-7 h-7 border-2 border-moonstone border-t-transparent rounded-full animate-spin mx-auto" />
+                  <p className="text-xs font-medium">Loading consultation transcript...</p>
+                </div>
+              ) : chatError ? (
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs text-center space-y-2">
+                  <p>{chatError}</p>
+                  {selectedChatSessionId && (
+                    <button
+                      type="button"
+                      onClick={() => fetchSessionChat(selectedChatSessionId)}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 text-white font-bold text-xs cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              ) : chatMessages.length === 0 ? (
+                <div className="py-16 text-center space-y-2 text-midnight/50">
+                  <MessageSquare className="w-8 h-8 text-timberwolf-dark mx-auto" />
+                  <p className="font-bold text-sm text-midnight">No messages in this consultation</p>
+                  <p className="text-xs">No chat notes or files were exchanged during this session.</p>
+                </div>
+              ) : (
+                chatMessages.map((msg) => {
+                  const isMe = msg.sender_id === user?.id;
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} space-y-1`}
+                    >
+                      <div className="flex items-center gap-1.5 text-[10px] text-midnight/50 px-1">
+                        <span className="font-bold">{isMe ? 'You' : msg.sender_name || selectedChatExpert.expert_name}</span>
+                        <span>•</span>
+                        <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      <div
+                        className={`p-3 rounded-2xl max-w-[80%] leading-relaxed ${
+                          isMe
+                            ? 'bg-midnight text-aliceblue rounded-tr-none'
+                            : 'bg-aliceblue text-midnight border border-timberwolf/40 rounded-tl-none'
+                        }`}
+                      >
+                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                        {msg.file_url && (
+                          <div className="mt-2 pt-2 border-t border-white/20">
+                            <a
+                              href={msg.file_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 underline font-bold text-xs"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>{msg.file_name || 'Attached Document'}</span>
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer Banner */}
+            <div className="p-4 bg-aliceblue/50 border-t border-timberwolf/40 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shrink-0">
+              <span className="flex items-center gap-1.5 text-midnight/60 text-center sm:text-left">
+                <Lock className="w-3.5 h-3.5 text-moonstone shrink-0" />
+                <span>Consultation concluded. This archive is preserved as an immutable, read-only record.</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setChatModalOpen(false)}
+                className="btn-shine px-4 py-2 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover min-h-[40px] cursor-pointer"
+              >
+                Close Transcript
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* REHIRE CONSULTATION MODAL */}
+      {/* ========================================================================= */}
+      {rehireModalOpen && rehireExpert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-midnight/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl border border-timberwolf/70 shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-scale-in">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-timberwolf/40 flex items-center justify-between gap-3 bg-aliceblue/30 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src={rehireExpert.expert_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(rehireExpert.expert_name)}`}
+                  alt={rehireExpert.expert_name}
+                  className="w-11 h-11 rounded-xl object-cover border border-lightblue shrink-0"
+                />
+                <div className="min-w-0">
+                  <h3 className="font-bold text-base text-midnight truncate">Rehire {rehireExpert.expert_name}</h3>
+                  <p className="text-xs text-midnight/70 truncate">
+                    {rehireExpert.service_title || 'Expert Consultation'} • {formatINR(rehireExpert.price_per_minute || 50)}/min
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setRehireModalOpen(false)}
+                className="p-2 rounded-xl text-midnight/60 hover:text-midnight hover:bg-white border border-transparent hover:border-timberwolf/60 min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleRehireSubmit} className="p-5 overflow-y-auto space-y-4 text-xs">
+              {rehireError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl">
+                  {rehireError}
+                </div>
+              )}
+
+              {rehireSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-bold">{rehireSuccess}</span>
+                </div>
+              )}
+
+              {/* 1. Duration Selection */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-midnight block">Select Consultation Duration</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[15, 30, 45, 60].map((mins) => {
+                    const price = (rehireExpert.price_per_minute || 50) * mins;
+                    const isSelected = rehireDuration === mins;
+                    return (
+                      <button
+                        key={mins}
+                        type="button"
+                        onClick={() => setRehireDuration(mins)}
+                        className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer min-h-[52px] ${
+                          isSelected
+                            ? 'bg-midnight text-aliceblue border-midnight shadow-subtle'
+                            : 'bg-aliceblue/40 text-midnight border-timberwolf/60 hover:border-moonstone'
+                        }`}
+                      >
+                        <span className="block font-bold text-xs">{mins} mins</span>
+                        <span className="block text-[10px] opacity-80 font-mono mt-0.5">{formatINR(price)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Timing */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-midnight block">When would you like to connect?</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRehireConnectType('now')}
+                    className={`p-3 rounded-xl border text-left cursor-pointer transition-all min-h-[44px] ${
+                      rehireConnectType === 'now'
+                        ? 'bg-midnight text-aliceblue border-midnight'
+                        : 'bg-aliceblue/40 text-midnight border-timberwolf/60 hover:border-moonstone'
+                    }`}
+                  >
+                    <span className="block font-bold text-xs">Connect Now</span>
+                    <span className="block text-[10px] opacity-80 mt-0.5">Immediate 10m expert confirmation</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRehireConnectType('scheduled')}
+                    className={`p-3 rounded-xl border text-left cursor-pointer transition-all min-h-[44px] ${
+                      rehireConnectType === 'scheduled'
+                        ? 'bg-midnight text-aliceblue border-midnight'
+                        : 'bg-aliceblue/40 text-midnight border-timberwolf/60 hover:border-moonstone'
+                    }`}
+                  >
+                    <span className="block font-bold text-xs">Schedule Ahead</span>
+                    <span className="block text-[10px] opacity-80 mt-0.5">Pick a specific date & time</span>
+                  </button>
+                </div>
+
+                {rehireConnectType === 'scheduled' && (
+                  <div className="pt-2">
+                    <input
+                      type="datetime-local"
+                      value={rehireScheduledStart}
+                      onChange={(e) => setRehireScheduledStart(e.target.value)}
+                      min={new Date(Date.now() + 15 * 60 * 1000).toISOString().slice(0, 16)}
+                      required
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-timberwolf bg-white text-midnight text-xs focus:ring-2 focus:ring-moonstone outline-none"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Problem Description / Topic */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-midnight block">
+                  Consultation Topic & Problem Description <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  value={rehireProblemDescription}
+                  onChange={(e) => setRehireProblemDescription(e.target.value)}
+                  placeholder="Describe your questions, project challenge, or what you'd like guidance on..."
+                  rows={3}
+                  required
+                  className="w-full p-3 rounded-xl border border-timberwolf bg-white text-midnight text-xs focus:ring-2 focus:ring-moonstone outline-none resize-none leading-relaxed"
+                />
+                <span className="text-[10px] text-midnight/50">Clean plain text. No quotes or formatting artifacts.</span>
+              </div>
+
+              {/* Approval-First Notice */}
+              <div className="p-3 bg-aliceblue/60 border border-timberwolf/40 rounded-xl space-y-1 text-midnight/80">
+                <div className="font-bold text-xs flex items-center gap-1.5 text-moonstone">
+                  <ShieldCheck className="w-4 h-4 text-moonstone" />
+                  <span>Approval-First Guarantee</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  You will <strong>NOT</strong> be charged right now. {rehireExpert.expert_name} will review your topic first. Once accepted, you will have 10 minutes to verify payment and enter the workspace.
+                </p>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-timberwolf/30">
+                <button
+                  type="button"
+                  onClick={() => setRehireModalOpen(false)}
+                  disabled={submittingRehire}
+                  className="px-4 py-2.5 rounded-xl border border-timberwolf text-midnight text-xs font-bold hover:bg-aliceblue min-h-[44px] cursor-pointer"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={submittingRehire || !rehireProblemDescription.trim()}
+                  className="btn-shine px-5 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle min-h-[44px] inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {submittingRehire ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span>Submit Consultation Request • {formatINR((rehireExpert.price_per_minute || 50) * rehireDuration)}</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
     </div>

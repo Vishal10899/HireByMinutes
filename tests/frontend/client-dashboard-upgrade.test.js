@@ -196,6 +196,14 @@ async function runClientDashboardUpgradeSuite() {
     assert(apiCode.includes('getClientConsultations:'), 'api.ts must export getClientConsultations');
     assert(apiCode.includes('getClientPaymentHistory:'), 'api.ts must export getClientPaymentHistory');
     assert(apiCode.includes('getClientDashboard:'), 'api.ts must retain getClientDashboard');
+    assert(apiCode.includes('cancelConsultationRequest:'), 'api.ts must export cancelConsultationRequest');
+  });
+
+  test('7b. Dashboard includes Read Chats, Rehire, Cancel Request, and topic normalization', () => {
+    assert(dashboardCode.includes('Read Chats'), 'Must have Read Chats action');
+    assert(dashboardCode.includes('Rehire'), 'Must have Rehire action');
+    assert(dashboardCode.includes('Cancel Request'), 'Must have Cancel Request action for pending requests');
+    assert(dashboardCode.includes('normalizeTopic'), 'Must have normalizeTopic helper');
   });
 
   // --- Suite 2: Server-Authoritative Endpoints & Calculations ---
@@ -299,10 +307,12 @@ async function runClientDashboardUpgradeSuite() {
 
         // 4. Pending expert request for Client A
         const reqPendingId = 'cr-test-pending';
+        const futureStart = new Date(Date.now() + 3600 * 1000).toISOString();
+        const futureDeadline = new Date(Date.now() + 2 * 3600 * 1000).toISOString();
         db.prepare(`
           INSERT INTO consultation_requests (id, client_id, provider_id, service_id, duration_minutes, price_per_minute, total_price, connect_type, scheduled_start, problem_description, response_deadline, status)
-          VALUES (?, ?, ?, ?, 30, 50.00, 1500, 'scheduled', '2026-10-15 16:00:00', 'Pending infra review', '2026-10-15 18:00:00', 'PENDING_EXPERT')
-        `).run(reqPendingId, clientAId, expert1Id, service1Id);
+          VALUES (?, ?, ?, ?, 30, 50.00, 1500, 'scheduled', ?, 'Pending infra review', ?, 'PENDING_EXPERT')
+        `).run(reqPendingId, clientAId, expert1Id, service1Id, futureStart, futureDeadline);
 
         // 5. Payments for Client A:
         // Payment 1: ₹1500 succeeded
@@ -490,6 +500,70 @@ async function runClientDashboardUpgradeSuite() {
 
           const resPayments = await makeRequest('/api/client/payments');
           assert.strictEqual(resPayments.status, 401);
+        });
+
+        await asyncTest('16. Authoritative lifecycle statuses: Completed sessions have status COMPLETED and never show payment action', async () => {
+          const res = await makeRequest('/api/dashboards/client', {
+            headers: { Authorization: `Bearer ${tokenA}` }
+          });
+          assert.strictEqual(res.status, 200);
+          const completedConsultations = res.data.consultations.filter(c => c.id === req1Id || c.id === req2Id || c.id === req3Id);
+          assert.strictEqual(completedConsultations.length, 3);
+          for (const c of completedConsultations) {
+            assert.strictEqual(c.status, 'COMPLETED', 'Session must have authoritative COMPLETED status');
+          }
+        });
+
+        await asyncTest('17. Cancellation: Client can cancel a pending consultation request', async () => {
+          const resCancel = await makeRequest(`/api/consultation-requests/${reqPendingId}/cancel`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${tokenA}` }
+          });
+          assert.strictEqual(resCancel.status, 200);
+          assert.strictEqual(resCancel.data.request.status, 'CANCELLED');
+
+          // Verify updated status in dashboard
+          const resDash = await makeRequest('/api/dashboards/client', {
+            headers: { Authorization: `Bearer ${tokenA}` }
+          });
+          const cancelledReq = resDash.data.consultations.find(c => c.id === reqPendingId);
+          assert.strictEqual(cancelledReq.status, 'CANCELLED');
+        });
+
+        await asyncTest('18. Rehire: Creates a fresh request preserving acceptance-first flow without modifying old sessions', async () => {
+          const resRehire = await makeRequest('/api/consultation-requests', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${tokenA}` },
+            body: {
+              service_id: service1Id,
+              duration_minutes: 30,
+              connect_type: 'now',
+              problem_description: '""Follow-up on database indexing""'
+            }
+          });
+          assert([200, 201].includes(resRehire.status), 'Must return 200 or 201 Created');
+          assert(resRehire.data.request.id, 'Must return new request ID');
+          assert.notStrictEqual(resRehire.data.request.id, req1Id);
+          assert.strictEqual(resRehire.data.request.status, 'PENDING_EXPERT');
+          assert.strictEqual(resRehire.data.request.problem_description, 'Follow-up on database indexing', 'Quotes and serialization artifacts must be stripped');
+
+          // Old completed sessions are untouched
+          const oldSession = db.prepare('SELECT status FROM sessions WHERE id = ?').get(sess1Id);
+          assert.strictEqual(oldSession.status, 'COMPLETED');
+
+          // Clean up created request
+          db.prepare('DELETE FROM consultation_requests WHERE id = ?').run(resRehire.data.request.id);
+          db.prepare('DELETE FROM bookings WHERE id = ?').run(resRehire.data.request.id);
+        });
+
+        await asyncTest('19. Read-only consultation history access & topic formatting', async () => {
+          const resSession = await makeRequest(`/api/sessions/${sess1Id}`, {
+            headers: { Authorization: `Bearer ${tokenA}` }
+          });
+          assert.strictEqual(resSession.status, 200);
+          assert(resSession.data.session, 'Must return session object');
+          assert(Array.isArray(resSession.data.messages), 'Must return messages array');
+          assert.strictEqual(resSession.data.session.status, 'COMPLETED');
         });
 
         // Cleanup

@@ -816,6 +816,69 @@ function runAdminPersistenceTests() {
         console.log(`SUMMARY: ${testsPassed} / ${testsPassed + testsFailed} admin persistence tests passed.`);
         console.log('======================================================================\n');
 
+        // ---------------------------------------------------------------------
+        // TEARDOWN: Clean up test mutations from platform_settings table
+        // ---------------------------------------------------------------------
+        try {
+          const defaultCleanFooter = {
+            company_description: 'Expertise by the minute.',
+            contact_email: 'support@hirebyminutes.com',
+            contact_phone: '+1 (800) 555-0199',
+            address: 'San Francisco, CA, United States',
+            copyright_text: '© {year} HireByMinutes. All rights reserved.',
+            designer_credit: 'Designed & Developed by Vishal Chaudhary',
+            social_links: [
+              { platform: 'twitter', url: 'https://twitter.com/hirebyminutes', is_visible: true },
+              { platform: 'linkedin', url: 'https://linkedin.com/company/hirebyminutes', is_visible: true },
+              { platform: 'github', url: 'https://github.com/hirebyminutes', is_visible: true }
+            ],
+            sections: {
+              forClients: [
+                { id: 'find-experts', label: 'Find Experts', url: '/services', order: 1, is_visible: true },
+                { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 2, is_visible: true },
+                { id: 'pricing', label: 'Pricing', url: '/services', order: 3, is_visible: true },
+                { id: 'faq', label: 'FAQ', url: '/faq', order: 4, is_visible: true }
+              ],
+              forExperts: [
+                { id: 'join-expert', label: 'Join as an Expert', url: '/provider/onboard', order: 1, is_visible: true },
+                { id: 'expert-guidelines', label: 'Expert Guidelines', url: '/expert-policy', order: 2, is_visible: true },
+                { id: 'earnings', label: 'Earnings', url: '/provider', order: 3, is_visible: true },
+                { id: 'support', label: 'Support', url: '/contact', order: 4, is_visible: true }
+              ],
+              company: [
+                { id: 'about', label: 'About Us', url: '/about', order: 1, is_visible: true },
+                { id: 'contact', label: 'Contact', url: '/contact', order: 2, is_visible: true },
+                { id: 'blog', label: 'Blog', url: '/blog', order: 3, is_visible: true },
+                { id: 'privacy', label: 'Privacy Policy', url: '/privacy', order: 4, is_visible: true },
+                { id: 'terms', label: 'Terms of Service', url: '/terms', order: 5, is_visible: true }
+              ]
+            }
+          };
+          db.prepare("UPDATE platform_settings SET value = ? WHERE key = 'footer_settings'").run(JSON.stringify(defaultCleanFooter));
+          const contactRow = db.prepare("SELECT value FROM platform_settings WHERE key = 'contact_settings'").get();
+          if (contactRow) {
+            const c = JSON.parse(contactRow.value);
+            c.support_email = 'support@hirebyminutes.com';
+            c.phone = '+1 (800) 555-0199';
+            db.prepare("UPDATE platform_settings SET value = ? WHERE key = 'contact_settings'").run(JSON.stringify(c));
+          }
+          const homeRow = db.prepare("SELECT value FROM platform_settings WHERE key = 'homepage_settings'").get();
+          if (homeRow) {
+            const h = JSON.parse(homeRow.value);
+            h.hero_headline = 'Expert Help. On Your Terms. By the Minute.';
+            db.prepare("UPDATE platform_settings SET value = ? WHERE key = 'homepage_settings'").run(JSON.stringify(h));
+          }
+          const seoRow = db.prepare("SELECT value FROM platform_settings WHERE key = 'seo_settings'").get();
+          if (seoRow) {
+            const s = JSON.parse(seoRow.value);
+            s.site_title = 'HireByMinutes — Expert Consultations by the Minute';
+            s.og_title = 'HireByMinutes — Expert Consultations by the Minute';
+            db.prepare("UPDATE platform_settings SET value = ? WHERE key = 'seo_settings'").run(JSON.stringify(s));
+          }
+        } catch (cleanupErr) {
+          console.warn('Teardown cleanup error:', cleanupErr.message);
+        }
+
         if (testsFailed > 0) {
           console.error(`💥 ${testsFailed} test(s) failed.`);
           server.close(() => process.exit(1));

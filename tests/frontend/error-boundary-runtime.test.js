@@ -85,6 +85,48 @@ it('6. BannerAnnouncement safely parses sessionStorage and guards array filter',
   assert(bannerTsx.includes('Array.isArray(banners)'), 'Must verify banners is an array before filter');
 });
 
+const footerPath = path.join(__dirname, '../../client/src/components/layout/Footer.tsx');
+const footerTsx = fs.readFileSync(footerPath, 'utf8');
+
+it('6b. Footer sanitizes company_description and strictly prevents raw timestamps/debug metadata from rendering', () => {
+  assert(footerTsx.includes('cleanCompanyDescription'), 'Footer must implement cleanCompanyDescription sanitization');
+  assert(footerTsx.includes('hasRawTimestamp'), 'Footer must inspect for raw timestamps');
+  assert(footerTsx.includes('hasUnsubstantiatedPlatformClaim'), 'Footer must inspect for ungrounded platform verification claims');
+  assert(footerTsx.includes('Expertise by the minute'), 'Footer must fall back to clean brand tagline');
+  assert(!footerTsx.includes('verified at timestamp'), 'Footer source must never contain raw timestamp debug strings');
+
+  // Verify cleanCompanyDescription implementation in Footer.tsx
+  const fnCodeMatch = footerTsx.match(/const cleanCompanyDescription = \([\s\S]*?\n  \};/);
+  assert(fnCodeMatch, 'Must find cleanCompanyDescription in Footer.tsx');
+
+  // Strip TypeScript types to evaluate in Node runtime
+  const jsCode = fnCodeMatch[0]
+    .replace('const cleanCompanyDescription = ', 'return ')
+    .replace(/\(rawDesc\?: string\): string =>/, '(rawDesc) =>');
+  const cleanFn = new Function(jsCode)();
+
+  // Test 1: Problem statement payload
+  const result1 = cleanFn('Precision consulting platform verified at timestamp 1792076073233.');
+  assert.strictEqual(result1, 'Expertise by the minute.', 'Must replace timestamp payload with clean brand tagline');
+
+  // Test 2: Arbitrary epoch timestamp payload
+  const result2 = cleanFn('Platform build 1792076099999 online.');
+  assert.strictEqual(result2, 'Expertise by the minute.', 'Must replace epoch timestamp payload with clean brand tagline');
+
+  // Test 3: Unsubstantiated platform verification claim
+  const result3 = cleanFn('Our platform is verified by global audit.');
+  assert.strictEqual(result3, 'Expertise by the minute.', 'Must replace unsubstantiated platform claim with clean brand tagline');
+
+  // Test 4: Legitimate clean description passes through
+  const legitimate = 'Connect with skilled professionals for quick consultations, career guidance, and technical help.';
+  const result4 = cleanFn(legitimate);
+  assert.strictEqual(result4, legitimate, 'Must preserve legitimate clean descriptions');
+
+  // Test 5: Empty/undefined input
+  const result5 = cleanFn('');
+  assert.strictEqual(result5, 'Expertise by the minute.', 'Must default to brand tagline on empty input');
+});
+
 // Suite 3: Auth Initialization & Network Resilience
 console.log('\n--- Suite 3: Auth Initialization & Network Resilience ---');
 

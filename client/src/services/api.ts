@@ -461,6 +461,18 @@ export const api = {
     return res.json();
   },
 
+  cancelConsultationRequest: async (id: string) => {
+    const res = await fetch(`${API_BASE}/consultation-requests/${id}/cancel`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to cancel consultation request');
+    }
+    return res.json();
+  },
+
   payConsultationRequest: async (id: string) => {
     const res = await fetch(`${API_BASE}/consultation-requests/${id}/pay`, {
       method: 'POST',
@@ -1668,6 +1680,19 @@ export const api = {
   getFaqs: async () => {
     const res = await fetch(`${API_BASE}/faqs`);
     if (!res.ok) throw new Error('Failed to fetch FAQs');
+    return res.json();
+  },
+
+  // Public Platform Stats & Reviews
+  getPlatformStats: async () => {
+    const res = await fetch(`${API_BASE}/platform/stats`);
+    if (!res.ok) throw new Error('Failed to fetch platform stats');
+    return res.json();
+  },
+
+  getPublicReviews: async () => {
+    const res = await fetch(`${API_BASE}/reviews/public`);
+    if (!res.ok) throw new Error('Failed to fetch public reviews');
     return res.json();
   },
 

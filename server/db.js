@@ -1776,8 +1776,8 @@ function ensureSettingsAndAdmin(dbInstance) {
   insertSetting.run('header_navigation', JSON.stringify([
     { id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true, is_external: false },
     { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 2, is_visible: true, is_external: false },
-    { id: 'jobs', label: 'Jobs', url: '/jobs', order: 3, is_visible: true, is_external: false },
-    { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 4, is_visible: true, is_external: false }
+    { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 3, is_visible: true, is_external: false },
+    { id: 'blog', label: 'Blog', url: '/blog', order: 4, is_visible: true, is_external: false }
   ]), 'Configurable header navigation items and ordering');
   insertSetting.run('header_cta_label', 'Sign In / Join', 'Header call-to-action button label');
   insertSetting.run('header_cta_url', '/auth', 'Header call-to-action destination URL');

@@ -5,6 +5,11 @@ function completeSession(sessionId, { io, completedBy = 'timer' } = {}) {
   const session = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
   if (!session) return null;
   if (session.status === 'COMPLETED' || session.status === 'EXPIRED') {
+    if (session.booking_id) {
+      db.prepare(`UPDATE consultation_requests SET status = 'COMPLETED' WHERE (id = ? OR session_id = ?) AND status != 'COMPLETED'`).run(session.booking_id, session.id);
+    } else {
+      db.prepare(`UPDATE consultation_requests SET status = 'COMPLETED' WHERE session_id = ? AND status != 'COMPLETED'`).run(session.id);
+    }
     return session;
   }
 
@@ -18,7 +23,9 @@ function completeSession(sessionId, { io, completedBy = 'timer' } = {}) {
   db.prepare(`UPDATE sessions SET status = 'COMPLETED', actual_end = ? WHERE id = ?`).run(now, session.id);
   if (session.booking_id) {
     db.prepare(`UPDATE bookings SET status = 'COMPLETED' WHERE id = ?`).run(session.booking_id);
-    db.prepare(`UPDATE consultation_requests SET status = 'COMPLETED' WHERE id = ?`).run(session.booking_id);
+    db.prepare(`UPDATE consultation_requests SET status = 'COMPLETED' WHERE id = ? OR session_id = ?`).run(session.booking_id, session.id);
+  } else {
+    db.prepare(`UPDATE consultation_requests SET status = 'COMPLETED' WHERE session_id = ?`).run(session.id);
   }
   db.prepare(`UPDATE users SET sessions_completed = sessions_completed + 1 WHERE id IN (?, ?)`).run(session.provider_id, session.client_id);
 

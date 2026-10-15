@@ -83,7 +83,7 @@ export interface Service {
   created_at?: string;
 }
 
-export type ConsultationRequestStatus = 'PENDING_EXPERT' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'PAID' | 'CANCELLED' | 'COMPLETED';
+export type ConsultationRequestStatus = 'PENDING_EXPERT' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'PAID' | 'CANCELLED' | 'COMPLETED' | 'ACTIVE';
 
 export interface ConsultationRequest {
   id: string;

@@ -76,50 +76,48 @@ interface SiteSettingsContextType {
 const DEFAULT_NAV_ITEMS: NavItem[] = [
   { id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true, is_external: false },
   { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 2, is_visible: true, is_external: false },
-  { id: 'jobs', label: 'Jobs', url: '/jobs', order: 3, is_visible: true, is_external: false },
-  { id: 'blog', label: 'Blog', url: '/blog', order: 4, is_visible: true, is_external: false },
-  { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 5, is_visible: true, is_external: false }
+  { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 3, is_visible: true, is_external: false },
+  { id: 'blog', label: 'Blog', url: '/blog', order: 4, is_visible: true, is_external: false }
 ];
 
 const DEFAULT_FOOTER_SETTINGS: FooterSettings = {
-  company_description: 'The precision marketplace for on-demand consultations. Hire verified experts for exactly the minutes you need, or monetize specialized knowledge with zero retainers.',
-  contact_email: 'support@hirebyminute.com',
+  company_description: 'Expertise by the minute.',
+  contact_email: 'support@hirebyminutes.com',
   contact_phone: '+1 (800) 555-0199',
   address: 'San Francisco, CA, United States',
-  copyright_text: '© {year} HireByMinute. All rights reserved.',
+  copyright_text: '© {year} HireByMinutes. All rights reserved.',
   designer_credit: 'Designed & Developed by Vishal Chaudhary',
   social_links: [
-    { platform: 'twitter', url: 'https://twitter.com/hirebyminute', is_visible: true },
-    { platform: 'linkedin', url: 'https://linkedin.com/company/hirebyminute', is_visible: true },
-    { platform: 'github', url: 'https://github.com/hirebyminute', is_visible: true }
+    { platform: 'twitter', url: 'https://twitter.com/hirebyminutes', is_visible: true },
+    { platform: 'linkedin', url: 'https://linkedin.com/company/hirebyminutes', is_visible: true },
+    { platform: 'github', url: 'https://github.com/hirebyminutes', is_visible: true }
   ],
   sections: {
     platform: [
-      { id: 'about', label: 'About Us', url: '/about', order: 1, is_visible: true },
+      { id: 'find-experts', label: 'Find Experts', url: '/services', order: 1, is_visible: true },
       { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 2, is_visible: true },
-      { id: 'services', label: 'Browse Services', url: '/services', order: 3, is_visible: true },
-      { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 4, is_visible: true, is_new: true },
-      { id: 'jobs', label: 'Jobs', url: '/jobs', order: 5, is_visible: true },
-      { id: 'blog', label: 'Insights & Blog', url: '/blog', order: 6, is_visible: true }
+      { id: 'pricing', label: 'Pricing', url: '/services', order: 3, is_visible: true },
+      { id: 'faq', label: 'FAQ', url: '/faq', order: 4, is_visible: true }
     ],
     policies: [
-      { id: 'terms', label: 'Terms of Service', url: '/terms', order: 1, is_visible: true },
-      { id: 'privacy', label: 'Privacy Policy', url: '/privacy', order: 2, is_visible: true },
-      { id: 'refund', label: 'Refund & Cancellation', url: '/refund-policy', order: 3, is_visible: true },
-      { id: 'expert-policy', label: 'Expert Policy', url: '/expert-policy', order: 4, is_visible: true },
-      { id: 'acceptable-use', label: 'Acceptable Use', url: '/acceptable-use', order: 5, is_visible: true }
+      { id: 'about', label: 'About Us', url: '/about', order: 1, is_visible: true },
+      { id: 'contact', label: 'Contact', url: '/contact', order: 2, is_visible: true },
+      { id: 'blog', label: 'Blog', url: '/blog', order: 3, is_visible: true },
+      { id: 'privacy', label: 'Privacy Policy', url: '/privacy', order: 4, is_visible: true },
+      { id: 'terms', label: 'Terms of Service', url: '/terms', order: 5, is_visible: true }
     ],
     support: [
-      { id: 'contact', label: 'Contact / Support', url: '/contact', order: 1, is_visible: true, icon: 'mail' },
-      { id: 'become-provider', label: 'Become a Provider', url: '/provider/onboard', order: 2, is_visible: true },
-      { id: 'provider-dashboard', label: 'Provider Dashboard', url: '/provider', order: 3, is_visible: true }
+      { id: 'join-expert', label: 'Join as an Expert', url: '/provider/onboard', order: 1, is_visible: true },
+      { id: 'expert-guidelines', label: 'Expert Guidelines', url: '/expert-policy', order: 2, is_visible: true },
+      { id: 'earnings', label: 'Earnings', url: '/provider', order: 3, is_visible: true },
+      { id: 'support', label: 'Support', url: '/contact', order: 4, is_visible: true }
     ]
   }
 };
 
 const DEFAULT_CONTACT_SETTINGS: ContactSettings = {
-  support_email: 'support@hirebyminute.com',
-  business_email: 'business@hirebyminute.com',
+  support_email: 'support@hirebyminutes.com',
+  business_email: 'business@hirebyminutes.com',
   phone: '+1 (800) 555-0199',
   support_hours: 'Monday – Friday: 9:00 AM – 6:00 PM EST (24/7 Escalation Desk)',
   address: 'San Francisco, CA, United States',
@@ -130,11 +128,11 @@ const DEFAULT_CONTACT_SETTINGS: ContactSettings = {
 const SiteSettingsContext = createContext<SiteSettingsContextType | undefined>(undefined);
 
 export const SiteSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [siteName, setSiteName] = useState<string>('HireByMinute');
+  const [siteName, setSiteName] = useState<string>('HireByMinutes');
   const [logoUrl, setLogoUrl] = useState<string>('');
   const [navItems, setNavItems] = useState<NavItem[]>(DEFAULT_NAV_ITEMS);
-  const [ctaLabel, setCtaLabel] = useState<string>('Sign In / Join');
-  const [ctaUrl, setCtaUrl] = useState<string>('/auth');
+  const [ctaLabel, setCtaLabel] = useState<string>('Get Started');
+  const [ctaUrl, setCtaUrl] = useState<string>('/signup');
   const [footerSettings, setFooterSettings] = useState<FooterSettings>(DEFAULT_FOOTER_SETTINGS);
   const [contactSettings, setContactSettings] = useState<ContactSettings>(DEFAULT_CONTACT_SETTINGS);
   const [loading, setLoading] = useState<boolean>(false);
@@ -160,7 +158,14 @@ export const SiteSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
 
       if (footerData.status === 'fulfilled' && footerData.value?.footer) {
-        setFooterSettings(footerData.value.footer);
+        const footer = { ...footerData.value.footer };
+        if (footer.company_description && (
+          /\b\d{10,13}\b|timestamp\s*\d+|audit-\d+/i.test(footer.company_description) ||
+          /platform\s+(?:is\s+)?verified/i.test(footer.company_description)
+        )) {
+          footer.company_description = 'Expertise by the minute.';
+        }
+        setFooterSettings(footer);
       }
 
       if (contactData.status === 'fulfilled' && contactData.value?.contact) {

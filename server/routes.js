@@ -406,17 +406,19 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       `).all();
 
       const defaultNav = [
-        { id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true, is_external: false },
-        { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 2, is_visible: true, is_external: false },
-        { id: 'how-it-works', label: 'How It Works', url: '/#how-it-works', order: 3, is_visible: true, is_external: false }
+        { id: 'find-experts', label: 'Find Experts', url: '/services', order: 1, is_visible: true, is_external: false },
+        { id: 'services', label: 'Services', url: '/services', order: 2, is_visible: true, is_external: false },
+        { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 3, is_visible: true, is_external: false },
+        { id: 'categories', label: 'Categories', url: '/#categories', order: 4, is_visible: true, is_external: false },
+        { id: 'for-experts', label: 'For Experts', url: '/provider/onboard', order: 5, is_visible: true, is_external: false }
       ];
 
       const result = {
-        platform_name: 'HireByMinute',
+        platform_name: 'HireByMinutes',
         logo_url: '',
         header_navigation: defaultNav,
-        header_cta_label: 'Sign In / Join',
-        header_cta_url: '/auth'
+        header_cta_label: 'Get Started',
+        header_cta_url: '/signup'
       };
 
       rows.forEach(r => {
@@ -452,8 +454,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     try {
       const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'footer_settings'").get();
       const defaultFooter = {
-        company_description: 'The precision marketplace for on-demand consultations. Hire verified experts for exactly the minutes you need, or monetize specialized knowledge with zero retainers.',
-        contact_email: 'support@hirebyminute.com',
+        company_description: 'Expertise by the minute.',
+        contact_email: 'support@hirebyminutes.com',
         contact_phone: '+1 (800) 555-0199',
         address: 'San Francisco, CA, United States',
         copyright_text: '© {year} HireByMinute. All rights reserved.',
@@ -781,6 +783,54 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     }
   });
   router.get('/platform/faqs', (req, res) => res.redirect(307, '/api/faqs'));
+
+  // Public Platform Statistics Endpoint (Authentic platform metrics)
+  router.get('/platform/stats', (req, res) => {
+    try {
+      const expertCount = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'provider' AND verified = 1").get()?.c || 0;
+      const totalProviders = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'provider'").get()?.c || 0;
+      const consultationsCompleted = db.prepare("SELECT COUNT(*) as c FROM sessions WHERE status = 'completed'").get()?.c || 0;
+      const totalSessions = db.prepare("SELECT COUNT(*) as c FROM sessions").get()?.c || 0;
+      const avgRatingRow = db.prepare("SELECT AVG(rating) as avg, COUNT(*) as c FROM reviews WHERE is_hidden = 0").get();
+      const avgRating = avgRatingRow?.avg ? Number(Number(avgRatingRow.avg).toFixed(1)) : 4.9;
+
+      res.json({
+        verified_experts: expertCount > 0 ? expertCount : totalProviders,
+        consultations_completed: consultationsCompleted,
+        total_sessions: totalSessions,
+        average_rating: avgRatingRow?.avg ? Number(Number(avgRatingRow.avg).toFixed(1)) : null,
+        payment_protection: 'Approval-First Billing'
+      });
+    } catch (err) {
+      console.error('[Platform Stats] Error:', err.message);
+      res.status(500).json({ error: 'Failed to retrieve platform stats' });
+    }
+  });
+
+  // Public Reviews / Testimonials Endpoint (Authentic non-hidden reviews)
+  router.get('/reviews/public', (req, res) => {
+    try {
+      const reviews = db.prepare(`
+        SELECT r.id, r.rating, r.comment, r.created_at,
+               c.full_name as client_name, c.avatar_url as client_avatar, c.headline as client_headline,
+               p.full_name as provider_name, srv.title as service_title
+        FROM reviews r
+        JOIN users c ON r.client_id = c.id
+        JOIN users p ON r.provider_id = p.id
+        JOIN services srv ON r.service_id = srv.id
+        WHERE r.is_hidden = 0
+        ORDER BY r.rating DESC, r.created_at DESC
+        LIMIT 6
+      `).all().map(r => ({
+        ...r,
+        rating: Number(r.rating) || 5
+      }));
+      res.json({ reviews: reviews || [] });
+    } catch (err) {
+      console.error('[Public Reviews Error]:', err.message);
+      res.status(500).json({ error: 'Failed to retrieve public reviews' });
+    }
+  });
 
   // --- HELPER AUTH MIDDLEWARES ---
   const authMiddleware = (req, res, next) => {
@@ -2425,6 +2475,25 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   // Set periodic background sweeper (every 5 seconds)
   setInterval(() => checkAndExpireRequests(io), 5000);
 
+  // Helper to normalize and sanitize problem description / topic strings
+  function normalizeTopicText(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    let text = raw.trim();
+    if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+      try {
+        const parsed = JSON.parse(text);
+        if (typeof parsed === 'string') text = parsed.trim();
+      } catch {
+        text = text.replace(/^["']+|["']+$/g, '').trim();
+      }
+    }
+    text = text.replace(/\\"/g, '"').replace(/\\'/g, "'").trim();
+    while ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+      text = text.slice(1, -1).trim();
+    }
+    return text;
+  }
+
   // Helper to format consultation request with remaining_seconds
   function formatConsultationRequest(reqItem) {
     if (!reqItem) return null;
@@ -2442,6 +2511,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       total_price: Number(reqItem.total_price) || 0,
       duration_minutes: Number(reqItem.duration_minutes) || 0,
       service_ppm: Number(reqItem.service_ppm) || 0,
+      problem_description: normalizeTopicText(reqItem.problem_description),
       attachments: JSON.parse(reqItem.attachments_json || '[]'),
       remaining_seconds
     };
@@ -2541,7 +2611,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       totalPrice,
       connect_type,
       startTime.toISOString(),
-      problem_description.trim(),
+      normalizeTopicText(problem_description),
       JSON.stringify(attachments),
       responseDeadline,
       rewardPointsRedeemed,
@@ -2561,7 +2631,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       totalPrice,
       startTime.toISOString(),
       new Date(startTime.getTime() + duration * 60 * 1000).toISOString(),
-      problem_description.trim(),
+      normalizeTopicText(problem_description),
       rewardPointsRedeemed,
       rewardDiscountAmount
     );
@@ -2832,6 +2902,75 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     });
   });
 
+  // Client Cancels PENDING_EXPERT or ACCEPTED Consultation Request
+  router.post('/consultation-requests/:id/cancel', authMiddleware, (req, res) => {
+    checkAndExpireRequests(io);
+
+    const request = db.prepare(`
+      SELECT cr.*, s.title as service_title,
+             c.full_name as client_name, c.email as client_email,
+             p.full_name as provider_name
+      FROM consultation_requests cr
+      JOIN services s ON cr.service_id = s.id
+      JOIN users c ON cr.client_id = c.id
+      JOIN users p ON cr.provider_id = p.id
+      WHERE cr.id = ?
+    `).get(req.params.id);
+
+    if (!request) {
+      return res.status(404).json({ error: 'Consultation request not found.' });
+    }
+
+    if (request.client_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized: Only the requesting client can cancel this request.' });
+    }
+
+    if (!['PENDING_EXPERT', 'ACCEPTED'].includes(request.status) || request.session_id || request.payment_id) {
+      return res.status(400).json({ error: `Cannot cancel request: Current status is ${request.status} or request is already associated with a payment/session.` });
+    }
+
+    db.prepare(`
+      UPDATE consultation_requests
+      SET status = 'CANCELLED'
+      WHERE id = ?
+    `).run(request.id);
+
+    // Cancel any linked pending booking
+    db.prepare(`
+      UPDATE bookings
+      SET status = 'CANCELLED'
+      WHERE id = ? OR notes LIKE ?
+    `).run(request.id, `%${request.id}%`);
+
+    // In-app notification for Provider
+    db.prepare(`
+      INSERT INTO notifications (id, user_id, title, message, type, link)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      `notif-${uuidv4().slice(0, 8)}`,
+      request.provider_id,
+      'Consultation Request Cancelled',
+      `${request.client_name} cancelled their consultation request for "${request.service_title}".`,
+      'info',
+      `/provider`
+    );
+
+    // Socket.IO notification
+    io.to(`user_${request.provider_id}`).emit('consultation_request_cancelled', {
+      requestId: request.id,
+      clientName: request.client_name,
+      serviceTitle: request.service_title
+    });
+
+    const updated = db.prepare(`SELECT * FROM consultation_requests WHERE id = ?`).get(request.id);
+
+    res.json({
+      success: true,
+      request: formatConsultationRequest(updated),
+      message: 'Consultation request cancelled.'
+    });
+  });
+
   // 6. Client Pays for ACCEPTED Request (Creates Payment & Session; Connects Room)
   router.post('/consultation-requests/:id/pay', authMiddleware, async (req, res) => {
     checkAndExpireRequests(io);
@@ -2970,9 +3109,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       return res.status(403).json({ error: 'Unauthorized: Only the client who created this request can initiate payment.' });
     }
 
-    if (request.status !== 'ACCEPTED') {
+    if (request.status !== 'ACCEPTED' || request.session_id || request.payment_id) {
       return res.status(400).json({
-        error: `Cannot create payment order for request in ${request.status} status. The expert must accept first.`
+        error: `Cannot create payment order for request: Status is ${request.status} and it has already been paid or linked to a session.`
       });
     }
 
@@ -4257,7 +4396,24 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       WHERE cr.client_id = ?
       ORDER BY cr.created_at DESC
     `).all(userId);
-    const consultationRequests = consultationRequestsRaw.map(formatConsultationRequest);
+    const consultationRequests = consultationRequestsRaw.map(cr => {
+      const formatted = formatConsultationRequest(cr);
+      if (!formatted) return null;
+      const linkedSes = formatted.session_id
+        ? sessions.find(s => s.id === formatted.session_id)
+        : sessions.find(s => s.booking_id === formatted.id);
+      if (linkedSes?.status === 'COMPLETED' || formatted.status === 'COMPLETED') {
+        formatted.status = 'COMPLETED';
+      } else if (linkedSes?.status === 'EXPIRED' || formatted.status === 'EXPIRED') {
+        formatted.status = 'EXPIRED';
+      } else if (linkedSes?.status === 'ACTIVE' || formatted.status === 'ACTIVE') {
+        formatted.status = 'ACTIVE';
+      }
+      if (linkedSes && !formatted.session_id) {
+        formatted.session_id = linkedSes.id;
+      }
+      return formatted;
+    }).filter(Boolean);
 
     // 3. All bookings for this client
     const bookings = db.prepare(`
@@ -4366,14 +4522,17 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       const key = cr.session_id ? `ses-${cr.session_id}` : `cr-${cr.id}`;
       seenConsultationKeys.add(key);
 
-      const linkedSes = cr.session_id ? sessions.find(s => s.id === cr.session_id) : null;
+      const linkedSes = cr.session_id ? sessions.find(s => s.id === cr.session_id) : sessions.find(s => s.booking_id === cr.id);
       const linkedPayment = payments.find(p => p.reference_id === cr.id || (cr.session_id && p.reference_id === cr.session_id));
 
       const isRefunded = linkedPayment?.is_refunded || false;
       let displayStatus = cr.status;
       if (isRefunded) displayStatus = 'REFUNDED';
-      else if (linkedSes?.status === 'COMPLETED') displayStatus = 'COMPLETED';
-      else if (linkedSes?.status === 'ACTIVE') displayStatus = 'ACTIVE';
+      else if (linkedSes?.status === 'COMPLETED' || cr.status === 'COMPLETED') displayStatus = 'COMPLETED';
+      else if (linkedSes?.status === 'EXPIRED' || cr.status === 'EXPIRED') displayStatus = 'EXPIRED';
+      else if (linkedSes?.status === 'ACTIVE' || cr.status === 'ACTIVE') displayStatus = 'ACTIVE';
+      else if (linkedSes?.status === 'CANCELLED' || cr.status === 'CANCELLED') displayStatus = 'CANCELLED';
+      else if (cr.status === 'DECLINED') displayStatus = 'DECLINED';
 
       consultations.push({
         id: cr.id,
@@ -4397,7 +4556,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         refund_amount: linkedPayment?.refund_amount || 0,
         net_amount: isRefunded ? 0 : Number(cr.total_price || 0),
         is_refunded: isRefunded,
-        problem_description: cr.problem_description,
+        problem_description: normalizeTopicText(cr.problem_description),
         review_rating: linkedSes?.review_rating || null,
         review_comment: linkedSes?.review_comment || null,
         review_id: linkedSes?.review_id || null,
@@ -4535,7 +4694,10 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       const categoryName = latestSession?.category_name || latestBooking?.category_name || latestReq?.category_name || 'Consultation';
       const pricePerMinute = Number(latestSession?.price_per_minute || latestBooking?.price_per_minute || latestReq?.price_per_minute || 50);
 
-      const expertConsultationsCount = consultations.filter(c => (c.expert_id === pId || c.provider_id === pId)).length || 1;
+      const expertConsultations = consultations.filter(c => (c.expert_id === pId || c.provider_id === pId));
+      const expertCompletedConsultations = expertConsultations.filter(c => c.status === 'COMPLETED');
+      const expertConsultationsCount = expertConsultations.length || 1;
+      const completedSessionsCount = expertCompletedConsultations.length;
 
       const expertDeliveredMins = db.prepare(`
         SELECT COALESCE(SUM(duration_minutes), 0) as mins FROM sessions WHERE client_id = ? AND provider_id = ? AND status = 'COMPLETED'
@@ -4578,6 +4740,17 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         price_per_minute: pricePerMinute,
         last_consultation_date: lastDate,
         total_consultations: expertConsultationsCount,
+        completed_sessions_count: completedSessionsCount,
+        completed_sessions: expertCompletedConsultations.map(c => ({
+          id: c.id,
+          session_id: c.session_id,
+          duration_minutes: c.duration_minutes,
+          consultation_date: c.consultation_date,
+          problem_description: c.problem_description,
+          amount: c.net_amount || c.gross_amount,
+          review_rating: c.review_rating,
+          review_comment: c.review_comment
+        })),
         total_minutes: expertDeliveredMins,
         total_spent_inr: expertTotalSpentInr,
         current_status: currentStatus,
@@ -4708,7 +4881,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         rating: e.provider_rating,
         review_count: e.provider_review_count,
         verified_minutes: e.total_minutes,
-        net_spent: e.total_spent_inr
+        net_spent: e.total_spent_inr,
+        completed_sessions_count: e.completed_sessions_count || 0,
+        completed_sessions: e.completed_sessions || []
       }));
       res.json({
         success: true,
@@ -4733,7 +4908,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       let list = data.consultations;
       const statusFilter = (req.query.status || 'all').toLowerCase();
       if (statusFilter === 'active' || statusFilter === 'upcoming') {
-        list = list.filter(c => ['PENDING_EXPERT', 'ACCEPTED', 'PAID', 'ACTIVE', 'SCHEDULED'].includes(c.status));
+        list = list.filter(c => ['PENDING_EXPERT', 'ACCEPTED', 'PAID', 'ACTIVE', 'SCHEDULED'].includes(c.status) && c.status !== 'COMPLETED');
       } else if (statusFilter === 'completed') {
         list = list.filter(c => c.status === 'COMPLETED');
       } else if (statusFilter === 'cancelled' || statusFilter === 'refunded') {
@@ -7364,8 +7539,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     try {
       const setting = db.prepare("SELECT value FROM platform_settings WHERE key = 'footer_settings'").get();
       const defaultFooter = {
-        company_description: 'The precision marketplace for on-demand consultations. Hire verified experts for exactly the minutes you need, or monetize specialized knowledge with zero retainers.',
-        contact_email: 'support@hirebyminute.com',
+        company_description: 'Expertise by the minute.',
+        contact_email: 'support@hirebyminutes.com',
         contact_phone: '+1 (800) 555-0199',
         address: 'San Francisco, CA, United States',
         copyright_text: '© {year} HireByMinute. All rights reserved.',
@@ -7470,8 +7645,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     }
 
     const cleanFooter = {
-      company_description: company_description !== undefined ? String(company_description).trim() : 'The precision marketplace for on-demand consultations.',
-      contact_email: contact_email !== undefined ? String(contact_email).trim() : 'support@hirebyminute.com',
+      company_description: company_description !== undefined ? String(company_description).trim() : 'Expertise by the minute.',
+      contact_email: contact_email !== undefined ? String(contact_email).trim() : 'support@hirebyminutes.com',
       contact_phone: contact_phone !== undefined ? String(contact_phone).trim() : '+1 (800) 555-0199',
       address: address !== undefined ? String(address).trim() : 'San Francisco, CA, United States',
       copyright_text: copyright_text !== undefined ? String(copyright_text).trim() : '© {year} HireByMinute. All rights reserved.',

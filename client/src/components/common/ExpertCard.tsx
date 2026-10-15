@@ -117,43 +117,61 @@ export const ExpertCard: React.FC<ExpertCardProps> = ({ service }) => {
           </div>
         </div>
 
-        {/* 7. Primary Skills (Clean, uncluttered, bullet separated) */}
+        {/* 7. Primary Skills as compact tags */}
         {primarySkills.length > 0 && (
-          <div className="my-3 text-xs text-midnight/75 font-medium flex items-center gap-1.5 overflow-hidden w-full min-w-0">
-            {primarySkills.map((skill, index) => (
-              <React.Fragment key={skill}>
-                <span className="truncate">{skill}</span>
-                {index < primarySkills.length - 1 && (
-                  <span className="text-timberwolf-dark shrink-0">•</span>
-                )}
-              </React.Fragment>
+          <div className="my-3 flex flex-wrap items-center gap-1.5 w-full min-w-0">
+            {primarySkills.map((skill) => (
+              <span
+                key={skill}
+                className="px-2.5 py-0.5 rounded-lg bg-aliceblue text-midnight/80 text-[11px] font-medium border border-timberwolf/50 truncate max-w-[140px]"
+              >
+                {skill}
+              </span>
             ))}
           </div>
         )}
       </div>
 
-      {/* 6. Per-minute rate & 8. Hire CTA */}
-      <div className="pt-3.5 mt-1 border-t border-timberwolf/30 flex items-center justify-between gap-2 w-full min-w-0">
-        <div className="min-w-0 shrink-0">
-          <div className="flex items-baseline gap-1">
-            <span className="font-extrabold text-xl text-midnight tracking-tight">
-              {formatINR(service.price_per_minute)}
+      {/* 6. Per-minute rate & Paired Action Buttons */}
+      <div className="pt-3.5 mt-1 border-t border-timberwolf/30 space-y-3 w-full min-w-0">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-baseline gap-1">
+              <span className="font-extrabold text-xl text-midnight tracking-tight">
+                {formatINR(service.price_per_minute)}
+              </span>
+              <span className="text-xs font-semibold text-midnight/60">/min</span>
+            </div>
+            <span className="text-[11px] text-midnight/50 block">
+              Pay per minute
             </span>
-            <span className="text-xs font-semibold text-midnight/60">/min</span>
           </div>
-          <span className="text-[11px] text-midnight/50 block">
-            Pay per minute
-          </span>
+
+          <div className="text-right">
+            <span className="text-[11px] font-semibold text-moonstone-dark bg-moonstone/10 px-2 py-0.5 rounded border border-moonstone/25">
+              1-on-1 Live
+            </span>
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleHireClick}
-          className="btn-shine inline-flex items-center justify-center gap-1.5 px-5 py-2.5 min-h-[44px] rounded-xl bg-midnight text-aliceblue text-xs sm:text-sm font-bold hover:bg-midnight-hover transition-all shadow-subtle group-hover:bg-moonstone group-hover:text-white active:scale-95 cursor-pointer select-none shrink-0"
-        >
-          <span>Hire</span>
-          <ArrowRight className="w-4 h-4 shrink-0" />
-        </button>
+        {/* Paired Buttons: View Profile & Consult */}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <Link
+            to={`/services/${service.id}`}
+            className="min-h-[40px] px-3 py-2 rounded-xl border border-timberwolf/80 hover:border-moonstone text-midnight font-semibold text-xs flex items-center justify-center transition-colors hover:bg-aliceblue text-center"
+          >
+            View Profile
+          </Link>
+
+          <button
+            type="button"
+            onClick={handleHireClick}
+            className="btn-shine min-h-[40px] px-3 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover transition-all shadow-subtle group-hover:bg-moonstone group-hover:text-white active:scale-95 cursor-pointer flex items-center justify-center gap-1 text-center"
+          >
+            <span>Consult</span>
+            <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+          </button>
+        </div>
       </div>
     </div>
   );

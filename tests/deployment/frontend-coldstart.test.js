@@ -404,7 +404,12 @@ async function runRenderDeploymentTests() {
     assert(refreshedState.state === 'success_empty', 'Refreshed state accurately resolves without page reload');
 
   } finally {
-    await new Promise(r => serverInstance.close(r));
+    if (serverInstance) {
+      if (typeof serverInstance.closeAllConnections === 'function') {
+        serverInstance.closeAllConnections();
+      }
+      await new Promise(r => serverInstance.close(r));
+    }
   }
 
   console.log('\n======================================================================');

@@ -8,7 +8,7 @@
 // 3. WebRTC screen sharing: RTCRtpSender.replaceTrack, signaling, object-contain,
 //    audio continuity, and graceful reversion on onended.
 // 4. Initial layout shift (CLS): index.html app shell & navbar auth placeholders.
-// 5. ServicesPage filter sidebar: 280px sticky width, max-h controlled overflow,
+// 5. ServicesPage filter sidebar: 280px sticky width without independent vertical scrollbar,
 //    natural flex-1 results flow, and mobile bottom sheet.
 // 6. Viewport responsiveness: 320px, 375px, 390px, 430px, 768px, 1024px, 1440px.
 // =============================================================================
@@ -188,11 +188,10 @@ test('Header.tsx auth skeleton matches exact dimensions of action buttons to pre
 // --- Suite 5: Services Page Layout Stability ---
 console.log('\n--- Suite 5: Services Page Layout Stability ---');
 
-test('ServicesPage filter sidebar has 280px sticky width with max-h controlled overflow', () => {
+test('ServicesPage filter sidebar has 280px sticky width without independent vertical scrollbar', () => {
   assert(servicesPageCode.includes('w-[280px] shrink-0'), 'Sidebar must have stable 280px width');
   assert(servicesPageCode.includes('sticky top-24'), 'Sidebar must be sticky top-24');
-  assert(servicesPageCode.includes('max-h-[calc(100vh-7rem)] overflow-y-auto'), 'Sidebar must have max-h and controlled internal scroll');
-  assert(servicesPageCode.includes('overscroll-contain'), 'Sidebar must contain overscroll to prevent body jumps');
+  assert(!servicesPageCode.includes('max-h-[calc(100vh-7rem)] overflow-y-auto'), 'Sidebar must not have conflicting independent vertical scroll');
 });
 
 test('Services results grid flows naturally alongside sidebar with flex-1', () => {
