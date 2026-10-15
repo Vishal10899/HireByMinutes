@@ -22,7 +22,7 @@ import {
 import { BrandLogo } from '../components/common/BrandLogo';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
-import { getSafeReturnUrl, getStoredReturnUrl, clearStoredReturnUrl } from '../utils/navigation';
+import { getSafeReturnUrl, getStoredReturnUrl, clearStoredReturnUrl, resolveRoleDestination } from '../utils/navigation';
 
 interface AuthPageProps {
   initialMode?: 'login' | 'register';
@@ -103,17 +103,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
   // Auto-redirect only if user is fully authenticated & email-verified, and not in the middle of OTP verification
   useEffect(() => {
     if (user && tab !== 'verify_otp' && (user.email_verified === 1 || user.email_verified === true || user.role === 'admin')) {
-      const target = destination;
+      const target = resolveRoleDestination(user.role, destination);
       clearStoredReturnUrl();
-      if (target) {
-        navigate(target, { replace: true });
-      } else if (user.role === 'admin') {
-        navigate('/admin', { replace: true });
-      } else if (user.role === 'provider') {
-        navigate('/provider', { replace: true });
-      } else {
-        navigate('/services', { replace: true });
-      }
+      navigate(target, { replace: true });
     }
   }, [user, tab, destination, navigate]);
 
@@ -231,17 +223,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
         }
       }
 
-      const target = destination;
+      const target = resolveRoleDestination(loggedInUser.role, destination);
       clearStoredReturnUrl();
-      if (target) {
-        navigate(target, { replace: true });
-      } else if (loggedInUser.role === 'admin') {
-        navigate('/admin', { replace: true });
-      } else if (loggedInUser.role === 'provider') {
-        navigate('/provider', { replace: true });
-      } else {
-        navigate('/services', { replace: true });
-      }
+      navigate(target, { replace: true });
     } catch (err: any) {
       const cleanEmail = email.trim().toLowerCase();
       if (err.requires_verification || (err.message && err.message.toLowerCase().includes('verify your email'))) {
@@ -412,15 +396,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode }) => {
       confetti({ particleCount: 70, spread: 60 });
       setSuccessMessage('Email verified successfully! Redirecting to your dashboard...');
       setTimeout(() => {
-        const target = destination;
+        const userRole = res.user?.role || role;
+        const target = resolveRoleDestination(userRole, destination);
         clearStoredReturnUrl();
-        if (target) {
-          navigate(target, { replace: true });
-        } else if (role === 'provider' || res.user?.role === 'provider') {
-          navigate('/provider');
-        } else {
-          navigate('/services');
-        }
+        navigate(target, { replace: true });
       }, 1200);
     } catch (err: any) {
       setError(err.message || 'Invalid verification code. Please check and try again.');

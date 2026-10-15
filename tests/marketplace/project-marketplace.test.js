@@ -585,6 +585,94 @@ async function runProjectMarketplaceSuite() {
           assert(providerContractsRes.data.contracts.some(c => c.id === createdContractId));
         });
 
+        // 24. Contract Review: Client submits review for completed contract
+        await asyncTest('24. Client submits rating and review for completed contract via POST /api/contracts/:id/review', async () => {
+          const reviewRes = await makeRequest(`/api/contracts/${createdContractId}/review`, {
+            method: 'POST',
+            headers: authClient1,
+            body: {
+              rating: 5,
+              comment: 'Outstanding technical execution! Delivered clean, robust architecture on time.'
+            }
+          });
+          assert.strictEqual(reviewRes.status, 200);
+          assert.strictEqual(reviewRes.data.contract.client_rating, 5);
+          assert.strictEqual(reviewRes.data.contract.client_review, 'Outstanding technical execution! Delivered clean, robust architecture on time.');
+
+          // Verify provider's aggregate rating and review count were updated
+          const updatedProv = db.prepare('SELECT rating, review_count FROM users WHERE id = ?').get(provider1Id);
+          assert.strictEqual(updatedProv.review_count, 1);
+          assert.strictEqual(updatedProv.rating, 5.0);
+        });
+
+        // 25. Contract Review Security: Non-client and duplicate review rejection
+        await asyncTest('25. Contract review security strictly rejects non-clients, duplicates, and invalid ratings', async () => {
+          // Provider attempts to review their own contract
+          const provReviewRes = await makeRequest(`/api/contracts/${createdContractId}/review`, {
+            method: 'POST',
+            headers: authProv1,
+            body: { rating: 5, comment: 'I did a great job!' }
+          });
+          assert.strictEqual(provReviewRes.status, 403);
+
+          // Duplicate review by client
+          const duplicateReviewRes = await makeRequest(`/api/contracts/${createdContractId}/review`, {
+            method: 'POST',
+            headers: authClient1,
+            body: { rating: 4, comment: 'Second review attempt' }
+          });
+          assert.strictEqual(duplicateReviewRes.status, 400);
+
+          // Invalid rating (> 5)
+          const invalidRatingRes = await makeRequest(`/api/contracts/${createdContractId}/review`, {
+            method: 'POST',
+            headers: authClient2,
+            body: { rating: 10, comment: 'Invalid rating value' }
+          });
+          assert(invalidRatingRes.status === 400 || invalidRatingRes.status === 403);
+        });
+
+        // 26. Project Editing: PATCH /api/projects/:id permitted updates
+        await asyncTest('26. Project owner can edit permitted scope and budget fields of an open project', async () => {
+          // Create an open project with client 2
+          const newProjRes = await makeRequest('/api/projects', {
+            method: 'POST',
+            headers: authClient2,
+            body: {
+              title: 'Mobile App Architecture Spec - Initial',
+              description: 'Initial architecture specification for microservices migration and real-time pub/sub.',
+              budget_type: 'fixed',
+              budget_min: 15000,
+              skills: ['Node.js', 'Redis'],
+              status: 'OPEN'
+            }
+          });
+          assert.strictEqual(newProjRes.status, 201);
+          const editProjId = newProjRes.data.project.id;
+
+          // Edit project description, budget, and deliverables
+          const editRes = await makeRequest(`/api/projects/${editProjId}`, {
+            method: 'PATCH',
+            headers: authClient2,
+            body: {
+              title: 'Mobile App Architecture Spec - Revised',
+              budget_max: 20000,
+              deliverables: ['System Diagrams', 'Security Threat Model']
+            }
+          });
+          assert.strictEqual(editRes.status, 200);
+          assert.strictEqual(editRes.data.project.title, 'Mobile App Architecture Spec - Revised');
+          assert.strictEqual(editRes.data.project.deliverables.length, 2);
+
+          // Non-owner client 1 cannot edit client 2's project
+          const unauthorizedEdit = await makeRequest(`/api/projects/${editProjId}`, {
+            method: 'PATCH',
+            headers: authClient1,
+            body: { title: 'Hacked Title' }
+          });
+          assert.strictEqual(unauthorizedEdit.status, 403);
+        });
+
         console.log('\n======================================================================');
         console.log(`PROJECT MARKETPLACE SUITE RESULT: ${passedTests}/${totalTests} Tests Passed`);
         console.log('======================================================================\n');

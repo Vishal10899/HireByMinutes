@@ -20,7 +20,8 @@ import {
   UserCheck,
   Check,
   Layers,
-  Award
+  Award,
+  Star
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -43,6 +44,13 @@ export const ProjectContractPage: React.FC = () => {
   const [revisionReason, setRevisionReason] = useState('');
   const [revisionLoading, setRevisionLoading] = useState(false);
   const [revisionError, setRevisionError] = useState<string | null>(null);
+
+  // Review State (Client review for completed contract)
+  const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewSuccess, setReviewSuccess] = useState<string | null>(null);
 
   // Action states
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
@@ -149,6 +157,31 @@ export const ProjectContractPage: React.FC = () => {
       alert(err.message || 'Failed to complete contract.');
     } finally {
       setActionLoadingId(null);
+    }
+  };
+
+  const handleSubmitReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contract) return;
+    setReviewError(null);
+    setReviewSuccess(null);
+
+    if (!reviewComment.trim() || reviewComment.trim().length < 5) {
+      setReviewError('Please write a review comment (at least 5 characters).');
+      return;
+    }
+
+    try {
+      setSubmittingReview(true);
+      await api.submitContractReview(contract.id, reviewRating, reviewComment.trim());
+      confetti({ particleCount: 100, spread: 70 });
+      setReviewSuccess('Thank you! Your review has been submitted.');
+      await loadContract();
+    } catch (err: any) {
+      console.error('Failed to submit review', err);
+      setReviewError(err.message || 'Failed to submit review.');
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
@@ -433,6 +466,135 @@ export const ProjectContractPage: React.FC = () => {
                         {s}
                       </span>
                     ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Completed Contract Review Section */}
+            {isCompleted && (
+              <div className="bg-white rounded-3xl border border-timberwolf/70 p-6 sm:p-8 shadow-subtle space-y-5 animate-fade-in">
+                <div className="flex items-center justify-between pb-3 border-b border-timberwolf/30">
+                  <div className="space-y-1">
+                    <span className="text-xs font-bold uppercase tracking-wider text-moonstone-dark flex items-center gap-1.5">
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
+                      <span>Contract Feedback & Evaluation</span>
+                    </span>
+                    <h2 className="text-lg sm:text-xl font-bold text-midnight tracking-tight">
+                      {contract.client_rating ? 'Client Review' : isClient ? 'Leave Expert Review' : 'Specialist Rating'}
+                    </h2>
+                  </div>
+                  {contract.client_rating && (
+                    <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full">
+                      <div className="flex items-center text-amber-500">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Star
+                            key={star}
+                            className={`w-3.5 h-3.5 ${
+                              star <= Math.round(contract.client_rating || 0)
+                                ? 'fill-amber-400 text-amber-500'
+                                : 'text-zinc-300'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-xs font-bold text-midnight">
+                        {contract.client_rating.toFixed(1)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {contract.client_rating ? (
+                  <div className="space-y-3">
+                    <div className="p-4 rounded-2xl bg-aliceblue/40 border border-timberwolf/50 space-y-2">
+                      <p className="text-xs sm:text-sm text-midnight/90 italic leading-relaxed">
+                        "{contract.client_review}"
+                      </p>
+                      {contract.client_reviewed_at && (
+                        <span className="text-[11px] text-midnight/50 block font-medium">
+                          Submitted by {contract.client?.name || 'Client'} on {new Date(contract.client_reviewed_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ) : isClient ? (
+                  <form onSubmit={handleSubmitReview} className="space-y-4">
+                    <p className="text-xs text-midnight/70">
+                      Rate your experience working with <strong>{contract.provider?.name || 'this specialist'}</strong>. Your evaluation updates their profile rating and helps future clients.
+                    </p>
+
+                    {reviewError && (
+                      <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl text-xs font-medium">
+                        {reviewError}
+                      </div>
+                    )}
+                    {reviewSuccess && (
+                      <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl text-xs font-medium">
+                        {reviewSuccess}
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-xs font-bold text-midnight uppercase tracking-wider mb-2">
+                        Rating Score
+                      </label>
+                      <div className="flex items-center gap-2">
+                        {[1, 2, 3, 4, 5].map((val) => (
+                          <button
+                            key={val}
+                            type="button"
+                            onClick={() => setReviewRating(val)}
+                            className="p-1 hover:scale-110 transition-transform cursor-pointer focus:outline-none"
+                            title={`${val} out of 5 stars`}
+                          >
+                            <Star
+                              className={`w-6 h-6 transition-colors ${
+                                val <= reviewRating
+                                  ? 'fill-amber-400 text-amber-500'
+                                  : 'text-zinc-300 hover:text-amber-300'
+                              }`}
+                            />
+                          </button>
+                        ))}
+                        <span className="text-xs font-bold text-midnight ml-2">
+                          {reviewRating} of 5 Stars
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label htmlFor="review-feedback" className="block text-xs font-bold text-midnight uppercase tracking-wider mb-1.5">
+                        Written Feedback <span className="text-rose-500">*</span>
+                      </label>
+                      <textarea
+                        id="review-feedback"
+                        rows={4}
+                        value={reviewComment}
+                        onChange={(e) => setReviewComment(e.target.value)}
+                        placeholder="Share your experience regarding code quality, communication, punctuality, and milestone delivery..."
+                        className="w-full px-4 py-3 rounded-xl border border-timberwolf focus:border-moonstone text-xs text-midnight outline-none leading-relaxed"
+                        required
+                        minLength={5}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-end">
+                      <Button
+                        type="submit"
+                        variant="primary"
+                        size="sm"
+                        isLoading={submittingReview}
+                        className="font-bold text-xs"
+                        icon={<Star className="w-3.5 h-3.5 text-moonstone" />}
+                      >
+                        Submit Expert Review
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-aliceblue/40 border border-timberwolf/50 text-xs text-midnight/70">
+                    This contract has completed successfully. Awaiting feedback from the client.
                   </div>
                 )}
               </div>

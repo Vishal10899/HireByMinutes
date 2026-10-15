@@ -51,6 +51,75 @@ export function getSafeReturnUrl(rawUrl: string | null | undefined): string | nu
   return trimmed;
 }
 
+/**
+ * Returns the canonical default route for a user based on their role:
+ * - Admin -> /admin
+ * - Provider / Expert -> /provider
+ * - Client / default -> /services
+ */
+export function getDefaultRouteForRole(role?: string | null): string {
+  const cleanRole = (role || '').trim().toLowerCase();
+  if (cleanRole === 'admin') return '/admin';
+  if (cleanRole === 'provider') return '/provider';
+  return '/services';
+}
+
+/**
+ * Validates and resolves the appropriate post-login / post-auth destination based on user role and optional requested URL.
+ * Enforces role-based boundaries:
+ * - Provider accounts are never redirected to client services or client dashboard.
+ * - Client accounts are never redirected to the provider dashboard.
+ * - Non-admin accounts are never redirected to admin dashboards.
+ * - Root ('/') or unspecified destinations fallback to the role-specific default route.
+ * - Open redirects and auth redirect loops are strictly blocked.
+ */
+export function resolveRoleDestination(
+  role: string | null | undefined,
+  requestedUrl?: string | null | undefined
+): string {
+  const defaultRoute = getDefaultRouteForRole(role);
+  const safeUrl = getSafeReturnUrl(requestedUrl);
+
+  if (!safeUrl || safeUrl === '/') {
+    return defaultRoute;
+  }
+
+  const cleanRole = (role || '').trim().toLowerCase();
+  const lowerUrl = safeUrl.toLowerCase();
+
+  // Non-admins cannot access /admin
+  if (cleanRole !== 'admin' && (lowerUrl === '/admin' || lowerUrl.startsWith('/admin/') || lowerUrl.startsWith('/admin?'))) {
+    return defaultRoute;
+  }
+
+  // Provider cannot be redirected to client services or client dashboard
+  if (cleanRole === 'provider') {
+    if (
+      lowerUrl === '/services' ||
+      lowerUrl.startsWith('/services/') ||
+      lowerUrl.startsWith('/services?') ||
+      lowerUrl === '/client' ||
+      lowerUrl.startsWith('/client/') ||
+      lowerUrl.startsWith('/client?')
+    ) {
+      return '/provider';
+    }
+  }
+
+  // Client cannot be redirected to provider dashboard
+  if (cleanRole === 'client' || !cleanRole) {
+    if (
+      lowerUrl === '/provider' ||
+      lowerUrl.startsWith('/provider/') ||
+      lowerUrl.startsWith('/provider?')
+    ) {
+      return '/services';
+    }
+  }
+
+  return safeUrl;
+}
+
 const STORAGE_KEY_RETURN_TO = 'hbm_return_to';
 const STORAGE_KEY_SERVICE_ID = 'hbm_intended_service_id';
 

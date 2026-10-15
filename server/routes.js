@@ -9908,6 +9908,10 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       status: row.status || 'OPEN',
       attachments: safeJsonParse(row.attachments_json, []),
       screening_questions: safeJsonParse(row.screening_questions_json, []),
+      expected_start_date: row.expected_start_date || null,
+      workload_commitment: row.workload_commitment || null,
+      deliverables: safeJsonParse(row.deliverables_json, []),
+      additional_instructions: row.additional_instructions || null,
       proposals_count: Number(row.proposals_count || 0),
       hired_proposal_id: isOwner ? row.hired_proposal_id : (row.status === 'IN_PROGRESS' || row.status === 'COMPLETED' ? row.hired_proposal_id : null),
       hired_provider_id: row.hired_provider_id || null,
@@ -9976,7 +9980,12 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         estimated_duration,
         experience_level = 'intermediate',
         attachments = [],
-        screening_questions = []
+        screening_questions = [],
+        expected_start_date,
+        workload_commitment,
+        deliverables = [],
+        additional_instructions,
+        status = 'OPEN'
       } = req.body;
 
       if (!title || !title.trim() || title.trim().length < 5) {
@@ -10007,6 +10016,13 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       const cleanType = ['fixed', 'hourly'].includes(project_type) ? project_type : 'fixed';
       const cleanBudgetType = ['fixed', 'range'].includes(budget_type) ? budget_type : 'fixed';
       const cleanExp = ['entry', 'intermediate', 'expert'].includes(experience_level) ? experience_level : 'intermediate';
+      const cleanStatus = (typeof status === 'string' && status.trim().toUpperCase() === 'DRAFT') ? 'DRAFT' : 'OPEN';
+      const cleanStartDate = expected_start_date && typeof expected_start_date === 'string' ? expected_start_date.trim() : null;
+      const cleanWorkload = workload_commitment && typeof workload_commitment === 'string' ? workload_commitment.trim() : null;
+      const cleanDeliverables = Array.isArray(deliverables)
+        ? deliverables.filter(d => typeof d === 'string' && d.trim().length > 0).slice(0, 10).map(d => d.trim())
+        : (typeof deliverables === 'string' && deliverables.trim() ? [deliverables.trim()] : []);
+      const cleanInstructions = additional_instructions && typeof additional_instructions === 'string' ? additional_instructions.trim() : null;
 
       const projectId = `proj-${uuidv4().slice(0, 8)}`;
 
@@ -10015,8 +10031,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
           id, client_id, title, description, category_id, category_name,
           skills_json, project_type, budget_type, budget_min, budget_max, currency,
           deadline, estimated_duration, experience_level, status,
-          attachments_json, screening_questions_json, proposals_count
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, 0)
+          attachments_json, screening_questions_json, proposals_count,
+          expected_start_date, workload_commitment, deliverables_json, additional_instructions
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
       `).run(
         projectId,
         req.user.id,
@@ -10033,8 +10050,13 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         deadline ? new Date(deadline).toISOString() : null,
         estimated_duration ? estimated_duration.trim() : null,
         cleanExp,
+        cleanStatus,
         JSON.stringify(Array.isArray(attachments) ? attachments.slice(0, 5) : []),
-        JSON.stringify(Array.isArray(screening_questions) ? screening_questions.slice(0, 5) : [])
+        JSON.stringify(Array.isArray(screening_questions) ? screening_questions.slice(0, 5) : []),
+        cleanStartDate,
+        cleanWorkload,
+        JSON.stringify(cleanDeliverables),
+        cleanInstructions
       );
 
       // Notification to client
@@ -10044,8 +10066,10 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       `).run(
         `notif-${uuidv4().slice(0, 8)}`,
         req.user.id,
-        'Project Published',
-        `Your project "${title.trim()}" is now live and accepting proposals.`,
+        cleanStatus === 'DRAFT' ? 'Project Draft Saved' : 'Project Published',
+        cleanStatus === 'DRAFT'
+          ? `Your project draft "${title.trim()}" has been saved.`
+          : `Your project "${title.trim()}" is now live and accepting proposals.`,
         'success',
         `/projects/${projectId}`
       );
@@ -10238,7 +10262,12 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         budget_max,
         deadline,
         estimated_duration,
-        experience_level
+        experience_level,
+        expected_start_date,
+        workload_commitment,
+        deliverables,
+        additional_instructions,
+        status
       } = req.body;
 
       const updates = [];
@@ -10284,6 +10313,27 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       if (experience_level && ['entry', 'intermediate', 'expert'].includes(experience_level)) {
         updates.push('experience_level = ?');
         params.push(experience_level);
+      }
+      if (expected_start_date !== undefined) {
+        updates.push('expected_start_date = ?');
+        params.push(expected_start_date ? String(expected_start_date).trim() : null);
+      }
+      if (workload_commitment !== undefined) {
+        updates.push('workload_commitment = ?');
+        params.push(workload_commitment ? String(workload_commitment).trim() : null);
+      }
+      if (deliverables !== undefined) {
+        const cleanDev = Array.isArray(deliverables) ? deliverables.slice(0, 10) : [];
+        updates.push('deliverables_json = ?');
+        params.push(JSON.stringify(cleanDev));
+      }
+      if (additional_instructions !== undefined) {
+        updates.push('additional_instructions = ?');
+        params.push(additional_instructions ? String(additional_instructions).trim() : null);
+      }
+      if (status && ['OPEN', 'DRAFT', 'CLOSED'].includes(status.toUpperCase())) {
+        updates.push('status = ?');
+        params.push(status.toUpperCase());
       }
 
       if (updates.length === 0) {
@@ -10710,80 +10760,155 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       const agreedAmount = Number(proposal.bid_amount);
       const currency = proposal.currency || 'INR';
 
-      // 1. Create contract record
-      db.prepare(`
-        INSERT INTO project_contracts (
-          id, project_id, proposal_id, client_id, provider_id,
-          title, agreed_amount, currency, project_type, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
-      `).run(
-        contractId,
-        proposal.project_id,
-        proposal.id,
-        req.user.id,
-        proposal.provider_id,
-        proposal.project_title,
-        agreedAmount,
-        currency,
-        proposal.project_type || 'fixed'
-      );
-
-      // 2. Insert milestones from req.body.milestones, proposed milestones or create full-deliverable milestone
       const clientMilestones = (Array.isArray(req.body.milestones) && req.body.milestones.length > 0)
         ? req.body.milestones
         : safeJsonParse(proposal.milestones_json, []);
 
-      if (Array.isArray(clientMilestones) && clientMilestones.length > 0) {
-        const insertMilestone = db.prepare(`
-          INSERT INTO project_milestones (
-            id, contract_id, project_id, title, description, amount, order_index, status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
-        `);
-        clientMilestones.forEach((m, idx) => {
-          insertMilestone.run(
-            `mile-${uuidv4().slice(0, 8)}`,
-            contractId,
-            proposal.project_id,
-            m.title ? m.title.trim() : `Milestone ${idx + 1}`,
-            m.description ? m.description.trim() : null,
-            Number(m.amount || (agreedAmount / clientMilestones.length)),
-            idx
-          );
-        });
-      } else {
-        db.prepare(`
-          INSERT INTO project_milestones (
-            id, contract_id, project_id, title, description, amount, order_index, status
-          ) VALUES (?, ?, ?, ?, ?, ?, 0, 'IN_PROGRESS')
-        `).run(
-          `mile-${uuidv4().slice(0, 8)}`,
-          contractId,
-          proposal.project_id,
-          'Full Project Deliverable',
-          'Agreed scope and final deliverable as specified in project requirements',
-          agreedAmount
-        );
-      }
+      // Execute contract creation, milestone seeding, and status transitions within an atomic transaction
+      const executeAtomicHire = typeof db.transaction === 'function'
+        ? db.transaction(() => {
+            const exContract = db.prepare('SELECT id FROM project_contracts WHERE project_id = ?').get(proposal.project_id);
+            if (exContract) {
+              throw new Error('A contract has already been established for this project.');
+            }
 
-      // 3. Mark selected proposal as HIRED
-      db.prepare("UPDATE project_proposals SET status = 'HIRED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(proposal.id);
+            // 1. Create contract record
+            db.prepare(`
+              INSERT INTO project_contracts (
+                id, project_id, proposal_id, client_id, provider_id,
+                title, agreed_amount, currency, project_type, status
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+            `).run(
+              contractId,
+              proposal.project_id,
+              proposal.id,
+              req.user.id,
+              proposal.provider_id,
+              proposal.project_title,
+              agreedAmount,
+              currency,
+              proposal.project_type || 'fixed'
+            );
 
-      // 4. Mark all other competing proposals as REJECTED with note
-      db.prepare(`
-        UPDATE project_proposals
-        SET status = 'REJECTED', rejection_reason = 'Another candidate was hired for this project', updated_at = CURRENT_TIMESTAMP
-        WHERE project_id = ? AND id != ? AND status IN ('SUBMITTED', 'SHORTLISTED')
-      `).run(proposal.project_id, proposal.id);
+            // 2. Insert milestones
+            if (Array.isArray(clientMilestones) && clientMilestones.length > 0) {
+              const insertMilestone = db.prepare(`
+                INSERT INTO project_milestones (
+                  id, contract_id, project_id, title, description, amount, order_index, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
+              `);
+              clientMilestones.forEach((m, idx) => {
+                insertMilestone.run(
+                  `mile-${uuidv4().slice(0, 8)}`,
+                  contractId,
+                  proposal.project_id,
+                  m.title ? m.title.trim() : `Milestone ${idx + 1}`,
+                  m.description ? m.description.trim() : null,
+                  Number(m.amount || (agreedAmount / clientMilestones.length)),
+                  idx
+                );
+              });
+            } else {
+              db.prepare(`
+                INSERT INTO project_milestones (
+                  id, contract_id, project_id, title, description, amount, order_index, status
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, 'IN_PROGRESS')
+              `).run(
+                `mile-${uuidv4().slice(0, 8)}`,
+                contractId,
+                proposal.project_id,
+                'Full Project Deliverable',
+                'Agreed scope and final deliverable as specified in project requirements',
+                agreedAmount
+              );
+            }
 
-      // 5. Update project state to IN_PROGRESS and link hired provider
-      db.prepare(`
-        UPDATE projects
-        SET status = 'IN_PROGRESS',
-            hired_proposal_id = ?,
-            hired_provider_id = ?,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(proposal.id, proposal.provider_id, proposal.project_id);
+            // 3. Mark selected proposal as HIRED
+            db.prepare("UPDATE project_proposals SET status = 'HIRED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(proposal.id);
+
+            // 4. Mark all other competing proposals as REJECTED with note
+            db.prepare(`
+              UPDATE project_proposals
+              SET status = 'REJECTED', rejection_reason = 'Another candidate was hired for this project', updated_at = CURRENT_TIMESTAMP
+              WHERE project_id = ? AND id != ? AND status IN ('SUBMITTED', 'SHORTLISTED')
+            `).run(proposal.project_id, proposal.id);
+
+            // 5. Update project state to IN_PROGRESS and link hired provider
+            db.prepare(`
+              UPDATE projects
+              SET status = 'IN_PROGRESS',
+                  hired_proposal_id = ?,
+                  hired_provider_id = ?,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?
+            `).run(proposal.id, proposal.provider_id, proposal.project_id);
+          })
+        : () => {
+            // Non-transactional fallback
+            db.prepare(`
+              INSERT INTO project_contracts (
+                id, project_id, proposal_id, client_id, provider_id,
+                title, agreed_amount, currency, project_type, status
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+            `).run(
+              contractId,
+              proposal.project_id,
+              proposal.id,
+              req.user.id,
+              proposal.provider_id,
+              proposal.project_title,
+              agreedAmount,
+              currency,
+              proposal.project_type || 'fixed'
+            );
+            if (Array.isArray(clientMilestones) && clientMilestones.length > 0) {
+              const insertMilestone = db.prepare(`
+                INSERT INTO project_milestones (
+                  id, contract_id, project_id, title, description, amount, order_index, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
+              `);
+              clientMilestones.forEach((m, idx) => {
+                insertMilestone.run(
+                  `mile-${uuidv4().slice(0, 8)}`,
+                  contractId,
+                  proposal.project_id,
+                  m.title ? m.title.trim() : `Milestone ${idx + 1}`,
+                  m.description ? m.description.trim() : null,
+                  Number(m.amount || (agreedAmount / clientMilestones.length)),
+                  idx
+                );
+              });
+            } else {
+              db.prepare(`
+                INSERT INTO project_milestones (
+                  id, contract_id, project_id, title, description, amount, order_index, status
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, 'IN_PROGRESS')
+              `).run(
+                `mile-${uuidv4().slice(0, 8)}`,
+                contractId,
+                proposal.project_id,
+                'Full Project Deliverable',
+                'Agreed scope and final deliverable as specified in project requirements',
+                agreedAmount
+              );
+            }
+            db.prepare("UPDATE project_proposals SET status = 'HIRED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(proposal.id);
+            db.prepare(`
+              UPDATE project_proposals
+              SET status = 'REJECTED', rejection_reason = 'Another candidate was hired for this project', updated_at = CURRENT_TIMESTAMP
+              WHERE project_id = ? AND id != ? AND status IN ('SUBMITTED', 'SHORTLISTED')
+            `).run(proposal.project_id, proposal.id);
+            db.prepare(`
+              UPDATE projects
+              SET status = 'IN_PROGRESS',
+                  hired_proposal_id = ?,
+                  hired_provider_id = ?,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?
+            `).run(proposal.id, proposal.provider_id, proposal.project_id);
+          };
+
+      executeAtomicHire();
 
       // 6. Notify expert
       db.prepare(`
@@ -10867,6 +10992,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
           status: contract.status,
           work_notes: contract.work_notes,
           completed_at: contract.completed_at,
+          client_rating: contract.client_rating !== null && contract.client_rating !== undefined ? Number(contract.client_rating) : null,
+          client_review: contract.client_review || null,
+          client_reviewed_at: contract.client_reviewed_at || null,
           created_at: contract.created_at,
           client: {
             id: contract.client_id,
@@ -10931,6 +11059,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         agreed_amount: Number(r.agreed_amount),
         currency: r.currency,
         status: r.status,
+        client_rating: r.client_rating !== null && r.client_rating !== undefined ? Number(r.client_rating) : null,
+        client_review: r.client_review || null,
+        client_reviewed_at: r.client_reviewed_at || null,
         created_at: r.created_at,
         client_name: r.client_name,
         client_avatar: r.client_avatar,
@@ -11168,6 +11299,92 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     } catch (err) {
       console.error('Error completing contract:', err);
       res.status(500).json({ error: 'Failed to complete contract.' });
+    }
+  });
+
+  // 20. Submit Review for Completed Contract (Client Only)
+  router.post('/contracts/:id/review', authMiddleware, (req, res) => {
+    try {
+      const contract = db.prepare('SELECT * FROM project_contracts WHERE id = ?').get(req.params.id);
+      if (!contract) {
+        return res.status(404).json({ error: 'Contract not found.' });
+      }
+
+      if (contract.client_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Forbidden. Only the client can submit a review for this contract.' });
+      }
+
+      if (contract.status !== 'COMPLETED') {
+        return res.status(400).json({ error: 'Reviews can only be submitted after the contract has been marked as completed.' });
+      }
+
+      if (contract.client_rating) {
+        return res.status(400).json({ error: 'You have already submitted a review for this contract.' });
+      }
+
+      const { rating, comment } = req.body;
+      const numRating = Number(rating);
+      if (isNaN(numRating) || numRating < 1 || numRating > 5) {
+        return res.status(400).json({ error: 'Rating must be a number between 1 and 5.' });
+      }
+
+      const cleanComment = comment ? String(comment).trim() : '';
+      if (!cleanComment || cleanComment.length < 5) {
+        return res.status(400).json({ error: 'Please provide a review comment (at least 5 characters).' });
+      }
+
+      // Record review on contract
+      db.prepare(`
+        UPDATE project_contracts
+        SET client_rating = ?, client_review = ?, client_reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(numRating, cleanComment, contract.id);
+
+      // Recompute provider's overall rating & review_count
+      const sessionStats = db.prepare(`
+        SELECT COALESCE(SUM(rating), 0) as total_sum, COUNT(*) as count
+        FROM reviews
+        WHERE provider_id = ?
+      `).get(contract.provider_id);
+
+      const contractStats = db.prepare(`
+        SELECT COALESCE(SUM(client_rating), 0) as total_sum, COUNT(*) as count
+        FROM project_contracts
+        WHERE provider_id = ? AND client_rating IS NOT NULL
+      `).get(contract.provider_id);
+
+      const totalCount = (sessionStats?.count || 0) + (contractStats?.count || 0);
+      const totalSum = (sessionStats?.total_sum || 0) + (contractStats?.total_sum || 0);
+      const newAvg = totalCount > 0 ? Number((totalSum / totalCount).toFixed(2)) : 5.0;
+
+      db.prepare(`
+        UPDATE users
+        SET rating = ?, review_count = ?
+        WHERE id = ?
+      `).run(newAvg, totalCount, contract.provider_id);
+
+      // Notify expert
+      db.prepare(`
+        INSERT INTO notifications (id, user_id, title, message, type, link)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        `notif-${uuidv4().slice(0, 8)}`,
+        contract.provider_id,
+        '⭐ New Client Review Received',
+        `Client left a ${numRating}-star review for contract "${contract.title}": "${cleanComment.slice(0, 80)}..."`,
+        'success',
+        `/contracts/${contract.id}`
+      );
+
+      const updated = db.prepare('SELECT * FROM project_contracts WHERE id = ?').get(contract.id);
+      res.json({
+        success: true,
+        message: 'Thank you! Your review has been submitted successfully.',
+        contract: updated
+      });
+    } catch (err) {
+      console.error('Error submitting contract review:', err);
+      res.status(500).json({ error: 'Failed to submit review.' });
     }
   });
 

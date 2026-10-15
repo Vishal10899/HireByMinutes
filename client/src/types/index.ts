@@ -403,7 +403,7 @@ export interface JobApplicationStatusHistory {
 }
 
 // Long-Term Project Marketplace Types
-export type ProjectStatus = 'OPEN' | 'REVIEWING_PROPOSALS' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'CLOSED';
+export type ProjectStatus = 'DRAFT' | 'OPEN' | 'REVIEWING_PROPOSALS' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'CLOSED';
 export type ProposalStatus = 'SUBMITTED' | 'SHORTLISTED' | 'ACCEPTED' | 'REJECTED' | 'WITHDRAWN' | 'HIRED';
 export type ContractStatus = 'PENDING_AGREEMENT' | 'ACTIVE' | 'SUBMITTED_FOR_REVIEW' | 'REVISION_REQUESTED' | 'COMPLETED' | 'CANCELLED';
 export type MilestoneStatus = 'PENDING' | 'IN_PROGRESS' | 'SUBMITTED' | 'APPROVED' | 'REVISION_REQUESTED' | 'CANCELLED';
@@ -423,10 +423,14 @@ export interface Project {
   currency: string;
   deadline?: string | null;
   estimated_duration?: string | null;
+  expected_start_date?: string | null;
+  workload_commitment?: string | null;
   experience_level: 'entry' | 'intermediate' | 'expert';
   status: ProjectStatus;
   attachments?: string[];
   screening_questions?: string[];
+  deliverables?: string[];
+  additional_instructions?: string | null;
   proposals_count: number;
   hired_proposal_id?: string | null;
   hired_provider_id?: string | null;
@@ -522,6 +526,9 @@ export interface ProjectContract {
     category_name?: string;
     skills: string[];
   };
+  client_rating?: number | null;
+  client_review?: string | null;
+  client_reviewed_at?: string | null;
   milestones?: ProjectMilestone[];
 }
 

@@ -809,6 +809,16 @@ export const api = {
     return res.json();
   },
 
+  createOpportunity: async (data: {
+    title: string;
+    category_id: string;
+    description: string;
+    duration_minutes: number;
+    budget: number;
+  }) => {
+    return api.postOpportunity(data);
+  },
+
   applyForOpportunity: async (opportunityId: string, data: {
     message: string;
     relevant_experience: string;
@@ -2392,6 +2402,11 @@ export const api = {
     currency?: string;
     deadline?: string;
     estimated_duration?: string;
+    expected_start_date?: string;
+    workload_commitment?: string;
+    deliverables?: string[];
+    additional_instructions?: string;
+    status?: 'OPEN' | 'DRAFT';
     experience_level?: 'entry' | 'intermediate' | 'expert';
     screening_questions?: string[];
   }) => {
@@ -2572,6 +2587,15 @@ export const api = {
       headers: getAuthHeaders()
     });
     return parseResponseOrThrow(res, 'Failed to complete contract');
+  },
+
+  submitContractReview: async (contractId: string, rating: number, comment: string) => {
+    const res = await fetch(`${API_BASE}/contracts/${encodeURIComponent(contractId)}/review`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ rating, comment })
+    });
+    return parseResponseOrThrow(res, 'Failed to submit contract review');
   }
 };
 

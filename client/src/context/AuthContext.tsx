@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User } from '../types';
 import { api } from '../services/api';
+import { clearStoredReturnUrl } from '../utils/navigation';
 
 interface AuthContextType {
   user: User | null;
@@ -138,6 +139,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     localStorage.removeItem('hbm_token');
+    clearStoredReturnUrl();
     setUser(null);
     setToken(null);
     setAuthInitialized(true);

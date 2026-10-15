@@ -806,6 +806,15 @@ function initPostgresSchema(db) {
 
     ALTER TABLE reviews ADD COLUMN IF NOT EXISTS provider_reply TEXT;
     ALTER TABLE reviews ADD COLUMN IF NOT EXISTS provider_replied_at TIMESTAMP WITH TIME ZONE;
+
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS expected_start_date VARCHAR(64);
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS workload_commitment VARCHAR(64);
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS deliverables_json TEXT DEFAULT '[]';
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS additional_instructions TEXT;
+
+    ALTER TABLE project_contracts ADD COLUMN IF NOT EXISTS client_rating NUMERIC(3,2);
+    ALTER TABLE project_contracts ADD COLUMN IF NOT EXISTS client_review TEXT;
+    ALTER TABLE project_contracts ADD COLUMN IF NOT EXISTS client_reviewed_at TIMESTAMP WITH TIME ZONE;
   `;
 
   db.exec(schemaSql);
@@ -1554,6 +1563,13 @@ function initSqliteSchema(db) {
   safeAddColumn('opportunities', 'end_date DATETIME');
   safeAddColumn('applications', 'payment_id TEXT');
   safeAddColumn('applications', 'fee_paid REAL DEFAULT 0.00');
+  safeAddColumn('projects', 'expected_start_date TEXT');
+  safeAddColumn('projects', 'workload_commitment TEXT');
+  safeAddColumn('projects', "deliverables_json TEXT DEFAULT '[]'");
+  safeAddColumn('projects', 'additional_instructions TEXT');
+  safeAddColumn('project_contracts', 'client_rating REAL');
+  safeAddColumn('project_contracts', 'client_review TEXT');
+  safeAddColumn('project_contracts', 'client_reviewed_at DATETIME');
 
   try {
     db.prepare("UPDATE categories SET subcategories_json = '[]' WHERE subcategories_json IS NULL").run();

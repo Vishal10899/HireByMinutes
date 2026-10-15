@@ -249,7 +249,7 @@ export const ProjectDetailPage: React.FC = () => {
               </p>
             </div>
 
-            <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
               <Button
                 to={`/projects/${project.id}/proposals`}
                 variant="primary"
@@ -259,11 +259,19 @@ export const ProjectDetailPage: React.FC = () => {
               >
                 Review & Compare Proposals ({project.proposals_count})
               </Button>
-              {project.status === 'OPEN' && (
+              {['OPEN', 'DRAFT', 'REVIEWING_PROPOSALS'].includes(project.status) && (
+                <Link
+                  to={`/projects/new?edit=${project.id}`}
+                  className="px-3.5 py-2 rounded-xl border border-timberwolf hover:border-moonstone text-midnight/80 hover:text-midnight text-xs font-semibold transition-colors min-h-[44px] inline-flex items-center"
+                >
+                  Edit Project
+                </Link>
+              )}
+              {['OPEN', 'REVIEWING_PROPOSALS'].includes(project.status) && (
                 <button
                   type="button"
                   onClick={handleCloseProject}
-                  className="px-3.5 py-2 rounded-xl border border-timberwolf hover:border-rose-300 text-midnight/70 hover:text-rose-700 text-xs font-semibold transition-colors min-h-[44px]"
+                  className="px-3.5 py-2 rounded-xl border border-timberwolf hover:border-rose-300 text-midnight/70 hover:text-rose-700 text-xs font-semibold transition-colors min-h-[44px] cursor-pointer"
                 >
                   Close Project
                 </button>

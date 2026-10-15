@@ -12,23 +12,17 @@ export const Header: React.FC = () => {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
-  const [exploreDropdownOpen, setExploreDropdownOpen] = useState(false);
-  const exploreRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   // Close dropdowns on outside click or escape
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (exploreRef.current && !exploreRef.current.contains(e.target as Node)) {
-        setExploreDropdownOpen(false);
-      }
       if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
         setUserDropdownOpen(false);
       }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setExploreDropdownOpen(false);
         setUserDropdownOpen(false);
       }
     };
@@ -77,11 +71,9 @@ export const Header: React.FC = () => {
     };
 
     ensureItem('services', 'Services', '/services', 1);
-    ensureItem('projects', 'Projects', '/projects', 2);
-    ensureItem('opportunities', 'Opportunities', '/opportunities', 3);
-    ensureItem('jobs', 'Jobs', '/jobs', 4);
-    ensureItem('how-it-works', 'How It Works', '/how-it-works', 5);
-    ensureItem('blog', 'Blog', '/blog', 6);
+    ensureItem('opportunities', 'Opportunities', '/opportunities', 2);
+    ensureItem('how-it-works', 'How It Works', '/how-it-works', 3);
+    ensureItem('blog', 'Blog', '/blog', 4);
 
     return items.sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
   }, [navItems]);
@@ -156,71 +148,13 @@ export const Header: React.FC = () => {
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-5 lg:gap-6 xl:gap-7 text-sm font-medium">
-            {/* 1. Core Primary Destinations: Services & Projects */}
+            {/* Core Destinations: Services, Opportunities, How It Works, Blog */}
             {renderNavLink({ id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true })}
-            {renderNavLink({ id: 'projects', label: 'Projects', url: '/projects', order: 2, is_visible: true })}
+            {renderNavLink({ id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 2, is_visible: true })}
+            {renderNavLink({ id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 3, is_visible: true })}
+            {renderNavLink({ id: 'blog', label: 'Blog', url: '/blog', order: 4, is_visible: true })}
 
-            {/* 2. On wide screens (lg+), show Opportunities & Jobs directly */}
-            <div className="hidden lg:flex items-center gap-5 lg:gap-6 xl:gap-7">
-              {renderNavLink({ id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 3, is_visible: true })}
-              {renderNavLink({ id: 'jobs', label: 'Jobs', url: '/jobs', order: 4, is_visible: true })}
-            </div>
-
-            {/* 3. On medium screens (768px-1023px, md:flex lg:hidden) where space is limited, provide accessible Explore dropdown */}
-            <div className="relative lg:hidden" ref={exploreRef}>
-              <button
-                type="button"
-                onClick={() => setExploreDropdownOpen(!exploreDropdownOpen)}
-                aria-haspopup="true"
-                aria-expanded={exploreDropdownOpen}
-                className={`flex items-center gap-1 transition-colors hover:text-moonstone focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone rounded-md py-0.5 px-1 cursor-pointer ${
-                  isCurrent('/opportunities') || isCurrent('/jobs')
-                    ? 'text-moonstone font-semibold'
-                    : 'text-midnight/80'
-                }`}
-              >
-                <span>Explore</span>
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${exploreDropdownOpen ? 'rotate-180 text-moonstone' : 'text-midnight/60'}`} />
-              </button>
-
-              {exploreDropdownOpen && (
-                <div className="absolute left-0 mt-2 w-56 rounded-xl bg-white border border-timberwolf/60 shadow-elevated py-2 text-sm z-50 animate-fade-in">
-                  <Link
-                    to="/opportunities"
-                    onClick={() => setExploreDropdownOpen(false)}
-                    className={`flex items-center gap-2.5 px-4 py-2 hover:bg-aliceblue transition-colors ${
-                      isCurrent('/opportunities') ? 'text-moonstone font-bold bg-aliceblue/60' : 'text-midnight'
-                    }`}
-                  >
-                    <Clock className="w-4 h-4 text-moonstone shrink-0" />
-                    <div>
-                      <div className="font-semibold text-xs text-midnight">Opportunities</div>
-                      <div className="text-[10px] text-midnight/60">Consultation requests</div>
-                    </div>
-                  </Link>
-
-                  <Link
-                    to="/jobs"
-                    onClick={() => setExploreDropdownOpen(false)}
-                    className={`flex items-center gap-2.5 px-4 py-2 hover:bg-aliceblue transition-colors ${
-                      isCurrent('/jobs') ? 'text-moonstone font-bold bg-aliceblue/60' : 'text-midnight'
-                    }`}
-                  >
-                    <Briefcase className="w-4 h-4 text-moonstone shrink-0" />
-                    <div>
-                      <div className="font-semibold text-xs text-midnight">Jobs & Careers</div>
-                      <div className="text-[10px] text-midnight/60">Full-time openings</div>
-                    </div>
-                  </Link>
-                </div>
-              )}
-            </div>
-
-            {/* 4. How It Works & Blog */}
-            {renderNavLink({ id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 5, is_visible: true })}
-            {renderNavLink({ id: 'blog', label: 'Blog', url: '/blog', order: 6, is_visible: true })}
-
-            {/* 5. Custom CMS Navigation Items (if configured) */}
+            {/* Custom CMS Navigation Items (if configured) */}
             {visibleNavItems
               .filter(
                 (item) =>
@@ -231,7 +165,7 @@ export const Header: React.FC = () => {
                     item.url.toLowerCase()
                   )
               )
-              .map((item) => renderNavLink(item, false))}
+              .map((item) => renderNavLink(item))}
           </nav>
 
           {/* Desktop Right CTA */}

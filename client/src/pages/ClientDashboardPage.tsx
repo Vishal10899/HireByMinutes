@@ -2697,6 +2697,8 @@ export const ClientDashboardPage: React.FC = () => {
                             ? 'bg-purple-50 text-purple-800 border-purple-200'
                             : p.status === 'COMPLETED'
                             ? 'bg-zinc-100 text-zinc-800 border-zinc-200'
+                            : p.status === 'DRAFT'
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
                             : 'bg-rose-50 text-rose-800 border-rose-200'
                         }`}>
                           {p.status.replace(/_/g, ' ')}
@@ -2721,14 +2723,24 @@ export const ClientDashboardPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <Link
-                        to={`/projects/${p.id}/proposals`}
-                        className="btn-shine inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-moonstone text-white text-xs font-bold hover:bg-moonstone-hover shadow-subtle transition-all min-h-[44px]"
-                      >
-                        <Users className="w-3.5 h-3.5" />
-                        <span>Review Proposals ({p.proposals_count || 0})</span>
-                      </Link>
+                    <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                      {p.status === 'DRAFT' ? (
+                        <Link
+                          to={`/projects/new?edit=${p.id}`}
+                          className="btn-shine inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 shadow-subtle transition-all min-h-[44px]"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>Edit Draft</span>
+                        </Link>
+                      ) : (
+                        <Link
+                          to={`/projects/${p.id}/proposals`}
+                          className="btn-shine inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-moonstone text-white text-xs font-bold hover:bg-moonstone-hover shadow-subtle transition-all min-h-[44px]"
+                        >
+                          <Users className="w-3.5 h-3.5" />
+                          <span>Review Proposals ({p.proposals_count || 0})</span>
+                        </Link>
+                      )}
                       <Link
                         to={`/projects/${p.id}`}
                         className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-timberwolf text-xs font-semibold text-midnight hover:bg-aliceblue transition-colors min-h-[44px]"
