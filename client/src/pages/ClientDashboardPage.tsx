@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -127,6 +127,22 @@ export const ClientDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'consultations' | 'experts' | 'payments' | 'rewards' | 'job_applications' | 'projects'>('overview');
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+        setMoreMenuOpen(false);
+      }
+    };
+    if (moreMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [moreMenuOpen]);
   const [activeSession, setActiveSession] = useState<any | null>(null);
   const [consultations, setConsultations] = useState<any[]>([]);
   const [consultationRequests, setConsultationRequests] = useState<ConsultationRequest[]>([]);
@@ -501,6 +517,9 @@ export const ClientDashboardPage: React.FC = () => {
     }
   };
 
+  // Active accepted request awaiting client payment confirmation
+  const acceptedUnpaidRequest = consultationRequests.find(req => req.status === 'ACCEPTED' && !req.session_id);
+
   // Filter consultations
   const filteredConsultations = consultations.filter((c: any) => {
     if (consultationFilter === 'all') return true;
@@ -853,10 +872,10 @@ export const ClientDashboardPage: React.FC = () => {
         </div>
       </section>
 
-      {/* 6 Server-Authoritative Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+      {/* 4 Server-Authoritative Core Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* 1. Experts Hired */}
-        <div className="bg-white p-4 sm:p-4.5 rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col justify-between">
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-midnight/60">
               Experts Hired
@@ -875,28 +894,28 @@ export const ClientDashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 2. Total Consultations */}
-        <div className="bg-white p-4 sm:p-4.5 rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col justify-between">
+        {/* 2. Completed Consultations */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-midnight/60">
-              Total Consultations
+              Completed Consultations
             </span>
-            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-              <Calendar className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2.5">
             <div className="text-xl sm:text-2xl font-extrabold text-midnight font-mono tracking-tight">
-              {stats?.totalConsultations ?? (stats?.completedSessions ? stats.completedSessions + (stats.activeConsultations || 0) : consultations.length)}
+              {stats?.completedConsultations ?? stats?.completedSessions ?? pastSessions.length}
             </div>
             <span className="text-[11px] text-midnight/50 block mt-0.5 truncate">
-              {stats?.completedConsultations ?? stats?.completedSessions ?? 0} done • {stats?.activeConsultations ?? (activeSession ? 1 : 0)} live
+              Finished consultations
             </span>
           </div>
         </div>
 
-        {/* 3. Consultation Minutes */}
-        <div className="bg-white p-4 sm:p-4.5 rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col justify-between">
+        {/* 3. Verified Consultation Mins */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-midnight/60">
               Consultation Mins
@@ -916,7 +935,7 @@ export const ClientDashboardPage: React.FC = () => {
         </div>
 
         {/* 4. Total Spent */}
-        <div className="bg-white p-4 sm:p-4.5 rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col justify-between">
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-midnight/60">
               Total Spent
@@ -934,50 +953,82 @@ export const ClientDashboardPage: React.FC = () => {
             </span>
           </div>
         </div>
+      </div>
 
-        {/* 5. Completed Sessions */}
-        <div className="bg-white p-4 sm:p-4.5 rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-midnight/60">
-              Completed Sessions
+      {/* Compact Status Indicator Bar */}
+      <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-moonstone shrink-0" />
+            <span className="font-bold text-midnight">Total Consultations:</span>
+            <span className="font-mono font-extrabold text-midnight">
+              {stats?.totalConsultations ?? (stats?.completedSessions ? stats.completedSessions + (stats.activeConsultations || 0) : consultations.length)}
             </span>
-            <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2.5">
-            <div className="text-xl sm:text-2xl font-extrabold text-midnight font-mono tracking-tight">
-              {stats?.completedSessions ?? pastSessions.length}
-            </div>
-            <span className="text-[11px] text-midnight/50 block mt-0.5 truncate">
-              Finished consultations
+            <span className="text-midnight/50 text-[11px]">
+              ({stats?.completedConsultations ?? stats?.completedSessions ?? 0} completed • {stats?.activeConsultations ?? (activeSession ? 1 : 0)} live)
             </span>
           </div>
+
+          <div className="hidden sm:block text-timberwolf-dark">|</div>
+
+          {/* Pending Requests indicator */}
+          {(stats?.pendingRequests ?? consultationRequests.filter(r => r.status === 'PENDING_EXPERT').length) > 0 ? (
+            <button
+              type="button"
+              onClick={() => { setActiveTab('consultations'); setConsultationFilter('active'); }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold hover:bg-amber-100 transition-colors cursor-pointer min-h-[32px]"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span>Pending Requests: {stats?.pendingRequests ?? consultationRequests.filter(r => r.status === 'PENDING_EXPERT').length} awaiting reply</span>
+              <ArrowRight className="w-3 h-3 text-amber-700" />
+            </button>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-midnight/50">
+              <Clock className="w-3.5 h-3.5 text-midnight/40" />
+              <span>Pending Requests: 0</span>
+            </span>
+          )}
         </div>
 
-        {/* 6. Pending Requests */}
-        <div className="bg-white p-4 sm:p-4.5 rounded-2xl border border-timberwolf/70 shadow-subtle flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-midnight/60">
-              Pending Requests
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center shrink-0">
-              <Clock className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2.5">
-            <div className="text-xl sm:text-2xl font-extrabold text-midnight font-mono tracking-tight">
-              {stats?.pendingRequests ?? consultationRequests.filter(r => r.status === 'PENDING_EXPERT').length}
-            </div>
-            <span className="text-[11px] text-midnight/50 block mt-0.5 truncate">
-              Awaiting expert reply
-            </span>
-          </div>
+        <button
+          type="button"
+          onClick={() => { setActiveTab('consultations'); setConsultationPage(1); }}
+          className="text-xs font-bold text-moonstone hover:underline inline-flex items-center gap-1 self-start sm:self-auto cursor-pointer"
+        >
+          <span>View Consultations</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Mobile Tab Selector (< sm) */}
+      <div className="sm:hidden w-full">
+        <label htmlFor="mobile-tab-select" className="sr-only">Select Tab</label>
+        <div className="relative">
+          <select
+            id="mobile-tab-select"
+            value={activeTab}
+            onChange={(e) => {
+              const val = e.target.value as any;
+              setActiveTab(val);
+              if (val === 'consultations') setConsultationPage(1);
+              if (val === 'payments') setPaymentPage(1);
+            }}
+            className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-timberwolf bg-white text-midnight font-bold text-xs appearance-none pr-9 focus:outline-none focus:ring-2 focus:ring-moonstone shadow-subtle cursor-pointer"
+          >
+            <option value="overview">Overview</option>
+            <option value="consultations">My Consultations ({consultations.length})</option>
+            <option value="experts">Previously Hired Experts ({previouslyHiredExperts.length})</option>
+            <option value="projects">My Projects & Contracts ({myProjects.length + myContracts.length})</option>
+            <option value="payments">Payment History ({payments.length})</option>
+            <option value="rewards">Loyalty Rewards ({(rewardsData?.reward_points_balance ?? 0).toLocaleString()} pts)</option>
+            <option value="job_applications">Job Applications ({jobApplications.length})</option>
+          </select>
+          <ChevronDown className="w-4 h-4 text-midnight/60 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
       </div>
 
-      {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-timberwolf/60 overflow-x-auto no-scrollbar pb-px">
+      {/* Desktop / Tablet Tabs Navigation (sm and up) */}
+      <div className="hidden sm:flex items-center gap-2 border-b border-timberwolf/60 overflow-x-auto no-scrollbar pb-px">
         <button
           type="button"
           onClick={() => setActiveTab('overview')}
@@ -987,7 +1038,7 @@ export const ClientDashboardPage: React.FC = () => {
               : 'border-transparent text-midnight/70 hover:text-midnight'
           }`}
         >
-          Overview & Requests ({consultationRequests.length})
+          Overview
         </button>
 
         <button
@@ -1039,30 +1090,65 @@ export const ClientDashboardPage: React.FC = () => {
           Payment History ({payments.length})
         </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('rewards')}
-          className={`min-h-[44px] px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer flex items-center gap-1.5 active:scale-95 ${
-            activeTab === 'rewards'
-              ? 'border-moonstone text-moonstone'
-              : 'border-transparent text-midnight/70 hover:text-midnight'
-          }`}
-        >
-          <Sparkles className="w-3.5 h-3.5 text-moonstone" />
-          <span>Loyalty Rewards ({(rewardsData?.reward_points_balance ?? 0).toLocaleString()} pts)</span>
-        </button>
+        {/* More Menu Dropdown for Secondary Tabs */}
+        <div className="relative" ref={moreMenuRef}>
+          <button
+            type="button"
+            onClick={() => setMoreMenuOpen(prev => !prev)}
+            className={`min-h-[44px] px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+              activeTab === 'rewards' || activeTab === 'job_applications'
+                ? 'border-moonstone text-moonstone'
+                : 'border-transparent text-midnight/70 hover:text-midnight'
+            }`}
+          >
+            <span>
+              {activeTab === 'rewards'
+                ? 'More: Rewards'
+                : activeTab === 'job_applications'
+                ? 'More: Applications'
+                : 'More'}
+            </span>
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${moreMenuOpen ? 'rotate-180' : ''}`} />
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('job_applications')}
-          className={`min-h-[44px] px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 cursor-pointer flex items-center active:scale-95 ${
-            activeTab === 'job_applications'
-              ? 'border-moonstone text-moonstone'
-              : 'border-transparent text-midnight/70 hover:text-midnight'
-          }`}
-        >
-          Job Applications ({jobApplications.length})
-        </button>
+          {moreMenuOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-64 bg-white rounded-xl shadow-xl border border-timberwolf/70 py-1.5 z-40 animate-scale-in">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('rewards');
+                  setMoreMenuOpen(false);
+                }}
+                className={`w-full px-4 py-3 text-left text-xs font-semibold flex items-center gap-2 hover:bg-aliceblue transition-colors cursor-pointer min-h-[44px] ${
+                  activeTab === 'rewards' ? 'text-moonstone font-bold bg-aliceblue/60' : 'text-midnight'
+                }`}
+              >
+                <Sparkles className="w-4 h-4 text-moonstone shrink-0" />
+                <div className="min-w-0">
+                  <div className="truncate">Loyalty Rewards</div>
+                  <div className="text-[10px] text-midnight/50">{(rewardsData?.reward_points_balance ?? 0).toLocaleString()} pts available</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('job_applications');
+                  setMoreMenuOpen(false);
+                }}
+                className={`w-full px-4 py-3 text-left text-xs font-semibold flex items-center gap-2 hover:bg-aliceblue transition-colors cursor-pointer min-h-[44px] ${
+                  activeTab === 'job_applications' ? 'text-moonstone font-bold bg-aliceblue/60' : 'text-midnight'
+                }`}
+              >
+                <Briefcase className="w-4 h-4 text-moonstone shrink-0" />
+                <div className="min-w-0">
+                  <div className="truncate">Job Applications</div>
+                  <div className="text-[10px] text-midnight/50">{jobApplications.length} active applications</div>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Privacy Notice */}
@@ -1102,173 +1188,58 @@ export const ClientDashboardPage: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 1: OVERVIEW & REQUESTS */}
+      {/* TAB 1: OVERVIEW */}
       {/* ========================================================================= */}
       {activeTab === 'overview' && (
         <div className="space-y-8 animate-fade-in">
 
-          {/* Section: Consultation Requests (Active & Pending Only) */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-moonstone" />
-                  <span>Consultation Requests ({consultationRequests.filter(req => ['PENDING_EXPERT', 'ACCEPTED', 'ACTIVE', 'PAID'].includes(req.status) && req.status !== 'COMPLETED').length})</span>
-                </h2>
-                <p className="text-xs text-midnight/60 mt-0.5">Payment is only charged after the expert accepts your topic and timing.</p>
+          {/* HIGH PRIORITY PAYMENT BANNER (If any accepted consultation awaits payment) */}
+          {acceptedUnpaidRequest && (
+            <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-aliceblue border-2 border-emerald-300 rounded-2xl p-5 sm:p-6 shadow-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 border border-emerald-200">
+                  <Check className="w-6 h-6 text-emerald-600" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-200/70 px-2 py-0.5 rounded">
+                      Expert Accepted — Ready to Confirm
+                    </span>
+                    <span className="font-mono text-xs font-bold text-midnight">{formatINR(acceptedUnpaidRequest.total_price)}</span>
+                  </div>
+                  <h3 className="text-sm sm:text-base font-bold text-midnight mt-1">
+                    {acceptedUnpaidRequest.provider_name} accepted your consultation request!
+                  </h3>
+                  <p className="text-xs text-midnight/70">{acceptedUnpaidRequest.service_title} • {acceptedUnpaidRequest.duration_minutes} mins</p>
+                </div>
               </div>
-              {consultationRequests.filter(req => ['PENDING_EXPERT', 'ACCEPTED', 'ACTIVE', 'PAID'].includes(req.status) && req.status !== 'COMPLETED').length > 0 && (
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <button
                   type="button"
-                  onClick={() => { setActiveTab('consultations'); setConsultationFilter('active'); }}
-                  className="text-xs font-semibold text-moonstone hover:underline"
+                  onClick={() => handlePayRequest(acceptedUnpaidRequest.id)}
+                  disabled={payingId === acceptedUnpaidRequest.id || cancellingId === acceptedUnpaidRequest.id}
+                  className="btn-shine flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
                 >
-                  View all requests
+                  {payingId === acceptedUnpaidRequest.id ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span>Pay & Confirm Consultation</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
+                    </>
+                  )}
                 </button>
-              )}
-            </div>
-
-            {consultationRequests.filter(req => ['PENDING_EXPERT', 'ACCEPTED', 'ACTIVE', 'PAID'].includes(req.status) && req.status !== 'COMPLETED').length === 0 ? (
-              <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 text-center shadow-subtle space-y-2">
-                <Clock className="w-7 h-7 text-timberwolf-dark mx-auto" />
-                <h4 className="text-sm font-bold text-midnight">No pending or active consultation requests</h4>
-                <p className="text-xs text-midnight/60 max-w-sm mx-auto leading-relaxed">
-                  Browse our marketplace to find an expert. Request a consultation first, and pay only after the expert confirms availability.
-                </p>
-                <Link
-                  to="/services"
-                  className="btn-shine inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle transition-all min-h-[44px]"
+                <button
+                  type="button"
+                  onClick={() => handleCancelRequest(acceptedUnpaidRequest.id)}
+                  disabled={cancellingId === acceptedUnpaidRequest.id || payingId === acceptedUnpaidRequest.id}
+                  className="px-3.5 py-2.5 rounded-xl border border-timberwolf text-midnight/70 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 text-xs font-semibold transition cursor-pointer min-h-[44px]"
                 >
-                  <Search className="w-4 h-4 text-moonstone" />
-                  <span>Find an Expert</span>
-                </Link>
+                  Cancel
+                </button>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {consultationRequests
-                  .filter(req => ['PENDING_EXPERT', 'ACCEPTED', 'ACTIVE', 'PAID'].includes(req.status) && req.status !== 'COMPLETED')
-                  .slice(0, 4)
-                  .map((req) => (
-                    <div
-                      key={req.id}
-                      className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-4 sm:p-5 shadow-card space-y-3 hover:border-moonstone/60 transition-all flex flex-col justify-between"
-                    >
-                      <div className="space-y-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <img
-                              src={req.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(req.provider_name || 'expert')}`}
-                              alt={req.provider_name || 'Expert'}
-                              className="w-11 h-11 rounded-xl object-cover border border-lightblue shrink-0"
-                            />
-                            <div className="min-w-0">
-                              <h4 className="font-bold text-sm text-midnight truncate">{req.provider_name}</h4>
-                              <p className="text-xs text-midnight/70 truncate">{req.service_title}</p>
-                              <span className="text-[11px] text-midnight/60 block mt-0.5 font-mono">
-                                {req.duration_minutes} mins • {formatINR(req.total_price)}
-                              </span>
-                            </div>
-                          </div>
-
-                          {req.status === 'PENDING_EXPERT' && (
-                            <ClientRequestTimer
-                              initialSeconds={req.remaining_seconds || 600}
-                              onExpire={loadDashboard}
-                            />
-                          )}
-                          {req.status === 'ACCEPTED' && (
-                            <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shrink-0">
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              <span>Accepted</span>
-                            </span>
-                          )}
-                          {req.status === 'PAID' && (
-                            <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200 shrink-0">
-                              Confirmed
-                            </span>
-                          )}
-                        </div>
-
-                        {req.problem_description && (
-                          <div className="p-2.5 bg-aliceblue/50 rounded-xl border border-timberwolf/40 text-xs text-midnight/80">
-                            <span className="text-[10px] uppercase font-bold text-midnight/50 block mb-0.5">
-                              Your Topic:
-                            </span>
-                            <p className="italic leading-relaxed line-clamp-2">{normalizeTopic(req.problem_description)}</p>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="pt-2 border-t border-timberwolf/40">
-                        {req.status === 'PENDING_EXPERT' && (
-                          <div className="flex items-center justify-between gap-2 pt-1 text-xs">
-                            <span className="flex items-center gap-1 text-midnight/60">
-                              <ShieldCheck className="w-3.5 h-3.5 text-moonstone shrink-0" />
-                              <span>Awaiting expert reply</span>
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleCancelRequest(req.id)}
-                              disabled={cancellingId === req.id}
-                              className="px-3 py-1.5 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 text-[11px] font-semibold transition cursor-pointer min-h-[36px]"
-                            >
-                              {cancellingId === req.id ? 'Cancelling...' : 'Cancel Request'}
-                            </button>
-                          </div>
-                        )}
-
-                        {req.status === 'ACCEPTED' && !req.session_id && (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between text-xs text-emerald-800 font-semibold">
-                              <span>{req.provider_name} accepted your request!</span>
-                              <span className="font-mono text-sm">{formatINR(req.total_price)}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handlePayRequest(req.id)}
-                                disabled={payingId === req.id || cancellingId === req.id}
-                                className="btn-shine flex-1 py-2.5 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[44px]"
-                              >
-                                {payingId === req.id ? (
-                                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                ) : (
-                                  <>
-                                    <span>Pay & Confirm Consultation</span>
-                                    <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
-                                  </>
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleCancelRequest(req.id)}
-                                disabled={cancellingId === req.id || payingId === req.id}
-                                className="px-3 py-2.5 rounded-xl border border-timberwolf text-midnight/70 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 text-xs font-semibold transition cursor-pointer min-h-[44px]"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        {(req.status === 'PAID' || req.status === 'ACTIVE') && req.session_id && (
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-emerald-700 font-medium">Session workspace ready</span>
-                            <Link
-                              to={`/session/${req.session_id}`}
-                              className="btn-shine px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-semibold hover:bg-midnight-hover inline-flex items-center gap-1 min-h-[44px]"
-                            >
-                              <span>Enter Room</span>
-                              <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
-                            </Link>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </section>
+            </div>
+          )}
 
           {/* Section: Completed Consultation History (Compact Inbox Grouped by Expert) */}
           <section className="space-y-4">
@@ -1308,10 +1279,10 @@ export const ClientDashboardPage: React.FC = () => {
             ) : (
               <div className="bg-white rounded-2xl border border-timberwolf/70 divide-y divide-timberwolf/30 shadow-subtle overflow-hidden">
                 <div className="hidden md:grid md:grid-cols-12 gap-4 px-5 py-3 bg-aliceblue/60 text-[11px] font-bold text-midnight/60 uppercase tracking-wider">
-                  <div className="col-span-5">Expert & Professional Discipline</div>
+                  <div className="col-span-4">Expert & Professional Category</div>
                   <div className="col-span-3">Completed Sessions & Time</div>
                   <div className="col-span-2">Net Captured Spent</div>
-                  <div className="col-span-2 text-right">Actions</div>
+                  <div className="col-span-3 text-right">Actions</div>
                 </div>
 
                 {completedExpertGroups.slice(0, 5).map((group) => {
@@ -1319,7 +1290,7 @@ export const ClientDashboardPage: React.FC = () => {
                   return (
                     <div key={group.expert_id} className="transition-colors hover:bg-aliceblue/20">
                       <div className="p-4 sm:p-5 flex flex-col md:grid md:grid-cols-12 gap-4 items-start md:items-center">
-                        <div className="md:col-span-5 flex items-center gap-3 w-full">
+                        <div className="md:col-span-4 flex items-center gap-3 w-full min-w-0">
                           <img
                             src={group.expert_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(group.expert_name)}`}
                             alt={group.expert_name}
@@ -1327,7 +1298,13 @@ export const ClientDashboardPage: React.FC = () => {
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <h4 className="font-bold text-sm text-midnight truncate">{group.expert_name}</h4>
+                              <Link
+                                to={group.service_id ? `/services/${group.service_id}` : '/services'}
+                                className="font-bold text-sm text-midnight hover:text-moonstone hover:underline transition-colors truncate"
+                                title="View Expert Service Profile"
+                              >
+                                {group.expert_name}
+                              </Link>
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-aliceblue text-moonstone font-semibold border border-timberwolf/40 shrink-0">
                                 {group.category_name}
                               </span>
@@ -1337,11 +1314,11 @@ export const ClientDashboardPage: React.FC = () => {
                         </div>
 
                         <div className="md:col-span-3 flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                             <span>{group.completed_count} {group.completed_count === 1 ? 'Session' : 'Sessions'}</span>
                           </span>
-                          <span className="text-xs font-mono font-medium text-midnight/70">
+                          <span className="text-xs font-mono font-medium text-midnight/70 whitespace-nowrap">
                             {group.total_minutes}m (verified)
                           </span>
                         </div>
@@ -1353,14 +1330,14 @@ export const ClientDashboardPage: React.FC = () => {
                           <span className="text-[10px] text-midnight/50">Captured Net</span>
                         </div>
 
-                        <div className="md:col-span-2 flex items-center justify-end gap-1.5 w-full md:w-auto">
+                        <div className="md:col-span-3 flex items-center md:justify-end gap-2 w-full md:w-auto flex-wrap sm:flex-nowrap">
                           <button
                             type="button"
                             onClick={() => openChatModal(group)}
                             title="Open archived consultation transcript"
-                            className="btn-shine px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[40px] inline-flex items-center gap-1 cursor-pointer transition-all"
+                            className="btn-shine px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[44px] inline-flex items-center justify-center gap-1.5 cursor-pointer transition-all whitespace-nowrap active:scale-95 flex-1 sm:flex-none"
                           >
-                            <MessageSquare className="w-3.5 h-3.5 text-moonstone" />
+                            <MessageSquare className="w-3.5 h-3.5 text-moonstone shrink-0" />
                             <span>Read Chats</span>
                           </button>
 
@@ -1368,9 +1345,9 @@ export const ClientDashboardPage: React.FC = () => {
                             type="button"
                             onClick={() => openRehireModal(group)}
                             title="Submit a new consultation request with this expert"
-                            className="btn-shine px-3 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[40px] inline-flex items-center gap-1 cursor-pointer shadow-subtle transition-all"
+                            className="btn-shine px-3.5 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[44px] inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-subtle transition-all whitespace-nowrap active:scale-95 flex-1 sm:flex-none"
                           >
-                            <RotateCcw className="w-3.5 h-3.5 text-moonstone" />
+                            <RotateCcw className="w-3.5 h-3.5 text-moonstone shrink-0" />
                             <span>Rehire</span>
                           </button>
 
@@ -1378,7 +1355,7 @@ export const ClientDashboardPage: React.FC = () => {
                             type="button"
                             onClick={() => toggleExpandExpert(group.expert_id)}
                             title={isExpanded ? "Collapse sessions" : "Expand sessions"}
-                            className="p-2 rounded-xl border border-timberwolf/60 text-midnight/60 hover:text-midnight hover:bg-aliceblue min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer transition-all"
+                            className="p-2.5 rounded-xl border border-timberwolf/60 text-midnight/60 hover:text-midnight hover:bg-aliceblue min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer transition-all active:scale-95 shrink-0"
                           >
                             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                           </button>
@@ -1419,19 +1396,19 @@ export const ClientDashboardPage: React.FC = () => {
                                   )}
                                 </div>
 
-                                <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex items-center gap-2 shrink-0 flex-wrap">
                                   <button
                                     type="button"
                                     onClick={() => openChatModal(group, s.session_id || s.id)}
-                                    className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1 cursor-pointer"
+                                    className="px-3 py-2 rounded-xl border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1.5 cursor-pointer min-h-[44px]"
                                   >
-                                    <MessageSquare className="w-3 h-3 text-moonstone" />
+                                    <MessageSquare className="w-3.5 h-3.5 text-moonstone" />
                                     <span>View Session Chat</span>
                                   </button>
                                   {s.session_id && (
                                     <Link
                                       to={`/session/${s.session_id}`}
-                                      className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1"
+                                      className="px-3 py-2 rounded-xl border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1.5 min-h-[44px]"
                                     >
                                       <FileText className="w-3.5 h-3.5 text-moonstone" />
                                       <span>View Notes</span>
@@ -1451,77 +1428,101 @@ export const ClientDashboardPage: React.FC = () => {
           </section>
 
           {/* Section: Recommended Experts For You */}
-          {recommendedExperts.length > 0 && (
-            <section className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-moonstone" />
-                    <span>Recommended Experts For You</span>
-                  </h2>
-                  <p className="text-xs text-midnight/60 mt-0.5">Curated based on your consultation topics and verified credentials.</p>
-                </div>
-                <Link to="/services" className="text-xs text-moonstone font-bold hover:underline flex items-center gap-1">
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-moonstone" />
+                  <span>Recommended Experts For You</span>
+                </h2>
+                <p className="text-xs text-midnight/60 mt-0.5">Specialists curated for your consultation and project requirements.</p>
+              </div>
+              <Link to="/services" className="text-xs text-moonstone font-bold hover:underline flex items-center gap-1">
+                <span>Explore Marketplace</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            {recommendedExperts.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 text-center shadow-subtle space-y-2">
+                <Sparkles className="w-7 h-7 text-moonstone mx-auto" />
+                <h4 className="text-sm font-bold text-midnight">No expert recommendations right now</h4>
+                <p className="text-xs text-midnight/60 max-w-sm mx-auto leading-relaxed">
+                  Browse our full directory of specialists across software engineering, product design, marketing, and legal advisory.
+                </p>
+                <Link
+                  to="/services"
+                  className="btn-shine inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle transition-all min-h-[44px]"
+                >
+                  <Search className="w-4 h-4 text-moonstone" />
                   <span>Explore Marketplace</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
-
+            ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {recommendedExperts.slice(0, 3).map((exp) => (
-                  <div
-                    key={exp.id}
-                    className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3 flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={exp.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(exp.full_name)}`}
-                            alt={exp.full_name}
-                            className="w-12 h-12 rounded-xl object-cover border border-lightblue shrink-0"
-                          />
-                          <div>
-                            <h4 className="font-bold text-sm text-midnight flex items-center gap-1.5">
-                              <span>{exp.full_name}</span>
-                              {exp.is_verified === 1 && (
-                                <span title="Credential Verified">
-                                  <ShieldCheck className="w-3.5 h-3.5 text-moonstone" />
-                                </span>
-                              )}
-                            </h4>
-                            <p className="text-xs text-midnight/70 line-clamp-1">
-                              {exp.professional_title || exp.category_name || 'Marketplace Expert'}
-                            </p>
+                {recommendedExperts.slice(0, 3).map((exp) => {
+                  const reviewCount = Number(exp.review_count ?? exp.provider_review_count ?? 0);
+                  const rating = Number(exp.rating ?? exp.provider_rating ?? 0);
+                  const price = Number(exp.price_per_minute || 50);
+                  const name = exp.full_name || exp.provider_name || 'Expert Specialist';
+                  const serviceId = exp.service_id || exp.id;
+
+                  return (
+                    <div
+                      key={exp.id || serviceId}
+                      className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card space-y-3 flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={exp.avatar_url || exp.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`}
+                              alt={name}
+                              className="w-12 h-12 rounded-xl object-cover border border-lightblue shrink-0"
+                            />
+                            <div>
+                              <h4 className="font-bold text-sm text-midnight">
+                                {name}
+                              </h4>
+                              <p className="text-xs text-midnight/70 line-clamp-1">
+                                {exp.professional_title || exp.provider_headline || exp.category_name || 'Marketplace Specialist'}
+                              </p>
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="flex items-center gap-2 mt-3 pt-2 border-t border-timberwolf/30 text-xs">
-                        <div className="flex items-center gap-1 font-bold text-amber-600">
-                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                          <span>{Number(exp.rating || 5.0).toFixed(1)}</span>
-                          <span className="text-[10px] text-midnight/50 font-normal">({exp.review_count || 0})</span>
+                        <div className="flex items-center gap-2 mt-3 pt-2 border-t border-timberwolf/30 text-xs">
+                          {reviewCount > 0 && rating > 0 ? (
+                            <div className="flex items-center gap-1 font-bold text-amber-600">
+                              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                              <span>{rating.toFixed(1)}</span>
+                              <span className="text-[10px] text-midnight/50 font-normal">({reviewCount})</span>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] font-semibold text-moonstone bg-aliceblue px-2 py-0.5 rounded-full border border-timberwolf/40">
+                              New Specialist
+                            </span>
+                          )}
+                          <span>•</span>
+                          <span className="font-mono font-bold text-midnight">
+                            {formatINR(price)}/min
+                          </span>
                         </div>
-                        <span>•</span>
-                        <span className="font-mono font-bold text-midnight">
-                          {formatINR(exp.price_per_minute || 50)}/min
-                        </span>
                       </div>
-                    </div>
 
-                    <Link
-                      to={exp.service_id ? `/services/${exp.service_id}` : `/services`}
-                      className="btn-shine w-full py-2.5 px-3 rounded-xl bg-midnight hover:bg-midnight-hover text-aliceblue text-xs font-bold flex items-center justify-center gap-1.5 shadow-subtle transition mt-2 cursor-pointer min-h-[44px]"
-                    >
-                      <span>Consult Expert</span>
-                      <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
-                    </Link>
-                  </div>
-                ))}
+                      <Link
+                        to={serviceId ? `/services/${serviceId}` : `/services`}
+                        className="btn-shine w-full py-2.5 px-3 rounded-xl bg-midnight hover:bg-midnight-hover text-aliceblue text-xs font-bold flex items-center justify-center gap-1.5 shadow-subtle transition mt-2 cursor-pointer min-h-[44px]"
+                      >
+                        <span>Consult Expert</span>
+                        <ArrowRight className="w-3.5 h-3.5 text-moonstone" />
+                      </Link>
+                    </div>
+                  );
+                })}
               </div>
-            </section>
-          )}
+            )}
+          </section>
 
         </div>
       )}
@@ -1612,10 +1613,10 @@ export const ClientDashboardPage: React.FC = () => {
             <div className="space-y-4">
               <div className="bg-white rounded-2xl border border-timberwolf/70 divide-y divide-timberwolf/30 shadow-subtle overflow-hidden">
                 <div className="hidden md:grid md:grid-cols-12 gap-4 px-5 py-3 bg-aliceblue/60 text-[11px] font-bold text-midnight/60 uppercase tracking-wider">
-                  <div className="col-span-5">Expert & Professional Category</div>
+                  <div className="col-span-4">Expert & Professional Category</div>
                   <div className="col-span-3">Completed Sessions & Time</div>
                   <div className="col-span-2">Net Captured Spent</div>
-                  <div className="col-span-2 text-right">Actions</div>
+                  <div className="col-span-3 text-right">Actions</div>
                 </div>
 
                 {completedExpertGroups.map((group) => {
@@ -1623,7 +1624,7 @@ export const ClientDashboardPage: React.FC = () => {
                   return (
                     <div key={group.expert_id} className="transition-colors hover:bg-aliceblue/20">
                       <div className="p-4 sm:p-5 flex flex-col md:grid md:grid-cols-12 gap-4 items-start md:items-center">
-                        <div className="md:col-span-5 flex items-center gap-3 w-full">
+                        <div className="md:col-span-4 flex items-center gap-3 w-full min-w-0">
                           <img
                             src={group.expert_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(group.expert_name)}`}
                             alt={group.expert_name}
@@ -1631,7 +1632,13 @@ export const ClientDashboardPage: React.FC = () => {
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <h4 className="font-bold text-sm text-midnight truncate">{group.expert_name}</h4>
+                              <Link
+                                to={group.service_id ? `/services/${group.service_id}` : '/services'}
+                                className="font-bold text-sm text-midnight hover:text-moonstone hover:underline transition-colors truncate"
+                                title="View Expert Service Profile"
+                              >
+                                {group.expert_name}
+                              </Link>
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-aliceblue text-moonstone font-semibold border border-timberwolf/40 shrink-0">
                                 {group.category_name}
                               </span>
@@ -1641,11 +1648,11 @@ export const ClientDashboardPage: React.FC = () => {
                         </div>
 
                         <div className="md:col-span-3 flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                             <span>{group.completed_count} {group.completed_count === 1 ? 'Session' : 'Sessions'}</span>
                           </span>
-                          <span className="text-xs font-mono font-medium text-midnight/70">
+                          <span className="text-xs font-mono font-medium text-midnight/70 whitespace-nowrap">
                             {group.total_minutes}m (verified)
                           </span>
                         </div>
@@ -1657,14 +1664,14 @@ export const ClientDashboardPage: React.FC = () => {
                           <span className="text-[10px] text-midnight/50">Captured Net</span>
                         </div>
 
-                        <div className="md:col-span-2 flex items-center justify-end gap-1.5 w-full md:w-auto">
+                        <div className="md:col-span-3 flex items-center md:justify-end gap-2 w-full md:w-auto flex-wrap sm:flex-nowrap">
                           <button
                             type="button"
                             onClick={() => openChatModal(group)}
                             title="Open archived consultation transcript"
-                            className="btn-shine px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[40px] inline-flex items-center gap-1 cursor-pointer transition-all"
+                            className="btn-shine px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[44px] inline-flex items-center justify-center gap-1.5 cursor-pointer transition-all whitespace-nowrap active:scale-95 flex-1 sm:flex-none"
                           >
-                            <MessageSquare className="w-3.5 h-3.5 text-moonstone" />
+                            <MessageSquare className="w-3.5 h-3.5 text-moonstone shrink-0" />
                             <span>Read Chats</span>
                           </button>
 
@@ -1672,9 +1679,9 @@ export const ClientDashboardPage: React.FC = () => {
                             type="button"
                             onClick={() => openRehireModal(group)}
                             title="Submit a new consultation request with this expert"
-                            className="btn-shine px-3 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[40px] inline-flex items-center gap-1 cursor-pointer shadow-subtle transition-all"
+                            className="btn-shine px-3.5 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[44px] inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-subtle transition-all whitespace-nowrap active:scale-95 flex-1 sm:flex-none"
                           >
-                            <RotateCcw className="w-3.5 h-3.5 text-moonstone" />
+                            <RotateCcw className="w-3.5 h-3.5 text-moonstone shrink-0" />
                             <span>Rehire</span>
                           </button>
 
@@ -1682,7 +1689,7 @@ export const ClientDashboardPage: React.FC = () => {
                             type="button"
                             onClick={() => toggleExpandExpert(group.expert_id)}
                             title={isExpanded ? "Collapse sessions" : "Expand sessions"}
-                            className="p-2 rounded-xl border border-timberwolf/60 text-midnight/60 hover:text-midnight hover:bg-aliceblue min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer transition-all"
+                            className="p-2.5 rounded-xl border border-timberwolf/60 text-midnight/60 hover:text-midnight hover:bg-aliceblue min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer transition-all active:scale-95 shrink-0"
                           >
                             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                           </button>
@@ -1723,19 +1730,19 @@ export const ClientDashboardPage: React.FC = () => {
                                   )}
                                 </div>
 
-                                <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex items-center gap-2 shrink-0 flex-wrap">
                                   <button
                                     type="button"
                                     onClick={() => openChatModal(group, s.session_id || s.id)}
-                                    className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1 cursor-pointer"
+                                    className="px-3 py-2 rounded-xl border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1.5 cursor-pointer min-h-[44px]"
                                   >
-                                    <MessageSquare className="w-3 h-3 text-moonstone" />
+                                    <MessageSquare className="w-3.5 h-3.5 text-moonstone" />
                                     <span>View Session Chat</span>
                                   </button>
                                   {s.session_id && (
                                     <Link
                                       to={`/session/${s.session_id}`}
-                                      className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1"
+                                      className="px-3 py-2 rounded-xl border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1.5 min-h-[44px]"
                                     >
                                       <FileText className="w-3.5 h-3.5 text-moonstone" />
                                       <span>View Notes</span>
@@ -1818,7 +1825,7 @@ export const ClientDashboardPage: React.FC = () => {
                           type="button"
                           onClick={() => handleCancelRequest(c.request_id || c.id)}
                           disabled={cancellingId === (c.request_id || c.id)}
-                          className="px-3 py-1.5 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 text-[11px] font-semibold transition cursor-pointer min-h-[36px]"
+                          className="px-3.5 py-2.5 rounded-xl border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-semibold transition cursor-pointer min-h-[44px]"
                         >
                           {cancellingId === (c.request_id || c.id) ? 'Cancelling...' : 'Cancel Request'}
                         </button>
@@ -1829,7 +1836,7 @@ export const ClientDashboardPage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handlePayRequest(c.request_id || c.id)}
-                            disabled={payingId === (c.request_id || c.id) || cancellingId === (c.request_id || c.id)}
+                            disabled={payingId === (c.request_id || c.id)}
                             className="btn-shine px-4 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover shadow-subtle min-h-[44px] cursor-pointer flex items-center gap-1.5"
                           >
                             <span>Pay & Confirm Consultation</span>
@@ -1839,7 +1846,7 @@ export const ClientDashboardPage: React.FC = () => {
                             type="button"
                             onClick={() => handleCancelRequest(c.request_id || c.id)}
                             disabled={cancellingId === (c.request_id || c.id) || payingId === (c.request_id || c.id)}
-                            className="px-3 py-2.5 rounded-xl border border-timberwolf text-midnight/70 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 text-xs font-semibold transition cursor-pointer min-h-[44px]"
+                            className="px-3.5 py-2.5 rounded-xl border border-timberwolf text-midnight/70 hover:text-rose-700 hover:border-rose-300 hover:bg-rose-50 text-xs font-semibold transition cursor-pointer min-h-[44px]"
                           >
                             Cancel
                           </button>
@@ -1869,7 +1876,7 @@ export const ClientDashboardPage: React.FC = () => {
                               price_per_minute: 50,
                               sessions: [c]
                             }, c.session_id || c.id)}
-                            className="px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[40px] inline-flex items-center gap-1 cursor-pointer transition-all"
+                            className="px-3.5 py-2.5 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[44px] inline-flex items-center gap-1.5 cursor-pointer transition-all"
                           >
                             <MessageSquare className="w-3.5 h-3.5 text-moonstone" />
                             <span>Read Chats</span>
@@ -1884,7 +1891,7 @@ export const ClientDashboardPage: React.FC = () => {
                               service_title: c.service_title,
                               price_per_minute: 50
                             })}
-                            className="btn-shine px-3 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[40px] inline-flex items-center gap-1 cursor-pointer shadow-subtle transition-all"
+                            className="btn-shine px-3.5 py-2.5 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[44px] inline-flex items-center gap-1.5 cursor-pointer shadow-subtle transition-all"
                           >
                             <RotateCcw className="w-3.5 h-3.5 text-moonstone" />
                             <span>Rehire</span>
@@ -1983,10 +1990,10 @@ export const ClientDashboardPage: React.FC = () => {
           ) : (
             <div className="bg-white rounded-2xl border border-timberwolf/70 divide-y divide-timberwolf/30 shadow-subtle overflow-hidden">
               <div className="hidden md:grid md:grid-cols-12 gap-4 px-5 py-3 bg-aliceblue/60 text-[11px] font-bold text-midnight/60 uppercase tracking-wider">
-                <div className="col-span-5">Expert & Professional Category</div>
+                <div className="col-span-4">Expert & Professional Category</div>
                 <div className="col-span-3">Completed Sessions & Time</div>
                 <div className="col-span-2">Net Captured Spent</div>
-                <div className="col-span-2 text-right">Actions</div>
+                <div className="col-span-3 text-right">Actions</div>
               </div>
 
               {previouslyHiredExperts.map((exp) => {
@@ -1995,7 +2002,7 @@ export const ClientDashboardPage: React.FC = () => {
                 return (
                   <div key={exp.provider_id} className="transition-colors hover:bg-aliceblue/20">
                     <div className="p-4 sm:p-5 flex flex-col md:grid md:grid-cols-12 gap-4 items-start md:items-center">
-                      <div className="md:col-span-5 flex items-center gap-3 w-full">
+                      <div className="md:col-span-4 flex items-center gap-3 w-full">
                         <img
                           src={exp.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(exp.provider_name)}`}
                           alt={exp.provider_name}
@@ -2003,11 +2010,22 @@ export const ClientDashboardPage: React.FC = () => {
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <h4 className="font-bold text-sm text-midnight truncate">{exp.provider_name}</h4>
-                            <span className="flex items-center gap-0.5 text-xs text-amber-600 font-bold">
-                              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                              {(Number(exp.provider_rating) || 5.0).toFixed(1)}
-                            </span>
+                            <Link
+                              to={exp.service_id ? `/services/${exp.service_id}` : '/services'}
+                              className="font-bold text-sm text-midnight truncate hover:text-moonstone transition-colors"
+                            >
+                              {exp.provider_name}
+                            </Link>
+                            {Number(exp.provider_rating) > 0 ? (
+                              <span className="flex items-center gap-0.5 text-xs text-amber-600 font-bold">
+                                <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                                {Number(exp.provider_rating).toFixed(1)}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200">
+                                New Specialist
+                              </span>
+                            )}
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-aliceblue text-moonstone font-semibold border border-timberwolf/40 shrink-0">
                               {exp.category_name}
                             </span>
@@ -2041,12 +2059,12 @@ export const ClientDashboardPage: React.FC = () => {
                         </span>
                       </div>
 
-                      <div className="md:col-span-2 flex items-center justify-end gap-1.5 w-full md:w-auto">
+                      <div className="md:col-span-3 flex items-center justify-end gap-1.5 w-full md:w-auto">
                         <button
                           type="button"
                           onClick={() => openChatModal(exp)}
                           title="Open archived consultation transcript"
-                          className="btn-shine px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[40px] inline-flex items-center gap-1 cursor-pointer transition-all"
+                          className="btn-shine px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf text-midnight text-xs font-bold hover:bg-lightblue/40 hover:border-moonstone min-h-[44px] inline-flex items-center gap-1 cursor-pointer transition-all"
                         >
                           <MessageSquare className="w-3.5 h-3.5 text-moonstone" />
                           <span>Read Chats</span>
@@ -2056,7 +2074,7 @@ export const ClientDashboardPage: React.FC = () => {
                           type="button"
                           onClick={() => openRehireModal(exp)}
                           title="Submit a new consultation request with this expert"
-                          className="btn-shine px-3 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[40px] inline-flex items-center gap-1 cursor-pointer shadow-subtle transition-all"
+                          className="btn-shine px-3 py-2 rounded-xl bg-midnight text-aliceblue text-xs font-bold hover:bg-midnight-hover min-h-[44px] inline-flex items-center gap-1 cursor-pointer shadow-subtle transition-all"
                         >
                           <RotateCcw className="w-3.5 h-3.5 text-moonstone" />
                           <span>Rehire</span>
@@ -2065,17 +2083,9 @@ export const ClientDashboardPage: React.FC = () => {
                         <Link
                           to={exp.service_id ? `/services/${exp.service_id}` : '/services'}
                           title="View expert service profile"
-                          className="hidden lg:inline-flex px-2.5 py-2 rounded-xl border border-timberwolf text-xs font-bold text-midnight hover:bg-aliceblue min-h-[40px] items-center justify-center"
+                          className="hidden lg:inline-flex px-2.5 py-2 rounded-xl border border-timberwolf text-xs font-bold text-midnight hover:bg-aliceblue min-h-[44px] items-center justify-center"
                         >
                           View Profile
-                        </Link>
-
-                        <Link
-                          to={exp.service_id ? `/services/${exp.service_id}` : '/services'}
-                          title="Book Again"
-                          className="hidden"
-                        >
-                          Book Again
                         </Link>
 
                         {sessionsList.length > 0 && (
@@ -2083,7 +2093,7 @@ export const ClientDashboardPage: React.FC = () => {
                             type="button"
                             onClick={() => toggleExpandExpert(exp.provider_id)}
                             title={isExpanded ? "Collapse sessions" : "Expand sessions"}
-                            className="p-2 rounded-xl border border-timberwolf/60 text-midnight/60 hover:text-midnight hover:bg-aliceblue min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer transition-all"
+                            className="p-2.5 rounded-xl border border-timberwolf/60 text-midnight/60 hover:text-midnight hover:bg-aliceblue min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer transition-all"
                           >
                             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                           </button>
@@ -2129,15 +2139,15 @@ export const ClientDashboardPage: React.FC = () => {
                                 <button
                                   type="button"
                                   onClick={() => openChatModal(exp, s.session_id || s.id)}
-                                  className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1 cursor-pointer"
+                                  className="px-3 py-2 rounded-lg border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1 cursor-pointer min-h-[44px]"
                                 >
-                                  <MessageSquare className="w-3 h-3 text-moonstone" />
+                                  <MessageSquare className="w-3.5 h-3.5 text-moonstone" />
                                   <span>View Session Chat</span>
                                 </button>
                                 {s.session_id && (
                                   <Link
                                     to={`/session/${s.session_id}`}
-                                    className="px-2.5 py-1.5 rounded-lg border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1"
+                                    className="px-3 py-2 rounded-lg border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-aliceblue inline-flex items-center gap-1 min-h-[44px]"
                                   >
                                     <FileText className="w-3.5 h-3.5 text-moonstone" />
                                     <span>View Notes</span>
@@ -2763,7 +2773,7 @@ export const ClientDashboardPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setChatModalOpen(false)}
-                className="p-2 rounded-xl text-midnight/60 hover:text-midnight hover:bg-white border border-transparent hover:border-timberwolf/60 min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer transition"
+                className="p-2 rounded-xl text-midnight/60 hover:text-midnight hover:bg-white border border-transparent hover:border-timberwolf/60 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer transition"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2876,7 +2886,7 @@ export const ClientDashboardPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setChatModalOpen(false)}
-                className="btn-shine px-4 py-2 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover min-h-[40px] cursor-pointer"
+                className="btn-shine px-4 py-2.5 rounded-xl bg-midnight text-aliceblue font-bold text-xs hover:bg-midnight-hover min-h-[44px] cursor-pointer inline-flex items-center justify-center"
               >
                 Close Transcript
               </button>
@@ -2910,7 +2920,7 @@ export const ClientDashboardPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setRehireModalOpen(false)}
-                className="p-2 rounded-xl text-midnight/60 hover:text-midnight hover:bg-white border border-transparent hover:border-timberwolf/60 min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer transition"
+                className="p-2 rounded-xl text-midnight/60 hover:text-midnight hover:bg-white border border-transparent hover:border-timberwolf/60 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer transition"
               >
                 <X className="w-5 h-5" />
               </button>

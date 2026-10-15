@@ -406,11 +406,12 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       `).all();
 
       const defaultNav = [
-        { id: 'find-experts', label: 'Find Experts', url: '/services', order: 1, is_visible: true, is_external: false },
-        { id: 'services', label: 'Services', url: '/services', order: 2, is_visible: true, is_external: false },
-        { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 3, is_visible: true, is_external: false },
-        { id: 'categories', label: 'Categories', url: '/#categories', order: 4, is_visible: true, is_external: false },
-        { id: 'for-experts', label: 'For Experts', url: '/provider/onboard', order: 5, is_visible: true, is_external: false }
+        { id: 'services', label: 'Services', url: '/services', order: 1, is_visible: true, is_external: false },
+        { id: 'projects', label: 'Projects', url: '/projects', order: 2, is_visible: true, is_external: false },
+        { id: 'opportunities', label: 'Opportunities', url: '/opportunities', order: 3, is_visible: true, is_external: false },
+        { id: 'jobs', label: 'Jobs', url: '/jobs', order: 4, is_visible: true, is_external: false },
+        { id: 'how-it-works', label: 'How It Works', url: '/how-it-works', order: 5, is_visible: true, is_external: false },
+        { id: 'blog', label: 'Blog', url: '/blog', order: 6, is_visible: true, is_external: false }
       ];
 
       const result = {

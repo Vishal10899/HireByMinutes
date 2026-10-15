@@ -135,13 +135,13 @@ async function runClientDashboardUpgradeSuite() {
   assert(fs.existsSync(apiPath), 'api.ts must exist');
   const apiCode = fs.readFileSync(apiPath, 'utf8');
 
-  test('1. Client Dashboard renders all 6 server-authoritative summary metrics', () => {
+  test('1. Client Dashboard renders server-authoritative summary metrics & status indicators', () => {
     assert(dashboardCode.includes('Experts Hired'), 'Must display "Experts Hired" card');
-    assert(dashboardCode.includes('Total Consultations'), 'Must display "Total Consultations" card');
+    assert(dashboardCode.includes('Total Consultations'), 'Must display "Total Consultations" indicator');
     assert(dashboardCode.includes('Consultation Mins'), 'Must display "Consultation Mins" card');
     assert(dashboardCode.includes('Total Spent'), 'Must display "Total Spent" card');
-    assert(dashboardCode.includes('Completed Sessions'), 'Must display "Completed Sessions" card');
-    assert(dashboardCode.includes('Pending Requests'), 'Must display "Pending Requests" card');
+    assert(dashboardCode.includes('Completed Consultations') || dashboardCode.includes('Completed Sessions'), 'Must display "Completed Consultations"');
+    assert(dashboardCode.includes('Pending Requests'), 'Must display "Pending Requests" indicator');
     assert(dashboardCode.includes('stats?.totalExpertsHired'), 'Must bind to totalExpertsHired');
     assert(dashboardCode.includes('stats?.totalSpent'), 'Must bind to totalSpent');
   });
@@ -186,7 +186,7 @@ async function runClientDashboardUpgradeSuite() {
 
   test('6. UI adheres to brand design tokens, responsive grid, and 44px min touch targets', () => {
     assert(dashboardCode.includes('min-h-[44px]'), 'Must enforce 44px minimum touch targets');
-    assert(dashboardCode.includes('grid-cols-2 sm:grid-cols-3 lg:grid-cols-6'), 'Must use responsive 6-col summary grid');
+    assert(dashboardCode.includes('grid-cols-2 lg:grid-cols-4') || dashboardCode.includes('grid-cols-2 sm:grid-cols-3 lg:grid-cols-6'), 'Must use responsive 4-col summary grid');
     assert(dashboardCode.includes('moonstone') && dashboardCode.includes('midnight'), 'Must use brand color tokens');
   });
 

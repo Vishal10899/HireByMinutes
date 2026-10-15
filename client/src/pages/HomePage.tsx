@@ -29,7 +29,8 @@ import {
   RefreshCw,
   UserCheck,
   Dumbbell,
-  MessageSquare
+  MessageSquare,
+  PlusCircle
 } from 'lucide-react';
 
 import { usePageSEO } from '../hooks/usePageSEO';
@@ -117,11 +118,11 @@ const FEATURED_CATEGORIES = [
 ];
 
 const DEFAULT_POPULAR_SEARCHES = [
-  'Resume Review',
-  'Python Help',
-  'Career Guidance',
-  'Business Strategy',
-  'AI & ML'
+  'Full-Stack Architecture',
+  'Cloud Infrastructure',
+  'Python & AI',
+  'React Development',
+  'Business Strategy'
 ];
 
 const ROTATING_EXAMPLES = [
@@ -311,6 +312,7 @@ export const HomePage: React.FC = () => {
 
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<'services' | 'projects'>('services');
   const [exampleIndex, setExampleIndex] = useState(0);
   const [featuredServices, setFeaturedServices] = useState<Service[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -447,7 +449,11 @@ export const HomePage: React.FC = () => {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = searchQuery.trim();
-    navigate(q ? `/services?search=${encodeURIComponent(q)}` : '/services');
+    if (searchMode === 'projects') {
+      navigate(q ? `/projects?search=${encodeURIComponent(q)}` : '/projects');
+    } else {
+      navigate(q ? `/services?search=${encodeURIComponent(q)}` : '/services');
+    }
   };
 
   const getCategoryIcon = (iconName: string) => {
@@ -491,38 +497,65 @@ export const HomePage: React.FC = () => {
             {/* Introductory Pill */}
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-moonstone/10 border border-moonstone/30 text-moonstone-dark font-semibold text-xs tracking-wide">
               <Sparkles className="w-3.5 h-3.5 text-moonstone shrink-0" />
-              <span>{cmsSettings?.hero_badge_text || 'Get expert help, only when you need it'}</span>
+              <span>Instant Consultations & Freelance Projects</span>
             </div>
 
             {/* Main Headline */}
             <h1 className="text-4xl sm:text-5xl lg:text-[3.5rem] font-extrabold text-midnight tracking-tight leading-[1.12]">
-              {cmsSettings?.hero_headline &&
-              !cmsSettings.hero_headline.includes('Get Expert Approval') &&
-              !cmsSettings.hero_headline.includes('Expert Help. On Your Terms.') &&
-              !cmsSettings.hero_headline.includes('Hire the Right Expert') &&
-              !cmsSettings.hero_headline.includes('Your Expertise.') ? (
-                cmsSettings.hero_headline
-              ) : (
-                <>
-                  Your Skills. Your Needs.<br />
-                  <span className="text-moonstone">One Marketplace.</span>
-                </>
-              )}
+              Find the Right Expert.<br />
+              <span className="text-moonstone">Hire for Minutes or Projects.</span>
             </h1>
 
             {/* Supporting Copy */}
             <p className="text-base sm:text-lg text-midnight/80 max-w-xl leading-relaxed">
-              {cmsSettings?.hero_subheadline &&
-              !cmsSettings.hero_subheadline.includes('next challenge') &&
-              !cmsSettings.hero_subheadline.includes('Find the right professional for your project') &&
-              !cmsSettings.hero_subheadline.includes('focused, per-minute consultations') &&
-              !cmsSettings.hero_subheadline.includes('Find skilled help for the work you need')
-                ? cmsSettings.hero_subheadline
-                : 'Find the right person for the work you need—or offer your skills and get paid for your time.'}
+              Get expert advice when you need it, or post a project and compare proposals from professionals ready to help.
             </p>
 
-            {/* Prominent Search Bar with Dynamic Accessible Placeholder */}
-            <div className="pt-2 max-w-xl">
+            {/* Two Clear Call-to-Actions */}
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <Link
+                to="/services"
+                className="btn-shine inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-midnight text-aliceblue font-bold text-sm hover:bg-midnight-hover shadow-subtle min-h-[44px] transition-all cursor-pointer"
+              >
+                <span>Hire an Expert</span>
+                <ArrowRight className="w-4 h-4 text-moonstone" />
+              </Link>
+              <Link
+                to="/projects/new"
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border-2 border-timberwolf hover:border-moonstone bg-white text-midnight font-bold text-sm hover:bg-aliceblue min-h-[44px] transition-all cursor-pointer shadow-subtle"
+              >
+                <PlusCircle className="w-4 h-4 text-moonstone" />
+                <span>Post a Project</span>
+              </Link>
+            </div>
+
+            {/* Prominent Search Bar with Service / Project Discovery Scope */}
+            <div className="pt-2 max-w-xl space-y-2.5">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSearchMode('services')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer min-h-[32px] ${
+                    searchMode === 'services'
+                      ? 'bg-midnight text-aliceblue shadow-xs'
+                      : 'bg-white/80 text-midnight/70 hover:text-midnight border border-timberwolf/60'
+                  }`}
+                >
+                  Find Experts & Services
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSearchMode('projects')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer min-h-[32px] ${
+                    searchMode === 'projects'
+                      ? 'bg-midnight text-aliceblue shadow-xs'
+                      : 'bg-white/80 text-midnight/70 hover:text-midnight border border-timberwolf/60'
+                  }`}
+                >
+                  Browse Projects
+                </button>
+              </div>
+
               <form onSubmit={handleSearchSubmit} className="relative w-full">
                 <div className="flex items-center bg-white border-2 border-timberwolf/90 rounded-2xl shadow-subtle p-1.5 sm:p-2 focus-within:border-moonstone focus-within:shadow-card transition-all">
                   <Search className="w-5 h-5 text-midnight/50 ml-3 shrink-0" />
@@ -530,9 +563,15 @@ export const HomePage: React.FC = () => {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder={searchQuery ? '' : `Search skills, services, e.g. ${ROTATING_EXAMPLES[exampleIndex]}…`}
+                    placeholder={
+                      searchQuery
+                        ? ''
+                        : searchMode === 'projects'
+                        ? 'Search open freelance projects, contracts, or topics…'
+                        : `Search skills, services, e.g. ${ROTATING_EXAMPLES[exampleIndex]}…`
+                    }
                     className="min-w-0 flex-1 px-3 py-2 text-sm sm:text-base text-midnight placeholder:text-midnight/45 placeholder:truncate bg-transparent focus:outline-none"
-                    aria-label="Search skills, services, or the help you need"
+                    aria-label={searchMode === 'projects' ? 'Search open freelance projects' : 'Search skills, services, or the help you need'}
                   />
                   {searchQuery && (
                     <button
@@ -571,7 +610,10 @@ export const HomePage: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setSearchQuery(chip);
-                        navigate(`/services?search=${encodeURIComponent(chip)}`);
+                        const targetUrl = searchMode === 'projects'
+                          ? `/projects?search=${encodeURIComponent(chip)}`
+                          : `/services?search=${encodeURIComponent(chip)}`;
+                        navigate(targetUrl);
                       }}
                       className="shrink-0 min-h-[34px] px-3.5 py-1.5 rounded-full bg-white border border-timberwolf/80 hover:border-moonstone hover:text-midnight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone active:scale-95 transition-all text-midnight/80 font-medium whitespace-nowrap shadow-xs cursor-pointer text-xs"
                     >
@@ -611,7 +653,7 @@ export const HomePage: React.FC = () => {
                   <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
                   Live 1-on-1 consultations
                 </span>
-                <span>Approval-first workflow</span>
+                <span>Milestone & project contracts</span>
               </div>
 
             </div>
