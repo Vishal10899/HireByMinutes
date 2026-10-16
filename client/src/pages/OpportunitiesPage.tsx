@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { backendStatus } from '../services/backendStatus';
 import { Opportunity, Category, Project, Job } from '../types';
@@ -88,14 +88,24 @@ export const OpportunitiesPage: React.FC = () => {
   const [pageState, setPageState] = useState<PageState>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
 
+  const [searchParams] = useSearchParams();
+
   // Filter & Search Controls
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
   const [selectedType, setSelectedType] = useState<ListingFilterType>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedBudget, setSelectedBudget] = useState<string>('all');
   const [selectedSort, setSelectedSort] = useState<'newest' | 'budget_high' | 'budget_low'>('newest');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 9;
+
+  useEffect(() => {
+    const q = searchParams.get('search');
+    if (q !== null && q !== searchQuery) {
+      setSearchQuery(q);
+      setCurrentPage(1);
+    }
+  }, [searchParams]);
 
   // Apply Modal state (for platform consultation opportunities)
   const [selectedOpp, setSelectedOpp] = useState<Opportunity | null>(null);

@@ -497,13 +497,13 @@ export const HomePage: React.FC = () => {
             {/* Introductory Pill */}
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-moonstone/10 border border-moonstone/30 text-moonstone-dark font-semibold text-xs tracking-wide">
               <Sparkles className="w-3.5 h-3.5 text-moonstone shrink-0" />
-              <span>Instant Consultations & Freelance Projects</span>
+              <span>Live Consultations &amp; Freelance Projects</span>
             </div>
 
-            {/* Main Headline */}
-            <h1 className="text-4xl sm:text-5xl lg:text-[3.5rem] font-extrabold text-midnight tracking-tight leading-[1.12]">
-              Find the Right Expert.<br />
-              <span className="text-moonstone">Hire for Minutes or Projects.</span>
+            {/* Main Headline with Controlled Hierarchy & Balanced Wrapping */}
+            <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-[3.25rem] font-extrabold text-midnight tracking-tight leading-[1.18] sm:leading-[1.14]">
+              Find the Right Expert.<br className="hidden sm:inline" />{' '}
+              <span className="text-moonstone inline-block sm:inline">Hire for Minutes or Projects.</span>
             </h1>
 
             {/* Supporting Copy */}
@@ -511,52 +511,84 @@ export const HomePage: React.FC = () => {
               Get expert advice when you need it, or post a project and compare proposals from professionals ready to help.
             </p>
 
-            {/* Two Clear Call-to-Actions */}
+            {/* Two Clear Primary Actions */}
             <div className="flex flex-wrap items-center gap-3 pt-1">
               <Link
                 to="/services"
-                className="btn-shine inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-midnight text-aliceblue font-bold text-sm hover:bg-midnight-hover shadow-subtle min-h-[44px] transition-all cursor-pointer"
+                className="btn-shine inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-midnight text-aliceblue font-bold text-sm hover:bg-midnight-hover shadow-subtle min-h-[44px] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone focus-visible:ring-offset-2"
               >
-                <span>Hire an Expert</span>
+                <span>Find an Expert</span>
                 <ArrowRight className="w-4 h-4 text-moonstone" />
               </Link>
               <Link
                 to="/projects/new"
-                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border-2 border-timberwolf hover:border-moonstone bg-white text-midnight font-bold text-sm hover:bg-aliceblue min-h-[44px] transition-all cursor-pointer shadow-subtle"
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border-2 border-timberwolf hover:border-moonstone bg-white text-midnight font-bold text-sm hover:bg-aliceblue min-h-[44px] transition-all cursor-pointer shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone focus-visible:ring-offset-2"
               >
                 <PlusCircle className="w-4 h-4 text-moonstone" />
                 <span>Post a Project</span>
               </Link>
             </div>
 
-            {/* Prominent Search Bar with Service / Project Discovery Scope */}
+            {/* Accessible Dual-Mode Search Bar */}
             <div className="pt-2 max-w-xl space-y-2.5">
-              <div className="flex items-center gap-1.5">
+              {/* Mode Selector Pill */}
+              <div
+                role="tablist"
+                aria-label="Search mode"
+                className="inline-flex items-center p-1 rounded-xl bg-aliceblue/80 border border-timberwolf/60 gap-1"
+              >
                 <button
                   type="button"
+                  role="tab"
+                  id="search-tab-services"
+                  aria-selected={searchMode === 'services'}
+                  aria-controls="hero-search-form"
+                  tabIndex={0}
                   onClick={() => setSearchMode('services')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer min-h-[32px] ${
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowRight') {
+                      e.preventDefault();
+                      setSearchMode('projects');
+                      document.getElementById('search-tab-projects')?.focus();
+                    }
+                  }}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-h-[36px] flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone ${
                     searchMode === 'services'
                       ? 'bg-midnight text-aliceblue shadow-xs'
-                      : 'bg-white/80 text-midnight/70 hover:text-midnight border border-timberwolf/60'
+                      : 'text-midnight/70 hover:text-midnight hover:bg-white/60'
                   }`}
                 >
-                  Find Experts & Services
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Find Experts</span>
                 </button>
                 <button
                   type="button"
+                  role="tab"
+                  id="search-tab-projects"
+                  aria-selected={searchMode === 'projects'}
+                  aria-controls="hero-search-form"
+                  tabIndex={0}
                   onClick={() => setSearchMode('projects')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer min-h-[32px] ${
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                      e.preventDefault();
+                      setSearchMode('services');
+                      document.getElementById('search-tab-services')?.focus();
+                    }
+                  }}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-h-[36px] flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone ${
                     searchMode === 'projects'
                       ? 'bg-midnight text-aliceblue shadow-xs'
-                      : 'bg-white/80 text-midnight/70 hover:text-midnight border border-timberwolf/60'
+                      : 'text-midnight/70 hover:text-midnight hover:bg-white/60'
                   }`}
                 >
-                  Browse Projects
+                  <Briefcase className="w-3.5 h-3.5" />
+                  <span>Browse Projects</span>
                 </button>
               </div>
 
-              <form onSubmit={handleSearchSubmit} className="relative w-full">
+              {/* Main Search Input Form */}
+              <form id="hero-search-form" onSubmit={handleSearchSubmit} className="relative w-full">
                 <div className="flex items-center bg-white border-2 border-timberwolf/90 rounded-2xl shadow-subtle p-1.5 sm:p-2 focus-within:border-moonstone focus-within:shadow-card transition-all">
                   <Search className="w-5 h-5 text-midnight/50 ml-3 shrink-0" />
                   <input
@@ -579,6 +611,7 @@ export const HomePage: React.FC = () => {
                       onClick={() => setSearchQuery('')}
                       className="p-1.5 mr-1 text-midnight/40 hover:text-midnight transition-colors cursor-pointer rounded-lg shrink-0"
                       title="Clear search"
+                      aria-label="Clear search query"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -594,16 +627,18 @@ export const HomePage: React.FC = () => {
                 </div>
               </form>
 
-              {/* Popular Search Chips (guarded with Array.isArray for test resilience) */}
+              {/* Contextual Popular Search Chips */}
               <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 mt-4 text-xs text-midnight/70 overflow-x-auto no-scrollbar py-1.5">
                 <span className="text-midnight/55 font-semibold shrink-0 flex items-center gap-1.5 text-xs">
                   <Sparkles className="w-3.5 h-3.5 text-moonstone shrink-0" />
                   Popular:
                 </span>
                 <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap py-0.5">
-                  {(Array.isArray(cmsSettings?.popular_tags) && cmsSettings.popular_tags.length > 0
-                    ? cmsSettings.popular_tags
-                    : DEFAULT_POPULAR_SEARCHES
+                  {(searchMode === 'projects'
+                    ? ['Web Development', 'Mobile App', 'Cloud & DevOps', 'UI/UX Design', 'AI & Data']
+                    : (Array.isArray(cmsSettings?.popular_tags) && cmsSettings.popular_tags.length > 0
+                        ? cmsSettings.popular_tags
+                        : DEFAULT_POPULAR_SEARCHES)
                   ).map((chip: string) => (
                     <button
                       key={chip}

@@ -50,9 +50,17 @@ export const Header: React.FC = () => {
     return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
-  // Complete navigation items: Services, Projects, Opportunities, Jobs, How It Works, Blog
+  // Consolidated primary navigation: Services, Opportunities, How It Works, Blog
   const visibleNavItems = useMemo(() => {
-    let items = [...navItems].filter((item) => item.is_visible !== false);
+    // Exclude standalone Jobs or Projects from primary navigation (discovery consolidated under Opportunities)
+    let items = [...navItems].filter(
+      (item) =>
+        item.is_visible !== false &&
+        item.id !== 'jobs' &&
+        item.id !== 'projects' &&
+        item.url !== '/jobs' &&
+        item.url !== '/projects'
+    );
 
     const ensureItem = (id: string, label: string, url: string, defaultOrder: number) => {
       const exists = items.some(
