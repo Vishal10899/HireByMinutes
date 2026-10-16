@@ -493,7 +493,7 @@ const handleSitemapXml = (req, res) => {
       // Include published custom CMS pages
       const publishedCms = db.prepare("SELECT slug, updated_at FROM cms_pages WHERE status = 'published' LIMIT 100").all();
       if (Array.isArray(publishedCms)) {
-        const reservedSlugs = ['about', 'contact', 'terms', 'privacy', 'refund-policy', 'expert-policy', 'acceptable-use', 'faq'];
+        const reservedSlugs = ['about', 'contact', 'terms', 'privacy', 'refund-policy', 'expert-policy', 'acceptable-use', 'faq', 'how-it-works'];
         for (const p of publishedCms) {
           if (!reservedSlugs.includes(p.slug)) {
             dynamicUrls.push({
@@ -512,9 +512,7 @@ const handleSitemapXml = (req, res) => {
 
   const allUrls = [...coreUrls, ...dynamicUrls];
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9 http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${allUrls.map(u => `  <url>
     <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>${u.lastmod}</lastmod>` : ''}
     <changefreq>${u.changefreq}</changefreq>
@@ -597,6 +595,16 @@ const PUBLIC_ROUTE_METADATA = {
     title: 'Consultation Opportunities — HireByMinute',
     description: 'Browse active consultation requests and opportunities posted by clients seeking specialized expertise.',
     canonical: 'https://hirebyminute.com/opportunities'
+  },
+  '/jobs': {
+    title: 'Consultation & Expert Opportunities — HireByMinute',
+    description: 'Browse active expert consultations, projects, and opportunities on HireByMinute.',
+    canonical: 'https://hirebyminute.com/jobs'
+  },
+  '/blog': {
+    title: 'Expert Consultation Blog & Insights — HireByMinute',
+    description: 'Read the latest guides, tips, and insights on hiring verified experts by the minute.',
+    canonical: 'https://hirebyminute.com/blog'
   },
   '/how-it-works': {
     title: 'How It Works — HireByMinute',
