@@ -106,12 +106,13 @@ export function resolveRoleDestination(
     }
   }
 
-  // Client cannot be redirected to provider dashboard
+  // Client cannot be redirected to provider dashboard (except provider onboarding flow)
   if (cleanRole === 'client' || !cleanRole) {
     if (
-      lowerUrl === '/provider' ||
+      (lowerUrl === '/provider' ||
       lowerUrl.startsWith('/provider/') ||
-      lowerUrl.startsWith('/provider?')
+      lowerUrl.startsWith('/provider?')) &&
+      !lowerUrl.startsWith('/provider/onboard')
     ) {
       return '/services';
     }

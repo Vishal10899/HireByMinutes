@@ -29,8 +29,7 @@ import {
   RefreshCw,
   UserCheck,
   Dumbbell,
-  MessageSquare,
-  PlusCircle
+  MessageSquare
 } from 'lucide-react';
 
 import { usePageSEO } from '../hooks/usePageSEO';
@@ -312,7 +311,6 @@ export const HomePage: React.FC = () => {
 
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchMode, setSearchMode] = useState<'services' | 'projects'>('services');
   const [exampleIndex, setExampleIndex] = useState(0);
   const [featuredServices, setFeaturedServices] = useState<Service[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -449,11 +447,7 @@ export const HomePage: React.FC = () => {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = searchQuery.trim();
-    if (searchMode === 'projects') {
-      navigate(q ? `/projects?search=${encodeURIComponent(q)}` : '/projects');
-    } else {
-      navigate(q ? `/services?search=${encodeURIComponent(q)}` : '/services');
-    }
+    navigate(q ? `/services?search=${encodeURIComponent(q)}` : '/services');
   };
 
   const getCategoryIcon = (iconName: string) => {
@@ -521,72 +515,16 @@ export const HomePage: React.FC = () => {
                 <ArrowRight className="w-4 h-4 text-moonstone" />
               </Link>
               <Link
-                to="/projects/new"
+                to="/provider/onboard"
                 className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border-2 border-timberwolf hover:border-moonstone bg-white text-midnight font-bold text-sm hover:bg-aliceblue min-h-[44px] transition-all cursor-pointer shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone focus-visible:ring-offset-2"
               >
-                <PlusCircle className="w-4 h-4 text-moonstone" />
-                <span>Post a Project</span>
+                <Briefcase className="w-4 h-4 text-moonstone" />
+                <span>Start Offering Services</span>
               </Link>
             </div>
 
-            {/* Accessible Dual-Mode Search Bar */}
+            {/* Simple Expert & Service Search Bar */}
             <div className="pt-2 max-w-xl space-y-2.5">
-              {/* Mode Selector Pill */}
-              <div
-                role="tablist"
-                aria-label="Search mode"
-                className="inline-flex items-center p-1 rounded-xl bg-aliceblue/80 border border-timberwolf/60 gap-1"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  id="search-tab-services"
-                  aria-selected={searchMode === 'services'}
-                  aria-controls="hero-search-form"
-                  tabIndex={0}
-                  onClick={() => setSearchMode('services')}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowRight') {
-                      e.preventDefault();
-                      setSearchMode('projects');
-                      document.getElementById('search-tab-projects')?.focus();
-                    }
-                  }}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-h-[36px] flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone ${
-                    searchMode === 'services'
-                      ? 'bg-midnight text-aliceblue shadow-xs'
-                      : 'text-midnight/70 hover:text-midnight hover:bg-white/60'
-                  }`}
-                >
-                  <Search className="w-3.5 h-3.5" />
-                  <span>Find Experts</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  id="search-tab-projects"
-                  aria-selected={searchMode === 'projects'}
-                  aria-controls="hero-search-form"
-                  tabIndex={0}
-                  onClick={() => setSearchMode('projects')}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                      e.preventDefault();
-                      setSearchMode('services');
-                      document.getElementById('search-tab-services')?.focus();
-                    }
-                  }}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-h-[36px] flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone ${
-                    searchMode === 'projects'
-                      ? 'bg-midnight text-aliceblue shadow-xs'
-                      : 'text-midnight/70 hover:text-midnight hover:bg-white/60'
-                  }`}
-                >
-                  <Briefcase className="w-3.5 h-3.5" />
-                  <span>Browse Projects</span>
-                </button>
-              </div>
-
               {/* Main Search Input Form */}
               <form id="hero-search-form" onSubmit={handleSearchSubmit} className="relative w-full">
                 <div className="flex items-center bg-white border-2 border-timberwolf/90 rounded-2xl shadow-subtle p-1.5 sm:p-2 focus-within:border-moonstone focus-within:shadow-card transition-all">
@@ -598,12 +536,10 @@ export const HomePage: React.FC = () => {
                     placeholder={
                       searchQuery
                         ? ''
-                        : searchMode === 'projects'
-                        ? 'Search open freelance projects, contracts, or topics…'
                         : `Search skills, services, e.g. ${ROTATING_EXAMPLES[exampleIndex]}…`
                     }
                     className="min-w-0 flex-1 px-3 py-2 text-sm sm:text-base text-midnight placeholder:text-midnight/45 placeholder:truncate bg-transparent focus:outline-none"
-                    aria-label={searchMode === 'projects' ? 'Search open freelance projects' : 'Search skills, services, or the help you need'}
+                    aria-label="Search skills, services, or verified experts"
                   />
                   {searchQuery && (
                     <button
@@ -634,21 +570,16 @@ export const HomePage: React.FC = () => {
                   Popular:
                 </span>
                 <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap py-0.5">
-                  {(searchMode === 'projects'
-                    ? ['Web Development', 'Mobile App', 'Cloud & DevOps', 'UI/UX Design', 'AI & Data']
-                    : (Array.isArray(cmsSettings?.popular_tags) && cmsSettings.popular_tags.length > 0
-                        ? cmsSettings.popular_tags
-                        : DEFAULT_POPULAR_SEARCHES)
+                  {(Array.isArray(cmsSettings?.popular_tags) && cmsSettings.popular_tags.length > 0
+                    ? cmsSettings.popular_tags
+                    : DEFAULT_POPULAR_SEARCHES
                   ).map((chip: string) => (
                     <button
                       key={chip}
                       type="button"
                       onClick={() => {
                         setSearchQuery(chip);
-                        const targetUrl = searchMode === 'projects'
-                          ? `/projects?search=${encodeURIComponent(chip)}`
-                          : `/services?search=${encodeURIComponent(chip)}`;
-                        navigate(targetUrl);
+                        navigate(`/services?search=${encodeURIComponent(chip)}`);
                       }}
                       className="shrink-0 min-h-[34px] px-3.5 py-1.5 rounded-full bg-white border border-timberwolf/80 hover:border-moonstone hover:text-midnight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-moonstone active:scale-95 transition-all text-midnight/80 font-medium whitespace-nowrap shadow-xs cursor-pointer text-xs"
                     >
@@ -720,7 +651,7 @@ export const HomePage: React.FC = () => {
                     className="rounded-xl px-5 text-xs font-bold"
                     iconRight={<ArrowRight className="w-3.5 h-3.5 text-moonstone" />}
                   >
-                    Find a Service
+                    Explore Services
                   </Button>
                 </div>
               </div>
@@ -757,7 +688,7 @@ export const HomePage: React.FC = () => {
                     className="rounded-xl px-5 text-xs font-bold"
                     iconRight={<ArrowRight className="w-3.5 h-3.5 text-moonstone" />}
                   >
-                    Start Offering Services
+                    Create Your Listing
                   </Button>
                 </div>
               </div>

@@ -31,7 +31,8 @@ const suites = [
   { name: 'Contact Form & Email Delivery Suite', file: path.join('frontend', 'contact-form-delivery.test.js') },
   { name: 'Long-Term Project Marketplace Suite', file: path.join('marketplace', 'project-marketplace.test.js') },
   { name: 'Role-Based Login & Session Redirection Suite', file: path.join('frontend', 'role-based-redirects.test.js') },
-  { name: 'Unified Opportunities & Project Posting Suite', file: path.join('marketplace', 'unified-opportunities-posting.test.js') }
+  { name: 'Unified Opportunities & Project Posting Suite', file: path.join('marketplace', 'unified-opportunities-posting.test.js') },
+  { name: 'Homepage CTA & Search UI Cleanup Suite', file: path.join('frontend', 'homepage-cta-search-cleanup.test.js') }
 ];
 
 async function runSuite(suite) {
