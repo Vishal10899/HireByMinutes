@@ -32,7 +32,8 @@ import {
   Info,
   Lock,
   MessageSquare,
-  Award
+  Award,
+  Upload
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { usePageSEO } from '../hooks/usePageSEO';
@@ -107,7 +108,7 @@ export const ProviderDashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'sessions' | 'portfolio' | 'payouts' | 'reviews'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'sessions' | 'portfolio' | 'payouts' | 'reviews' | 'verification'>('overview');
   const [activeSession, setActiveSession] = useState<any | null>(null);
   const [pendingRequests, setPendingRequests] = useState<ConsultationRequest[]>([]);
   const [upcomingSessions, setUpcomingSessions] = useState<any[]>([]);
@@ -115,6 +116,26 @@ export const ProviderDashboardPage: React.FC = () => {
   const [portfolio, setPortfolio] = useState<any[]>([]);
   const [payoutAccount, setPayoutAccount] = useState<any | null>(null);
   const [walletData, setWalletData] = useState<any | null>(null);
+  const [verificationData, setVerificationData] = useState<{
+    status: 'unverified' | 'pending' | 'verified' | 'rejected';
+    verified: boolean;
+    rejection_reason: string | null;
+    active_request: any | null;
+    latest_request: any | null;
+  } | null>(null);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verificationForm, setVerificationForm] = useState({
+    professional_title: '',
+    years_of_experience: 5,
+    linkedin_url: '',
+    portfolio_url: '',
+    submission_notes: '',
+    document_url: '',
+    document_name: ''
+  });
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [submittingVerification, setSubmittingVerification] = useState(false);
+  const [verificationError, setVerificationError] = useState('');
   const [earnings, setEarnings] = useState<{
     total: number;
     gross?: number;
@@ -212,12 +233,12 @@ export const ProviderDashboardPage: React.FC = () => {
   // Handle URL tab parameter
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam && ['overview', 'services', 'sessions', 'portfolio', 'payouts', 'reviews'].includes(tabParam)) {
+    if (tabParam && ['overview', 'services', 'sessions', 'portfolio', 'payouts', 'reviews', 'verification'].includes(tabParam)) {
       setActiveTab(tabParam as any);
     }
   }, [searchParams]);
 
-  const handleSelectTab = (tab: 'overview' | 'services' | 'sessions' | 'portfolio' | 'payouts' | 'reviews') => {
+  const handleSelectTab = (tab: 'overview' | 'services' | 'sessions' | 'portfolio' | 'payouts' | 'reviews' | 'verification') => {
     setActiveTab(tab);
     setSearchParams({ tab });
   };
@@ -225,11 +246,12 @@ export const ProviderDashboardPage: React.FC = () => {
   const loadProviderDashboard = async () => {
     try {
       setLoading(true);
-      const [data, portfolioRes, bankRes, walletRes] = await Promise.all([
+      const [data, portfolioRes, bankRes, walletRes, verifRes] = await Promise.all([
         api.getProviderDashboard(),
         api.getPortfolio().catch(() => ({ projects: [] })),
         api.getPayoutAccount().catch(() => ({ account: null })),
-        api.getProviderWallet().catch(() => ({ payout_balance_inr: 0, ledger: [] }))
+        api.getProviderWallet().catch(() => ({ payout_balance_inr: 0, ledger: [] })),
+        api.getProviderVerificationStatus().catch(() => null)
       ]);
       setProviderProfile(data.provider || null);
       setActiveSession(data.activeSession || null);
@@ -242,6 +264,18 @@ export const ProviderDashboardPage: React.FC = () => {
       setPortfolio(portfolioRes?.projects || []);
       setPayoutAccount(bankRes?.account || null);
       setWalletData(walletRes || null);
+      if (verifRes) {
+        setVerificationData(verifRes);
+        if (verifRes.active_request) {
+          setVerificationForm((prev) => ({
+            ...prev,
+            professional_title: verifRes.active_request.professional_title || prev.professional_title,
+            years_of_experience: verifRes.active_request.years_of_experience || prev.years_of_experience,
+            linkedin_url: verifRes.active_request.linkedin_url || prev.linkedin_url,
+            portfolio_url: verifRes.active_request.portfolio_url || prev.portfolio_url
+          }));
+        }
+      }
       if (data.services && data.services.length > 0) {
         setIsAvailableNow(data.services.some((s: any) => s.available_now === 1));
       }
@@ -249,6 +283,51 @@ export const ProviderDashboardPage: React.FC = () => {
       console.error('Failed to load provider dashboard', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUploadVerificationDoc = async (file: File) => {
+    try {
+      setUploadingDoc(true);
+      setVerificationError('');
+      const res = await api.uploadVerificationDocument(file);
+      setVerificationForm((prev) => ({
+        ...prev,
+        document_url: res.url,
+        document_name: res.originalName || res.filename
+      }));
+    } catch (err: any) {
+      setVerificationError(err.message || 'Failed to upload verification document');
+    } finally {
+      setUploadingDoc(false);
+    }
+  };
+
+  const handleSubmitVerification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verificationForm.professional_title.trim()) {
+      setVerificationError('Professional title is required.');
+      return;
+    }
+    try {
+      setSubmittingVerification(true);
+      setVerificationError('');
+      await api.submitVerificationRequest({
+        professional_title: verificationForm.professional_title.trim(),
+        years_of_experience: Number(verificationForm.years_of_experience) || 0,
+        linkedin_url: verificationForm.linkedin_url.trim() || undefined,
+        portfolio_url: verificationForm.portfolio_url.trim() || undefined,
+        document_url: verificationForm.document_url || undefined,
+        document_name: verificationForm.document_name || undefined,
+        submission_notes: verificationForm.submission_notes.trim() || undefined
+      });
+      confetti({ particleCount: 70, spread: 60 });
+      setShowVerificationModal(false);
+      await loadProviderDashboard();
+    } catch (err: any) {
+      setVerificationError(err.message || 'Failed to submit verification request.');
+    } finally {
+      setSubmittingVerification(false);
     }
   };
 
@@ -860,6 +939,30 @@ export const ProviderDashboardPage: React.FC = () => {
             {reviews.length}
           </span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => handleSelectTab('verification')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer min-h-[44px] ${
+            activeTab === 'verification'
+              ? 'bg-midnight text-aliceblue shadow-subtle'
+              : 'text-midnight/70 hover:text-midnight hover:bg-aliceblue'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+          <span>Verification</span>
+          {verificationData?.status === 'verified' || verificationData?.verified ? (
+            <span className="w-2 h-2 rounded-full bg-emerald-500" title="Verified Expert" />
+          ) : verificationData?.status === 'pending' ? (
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title="Verification Pending" />
+          ) : verificationData?.status === 'rejected' ? (
+            <span className="w-2 h-2 rounded-full bg-rose-500" title="Verification Rejected" />
+          ) : (
+            <span className="px-1.5 py-0.5 rounded-md bg-moonstone/20 text-moonstone text-[10px]">
+              Claim
+            </span>
+          )}
+        </button>
       </div>
 
       {/* ========================================================================= */}
@@ -867,6 +970,119 @@ export const ProviderDashboardPage: React.FC = () => {
       {/* ========================================================================= */}
       {activeTab === 'overview' && (
         <div className="space-y-8 animate-fade-in">
+          {/* VERIFICATION STATUS BANNER */}
+          {verificationData && (
+            <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-5 shadow-card transition-all">
+              {verificationData.status === 'verified' || verificationData.verified ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-sm text-midnight">Verified Expert Credentials</h3>
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          Active Badge
+                        </span>
+                      </div>
+                      <p className="text-xs text-midnight/70 mt-0.5">
+                        Your profile is verified. The verified expert badge is visible on your services in public discovery.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleSelectTab('verification')}
+                    className="text-xs font-semibold text-emerald-800 hover:text-emerald-900 self-start sm:self-auto cursor-pointer"
+                  >
+                    View Verification Details →
+                  </button>
+                </div>
+              ) : verificationData.status === 'pending' ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start sm:items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0 mt-0.5 sm:mt-0">
+                      <Clock className="w-5 h-5 animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-sm text-midnight">Verification Request Under Review</h3>
+                        <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                          Pending Admin Review
+                        </span>
+                      </div>
+                      <p className="text-xs text-midnight/70 mt-0.5">
+                        Submitted for <strong className="text-midnight">{verificationData.active_request?.professional_title || 'Expert Profile'}</strong>. Our administration team is reviewing your evidence. Duplicate submissions are disabled while pending.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleSelectTab('verification')}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold hover:bg-amber-100 self-start sm:self-auto transition-colors cursor-pointer"
+                  >
+                    View Application
+                  </button>
+                </div>
+              ) : verificationData.status === 'rejected' ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start sm:items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0 mt-0.5 sm:mt-0">
+                      <AlertCircle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-sm text-midnight">Verification Request Needs Attention</h3>
+                        <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                          Decision: Changes Requested
+                        </span>
+                      </div>
+                      <p className="text-xs text-midnight/70 mt-0.5">
+                        Reason: <span className="font-medium text-rose-900">{verificationData.rejection_reason || 'Incomplete credentials or evidence documentation.'}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setVerificationError('');
+                      setShowVerificationModal(true);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-midnight text-white text-xs font-bold hover:bg-midnight-hover self-start sm:self-auto transition-all shadow-subtle cursor-pointer whitespace-nowrap"
+                  >
+                    Submit New Request
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start sm:items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-aliceblue border border-timberwolf/80 flex items-center justify-center text-moonstone shrink-0 mt-0.5 sm:mt-0">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-sm text-midnight">Claim Verified Expert Status</h3>
+                        <span className="text-[10px] font-bold text-midnight/70 bg-aliceblue px-2 py-0.5 rounded-full border border-timberwolf/60">
+                          Optional Credential Badge
+                        </span>
+                      </div>
+                      <p className="text-xs text-midnight/70 mt-0.5">
+                        Your services are already discoverable! Earn the verified badge to boost conversion and showcase credential authenticity.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setVerificationError('');
+                      setShowVerificationModal(true);
+                    }}
+                    className="btn-shine px-4 py-2 rounded-xl bg-moonstone hover:bg-moonstone-hover text-white text-xs font-bold self-start sm:self-auto transition-all shadow-subtle cursor-pointer whitespace-nowrap"
+                  >
+                    Claim to Verify
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ACTIVE SESSION CARD (If any) */}
           {activeSession && (
             <div className="bg-midnight text-aliceblue rounded-2xl p-6 sm:p-7 border border-midnight shadow-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
@@ -1146,6 +1362,221 @@ export const ProviderDashboardPage: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
+      {/* TAB 7: EXPERT VERIFICATION */}
+      {/* ========================================================================= */}
+      {activeTab === 'verification' && (
+        <section className="space-y-6 animate-fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                <span>Expert Verification & Credential Badging</span>
+              </h2>
+              <p className="text-xs text-midnight/60 mt-0.5">
+                Official credential verification certified by HireByMinute administration.
+              </p>
+            </div>
+
+            {verificationData?.status === 'verified' || verificationData?.verified ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold text-xs">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Verified Expert Active</span>
+              </span>
+            ) : verificationData?.status === 'pending' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 font-bold text-xs">
+                <Clock className="w-4 h-4 text-amber-600 animate-pulse" />
+                <span>Verification Under Review</span>
+              </span>
+            ) : verificationData?.status === 'rejected' ? (
+              <button
+                onClick={() => {
+                  setVerificationError('');
+                  setShowVerificationModal(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-midnight text-white font-bold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4 text-moonstone" />
+                <span>Submit New Verification</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setVerificationError('');
+                  setShowVerificationModal(true);
+                }}
+                className="btn-shine inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-moonstone hover:bg-moonstone-hover text-white font-bold text-xs shadow-subtle transition-all cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Claim to Verify</span>
+              </button>
+            )}
+          </div>
+
+          {/* Status Details Card */}
+          <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-6 sm:p-7 shadow-card space-y-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 border-b border-timberwolf/30">
+              <div className="flex items-center gap-4">
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 border ${
+                  verificationData?.status === 'verified' || verificationData?.verified
+                    ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                    : verificationData?.status === 'pending'
+                    ? 'bg-amber-50 text-amber-600 border-amber-200'
+                    : verificationData?.status === 'rejected'
+                    ? 'bg-rose-50 text-rose-600 border-rose-200'
+                    : 'bg-aliceblue text-moonstone border-timberwolf/60'
+                }`}>
+                  <ShieldCheck className="w-7 h-7" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-midnight/50">Current Status</span>
+                  <h3 className="text-xl font-extrabold text-midnight mt-0.5">
+                    {verificationData?.status === 'verified' || verificationData?.verified
+                      ? 'Verified Expert'
+                      : verificationData?.status === 'pending'
+                      ? 'Application Pending Review'
+                      : verificationData?.status === 'rejected'
+                      ? 'Application Rejected / Revision Needed'
+                      : 'Unverified Profile'}
+                  </h3>
+                  <p className="text-xs text-midnight/70 mt-1">
+                    {verificationData?.status === 'verified' || verificationData?.verified
+                      ? 'Your credentials have been certified by HireByMinute administration.'
+                      : verificationData?.status === 'pending'
+                      ? 'Our compliance team is currently evaluating your credentials. Verification decisions are completed within 24 hours.'
+                      : verificationData?.status === 'rejected'
+                      ? 'Your previous application was not approved. Review the reviewer feedback below and submit an updated application.'
+                      : 'Unverified providers remain fully discoverable on the Services page! Verification adds a trusted verified badge to your profile and listings.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Active or Latest Request Details */}
+            {(verificationData?.active_request || verificationData?.latest_request) && (
+              <div className="bg-aliceblue/50 rounded-2xl border border-timberwolf/40 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-midnight uppercase tracking-wider">
+                    {verificationData.active_request ? 'Submitted Application Under Review' : 'Latest Application Record'}
+                  </h4>
+                  <span className="text-[11px] text-midnight/60 font-medium">
+                    Submitted {new Date((verificationData.active_request || verificationData.latest_request).created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <span className="text-midnight/50 block font-semibold">Professional Title:</span>
+                    <span className="font-bold text-midnight">{(verificationData.active_request || verificationData.latest_request).professional_title}</span>
+                  </div>
+                  <div>
+                    <span className="text-midnight/50 block font-semibold">Years of Experience:</span>
+                    <span className="font-bold text-midnight">{(verificationData.active_request || verificationData.latest_request).years_of_experience} years</span>
+                  </div>
+                  <div>
+                    <span className="text-midnight/50 block font-semibold">Decision:</span>
+                    <span className={`font-bold capitalize ${
+                      (verificationData.active_request || verificationData.latest_request).status === 'approved'
+                        ? 'text-emerald-700'
+                        : (verificationData.active_request || verificationData.latest_request).status === 'rejected'
+                        ? 'text-rose-700'
+                        : 'text-amber-700'
+                    }`}>
+                      {(verificationData.active_request || verificationData.latest_request).status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Evidence links & doc */}
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  {(verificationData.active_request || verificationData.latest_request).linkedin_url && (
+                    <a
+                      href={(verificationData.active_request || verificationData.latest_request).linkedin_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-lightblue/20 transition"
+                    >
+                      <span>LinkedIn Profile</span>
+                      <ExternalLink className="w-3 h-3 text-moonstone" />
+                    </a>
+                  )}
+                  {(verificationData.active_request || verificationData.latest_request).portfolio_url && (
+                    <a
+                      href={(verificationData.active_request || verificationData.latest_request).portfolio_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-lightblue/20 transition"
+                    >
+                      <span>Portfolio / Website</span>
+                      <ExternalLink className="w-3 h-3 text-moonstone" />
+                    </a>
+                  )}
+                  {(verificationData.active_request || verificationData.latest_request).document_url && (
+                    <a
+                      href={(verificationData.active_request || verificationData.latest_request).document_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-timberwolf/60 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 transition"
+                    >
+                      <FileText className="w-3 h-3 text-emerald-600" />
+                      <span>Document: {(verificationData.active_request || verificationData.latest_request).document_name || 'Verification Document'}</span>
+                    </a>
+                  )}
+                </div>
+
+                {/* Rejection feedback if rejected */}
+                {(verificationData.status === 'rejected' || (verificationData.latest_request && verificationData.latest_request.status === 'rejected')) && (
+                  <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-xs space-y-1 mt-2">
+                    <span className="font-bold text-rose-900 block">Reviewer Feedback:</span>
+                    <p className="text-rose-800 leading-relaxed">
+                      {verificationData.rejection_reason || verificationData.latest_request?.rejection_reason || 'Incomplete verification evidence.'}
+                    </p>
+                    {verificationData.latest_request?.reviewed_at && (
+                      <span className="text-[10px] text-rose-700/70 block pt-1">
+                        Reviewed on {new Date(verificationData.latest_request.reviewed_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Verification Rules & Policy Explainer */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 border-t border-timberwolf/30">
+              <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/30 space-y-1.5">
+                <span className="font-bold text-xs text-midnight flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Public Discovery Inclusion</span>
+                </span>
+                <p className="text-[11px] text-midnight/70 leading-relaxed">
+                  Verification is never required merely to appear in search. All providers with completed profiles and published services appear publicly.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/30 space-y-1.5">
+                <span className="font-bold text-xs text-midnight flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-moonstone" />
+                  <span>Authoritative Badge</span>
+                </span>
+                <p className="text-[11px] text-midnight/70 leading-relaxed">
+                  Only explicitly approved experts display the verified credential badge. Verification is never auto-granted by profile completion or role.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/30 space-y-1.5">
+                <span className="font-bold text-xs text-midnight flex items-center gap-1.5">
+                  <Lock className="w-4 h-4 text-midnight" />
+                  <span>Administrative Review</span>
+                </span>
+                <p className="text-[11px] text-midnight/70 leading-relaxed">
+                  Every claim is individually audited by platform administrators. Uploaded identity and credential proofs remain private and secure.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ========================================================================= */}
       {/* TAB 3: SESSIONS & COMMISSION */}
       {/* ========================================================================= */}
       {activeTab === 'sessions' && (
@@ -1347,6 +1778,221 @@ export const ProviderDashboardPage: React.FC = () => {
               ))}
             </div>
           )}
+        </section>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 7: EXPERT VERIFICATION */}
+      {/* ========================================================================= */}
+      {activeTab === 'verification' && (
+        <section className="space-y-6 animate-fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                <span>Expert Verification & Credential Badging</span>
+              </h2>
+              <p className="text-xs text-midnight/60 mt-0.5">
+                Official credential verification certified by HireByMinute administration.
+              </p>
+            </div>
+
+            {verificationData?.status === 'verified' || verificationData?.verified ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold text-xs">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Verified Expert Active</span>
+              </span>
+            ) : verificationData?.status === 'pending' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 font-bold text-xs">
+                <Clock className="w-4 h-4 text-amber-600 animate-pulse" />
+                <span>Verification Under Review</span>
+              </span>
+            ) : verificationData?.status === 'rejected' ? (
+              <button
+                onClick={() => {
+                  setVerificationError('');
+                  setShowVerificationModal(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-midnight text-white font-bold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4 text-moonstone" />
+                <span>Submit New Verification</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setVerificationError('');
+                  setShowVerificationModal(true);
+                }}
+                className="btn-shine inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-moonstone hover:bg-moonstone-hover text-white font-bold text-xs shadow-subtle transition-all cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Claim to Verify</span>
+              </button>
+            )}
+          </div>
+
+          {/* Status Details Card */}
+          <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-6 sm:p-7 shadow-card space-y-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 border-b border-timberwolf/30">
+              <div className="flex items-center gap-4">
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 border ${
+                  verificationData?.status === 'verified' || verificationData?.verified
+                    ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                    : verificationData?.status === 'pending'
+                    ? 'bg-amber-50 text-amber-600 border-amber-200'
+                    : verificationData?.status === 'rejected'
+                    ? 'bg-rose-50 text-rose-600 border-rose-200'
+                    : 'bg-aliceblue text-moonstone border-timberwolf/60'
+                }`}>
+                  <ShieldCheck className="w-7 h-7" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-midnight/50">Current Status</span>
+                  <h3 className="text-xl font-extrabold text-midnight mt-0.5">
+                    {verificationData?.status === 'verified' || verificationData?.verified
+                      ? 'Verified Expert'
+                      : verificationData?.status === 'pending'
+                      ? 'Application Pending Review'
+                      : verificationData?.status === 'rejected'
+                      ? 'Application Rejected / Revision Needed'
+                      : 'Unverified Profile'}
+                  </h3>
+                  <p className="text-xs text-midnight/70 mt-1">
+                    {verificationData?.status === 'verified' || verificationData?.verified
+                      ? 'Your credentials have been certified by HireByMinute administration.'
+                      : verificationData?.status === 'pending'
+                      ? 'Our compliance team is currently evaluating your credentials. Verification decisions are completed within 24 hours.'
+                      : verificationData?.status === 'rejected'
+                      ? 'Your previous application was not approved. Review the reviewer feedback below and submit an updated application.'
+                      : 'Unverified providers remain fully discoverable on the Services page! Verification adds a trusted verified badge to your profile and listings.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Active or Latest Request Details */}
+            {(verificationData?.active_request || verificationData?.latest_request) && (
+              <div className="bg-aliceblue/50 rounded-2xl border border-timberwolf/40 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-midnight uppercase tracking-wider">
+                    {verificationData.active_request ? 'Submitted Application Under Review' : 'Latest Application Record'}
+                  </h4>
+                  <span className="text-[11px] text-midnight/60 font-medium">
+                    Submitted {new Date((verificationData.active_request || verificationData.latest_request).created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <span className="text-midnight/50 block font-semibold">Professional Title:</span>
+                    <span className="font-bold text-midnight">{(verificationData.active_request || verificationData.latest_request).professional_title}</span>
+                  </div>
+                  <div>
+                    <span className="text-midnight/50 block font-semibold">Years of Experience:</span>
+                    <span className="font-bold text-midnight">{(verificationData.active_request || verificationData.latest_request).years_of_experience} years</span>
+                  </div>
+                  <div>
+                    <span className="text-midnight/50 block font-semibold">Decision:</span>
+                    <span className={`font-bold capitalize ${
+                      (verificationData.active_request || verificationData.latest_request).status === 'approved'
+                        ? 'text-emerald-700'
+                        : (verificationData.active_request || verificationData.latest_request).status === 'rejected'
+                        ? 'text-rose-700'
+                        : 'text-amber-700'
+                    }`}>
+                      {(verificationData.active_request || verificationData.latest_request).status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Evidence links & doc */}
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  {(verificationData.active_request || verificationData.latest_request).linkedin_url && (
+                    <a
+                      href={(verificationData.active_request || verificationData.latest_request).linkedin_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-lightblue/20 transition"
+                    >
+                      <span>LinkedIn Profile</span>
+                      <ExternalLink className="w-3 h-3 text-moonstone" />
+                    </a>
+                  )}
+                  {(verificationData.active_request || verificationData.latest_request).portfolio_url && (
+                    <a
+                      href={(verificationData.active_request || verificationData.latest_request).portfolio_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-lightblue/20 transition"
+                    >
+                      <span>Portfolio / Website</span>
+                      <ExternalLink className="w-3 h-3 text-moonstone" />
+                    </a>
+                  )}
+                  {(verificationData.active_request || verificationData.latest_request).document_url && (
+                    <a
+                      href={(verificationData.active_request || verificationData.latest_request).document_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-timberwolf/60 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 transition"
+                    >
+                      <FileText className="w-3 h-3 text-emerald-600" />
+                      <span>Document: {(verificationData.active_request || verificationData.latest_request).document_name || 'Verification Document'}</span>
+                    </a>
+                  )}
+                </div>
+
+                {/* Rejection feedback if rejected */}
+                {(verificationData.status === 'rejected' || (verificationData.latest_request && verificationData.latest_request.status === 'rejected')) && (
+                  <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-xs space-y-1 mt-2">
+                    <span className="font-bold text-rose-900 block">Reviewer Feedback:</span>
+                    <p className="text-rose-800 leading-relaxed">
+                      {verificationData.rejection_reason || verificationData.latest_request?.rejection_reason || 'Incomplete verification evidence.'}
+                    </p>
+                    {verificationData.latest_request?.reviewed_at && (
+                      <span className="text-[10px] text-rose-700/70 block pt-1">
+                        Reviewed on {new Date(verificationData.latest_request.reviewed_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Verification Rules & Policy Explainer */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 border-t border-timberwolf/30">
+              <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/30 space-y-1.5">
+                <span className="font-bold text-xs text-midnight flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Public Discovery Inclusion</span>
+                </span>
+                <p className="text-[11px] text-midnight/70 leading-relaxed">
+                  Verification is never required merely to appear in search. All providers with completed profiles and published services appear publicly.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/30 space-y-1.5">
+                <span className="font-bold text-xs text-midnight flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-moonstone" />
+                  <span>Authoritative Badge</span>
+                </span>
+                <p className="text-[11px] text-midnight/70 leading-relaxed">
+                  Only explicitly approved experts display the verified credential badge. Verification is never auto-granted by profile completion or role.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/30 space-y-1.5">
+                <span className="font-bold text-xs text-midnight flex items-center gap-1.5">
+                  <Lock className="w-4 h-4 text-midnight" />
+                  <span>Administrative Review</span>
+                </span>
+                <p className="text-[11px] text-midnight/70 leading-relaxed">
+                  Every claim is individually audited by platform administrators. Uploaded identity and credential proofs remain private and secure.
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
       )}
 
@@ -1681,6 +2327,221 @@ export const ProviderDashboardPage: React.FC = () => {
               ))}
             </div>
           )}
+        </section>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 7: EXPERT VERIFICATION */}
+      {/* ========================================================================= */}
+      {activeTab === 'verification' && (
+        <section className="space-y-6 animate-fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-midnight flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                <span>Expert Verification & Credential Badging</span>
+              </h2>
+              <p className="text-xs text-midnight/60 mt-0.5">
+                Official credential verification certified by HireByMinute administration.
+              </p>
+            </div>
+
+            {verificationData?.status === 'verified' || verificationData?.verified ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold text-xs">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Verified Expert Active</span>
+              </span>
+            ) : verificationData?.status === 'pending' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 font-bold text-xs">
+                <Clock className="w-4 h-4 text-amber-600 animate-pulse" />
+                <span>Verification Under Review</span>
+              </span>
+            ) : verificationData?.status === 'rejected' ? (
+              <button
+                onClick={() => {
+                  setVerificationError('');
+                  setShowVerificationModal(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-midnight text-white font-bold text-xs hover:bg-midnight-hover shadow-subtle transition-all cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4 text-moonstone" />
+                <span>Submit New Verification</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setVerificationError('');
+                  setShowVerificationModal(true);
+                }}
+                className="btn-shine inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-moonstone hover:bg-moonstone-hover text-white font-bold text-xs shadow-subtle transition-all cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Claim to Verify</span>
+              </button>
+            )}
+          </div>
+
+          {/* Status Details Card */}
+          <div className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-6 sm:p-7 shadow-card space-y-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 border-b border-timberwolf/30">
+              <div className="flex items-center gap-4">
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 border ${
+                  verificationData?.status === 'verified' || verificationData?.verified
+                    ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                    : verificationData?.status === 'pending'
+                    ? 'bg-amber-50 text-amber-600 border-amber-200'
+                    : verificationData?.status === 'rejected'
+                    ? 'bg-rose-50 text-rose-600 border-rose-200'
+                    : 'bg-aliceblue text-moonstone border-timberwolf/60'
+                }`}>
+                  <ShieldCheck className="w-7 h-7" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-midnight/50">Current Status</span>
+                  <h3 className="text-xl font-extrabold text-midnight mt-0.5">
+                    {verificationData?.status === 'verified' || verificationData?.verified
+                      ? 'Verified Expert'
+                      : verificationData?.status === 'pending'
+                      ? 'Application Pending Review'
+                      : verificationData?.status === 'rejected'
+                      ? 'Application Rejected / Revision Needed'
+                      : 'Unverified Profile'}
+                  </h3>
+                  <p className="text-xs text-midnight/70 mt-1">
+                    {verificationData?.status === 'verified' || verificationData?.verified
+                      ? 'Your credentials have been certified by HireByMinute administration.'
+                      : verificationData?.status === 'pending'
+                      ? 'Our compliance team is currently evaluating your credentials. Verification decisions are completed within 24 hours.'
+                      : verificationData?.status === 'rejected'
+                      ? 'Your previous application was not approved. Review the reviewer feedback below and submit an updated application.'
+                      : 'Unverified providers remain fully discoverable on the Services page! Verification adds a trusted verified badge to your profile and listings.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Active or Latest Request Details */}
+            {(verificationData?.active_request || verificationData?.latest_request) && (
+              <div className="bg-aliceblue/50 rounded-2xl border border-timberwolf/40 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-midnight uppercase tracking-wider">
+                    {verificationData.active_request ? 'Submitted Application Under Review' : 'Latest Application Record'}
+                  </h4>
+                  <span className="text-[11px] text-midnight/60 font-medium">
+                    Submitted {new Date((verificationData.active_request || verificationData.latest_request).created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <span className="text-midnight/50 block font-semibold">Professional Title:</span>
+                    <span className="font-bold text-midnight">{(verificationData.active_request || verificationData.latest_request).professional_title}</span>
+                  </div>
+                  <div>
+                    <span className="text-midnight/50 block font-semibold">Years of Experience:</span>
+                    <span className="font-bold text-midnight">{(verificationData.active_request || verificationData.latest_request).years_of_experience} years</span>
+                  </div>
+                  <div>
+                    <span className="text-midnight/50 block font-semibold">Decision:</span>
+                    <span className={`font-bold capitalize ${
+                      (verificationData.active_request || verificationData.latest_request).status === 'approved'
+                        ? 'text-emerald-700'
+                        : (verificationData.active_request || verificationData.latest_request).status === 'rejected'
+                        ? 'text-rose-700'
+                        : 'text-amber-700'
+                    }`}>
+                      {(verificationData.active_request || verificationData.latest_request).status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Evidence links & doc */}
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  {(verificationData.active_request || verificationData.latest_request).linkedin_url && (
+                    <a
+                      href={(verificationData.active_request || verificationData.latest_request).linkedin_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-lightblue/20 transition"
+                    >
+                      <span>LinkedIn Profile</span>
+                      <ExternalLink className="w-3 h-3 text-moonstone" />
+                    </a>
+                  )}
+                  {(verificationData.active_request || verificationData.latest_request).portfolio_url && (
+                    <a
+                      href={(verificationData.active_request || verificationData.latest_request).portfolio_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-timberwolf/60 text-xs font-semibold text-midnight hover:bg-lightblue/20 transition"
+                    >
+                      <span>Portfolio / Website</span>
+                      <ExternalLink className="w-3 h-3 text-moonstone" />
+                    </a>
+                  )}
+                  {(verificationData.active_request || verificationData.latest_request).document_url && (
+                    <a
+                      href={(verificationData.active_request || verificationData.latest_request).document_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-timberwolf/60 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 transition"
+                    >
+                      <FileText className="w-3 h-3 text-emerald-600" />
+                      <span>Document: {(verificationData.active_request || verificationData.latest_request).document_name || 'Verification Document'}</span>
+                    </a>
+                  )}
+                </div>
+
+                {/* Rejection feedback if rejected */}
+                {(verificationData.status === 'rejected' || (verificationData.latest_request && verificationData.latest_request.status === 'rejected')) && (
+                  <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-xs space-y-1 mt-2">
+                    <span className="font-bold text-rose-900 block">Reviewer Feedback:</span>
+                    <p className="text-rose-800 leading-relaxed">
+                      {verificationData.rejection_reason || verificationData.latest_request?.rejection_reason || 'Incomplete verification evidence.'}
+                    </p>
+                    {verificationData.latest_request?.reviewed_at && (
+                      <span className="text-[10px] text-rose-700/70 block pt-1">
+                        Reviewed on {new Date(verificationData.latest_request.reviewed_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Verification Rules & Policy Explainer */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 border-t border-timberwolf/30">
+              <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/30 space-y-1.5">
+                <span className="font-bold text-xs text-midnight flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Public Discovery Inclusion</span>
+                </span>
+                <p className="text-[11px] text-midnight/70 leading-relaxed">
+                  Verification is never required merely to appear in search. All providers with completed profiles and published services appear publicly.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/30 space-y-1.5">
+                <span className="font-bold text-xs text-midnight flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-moonstone" />
+                  <span>Authoritative Badge</span>
+                </span>
+                <p className="text-[11px] text-midnight/70 leading-relaxed">
+                  Only explicitly approved experts display the verified credential badge. Verification is never auto-granted by profile completion or role.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-aliceblue/30 border border-timberwolf/30 space-y-1.5">
+                <span className="font-bold text-xs text-midnight flex items-center gap-1.5">
+                  <Lock className="w-4 h-4 text-midnight" />
+                  <span>Administrative Review</span>
+                </span>
+                <p className="text-[11px] text-midnight/70 leading-relaxed">
+                  Every claim is individually audited by platform administrators. Uploaded identity and credential proofs remain private and secure.
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
       )}
 
@@ -2137,6 +2998,162 @@ export const ProviderDashboardPage: React.FC = () => {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 5: EXPERT VERIFICATION APPLICATION MODAL */}
+      {/* ========================================================================= */}
+      {showVerificationModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-5 shadow-2xl border border-timberwolf animate-scale-up max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-timberwolf/40">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-moonstone/10 text-moonstone flex items-center justify-center font-bold">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-midnight">Expert Verification Application</h3>
+                  <p className="text-[11px] text-midnight/60">Submit credentials for authoritative badge certification</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowVerificationModal(false)}
+                className="p-1 rounded-lg text-midnight/50 hover:text-midnight cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {verificationError && (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{verificationError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmitVerification} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-midnight block">Professional Title *</label>
+                <input
+                  type="text"
+                  required
+                  value={verificationForm.professional_title}
+                  onChange={(e) => setVerificationForm({ ...verificationForm, professional_title: e.target.value })}
+                  placeholder="e.g., Senior Full-Stack Engineer, AI Researcher, Tax Advisor"
+                  className="w-full p-2.5 bg-aliceblue/40 border border-timberwolf/70 rounded-xl text-xs text-midnight focus:border-moonstone focus:bg-white"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-midnight block">Years of Industry Experience</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="60"
+                  value={verificationForm.years_of_experience}
+                  onChange={(e) => setVerificationForm({ ...verificationForm, years_of_experience: Number(e.target.value) || 0 })}
+                  className="w-full p-2.5 bg-aliceblue/40 border border-timberwolf/70 rounded-xl text-xs text-midnight focus:border-moonstone focus:bg-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-midnight block">LinkedIn URL</label>
+                  <input
+                    type="url"
+                    value={verificationForm.linkedin_url}
+                    onChange={(e) => setVerificationForm({ ...verificationForm, linkedin_url: e.target.value })}
+                    placeholder="https://linkedin.com/in/..."
+                    className="w-full p-2.5 bg-aliceblue/40 border border-timberwolf/70 rounded-xl text-xs text-midnight focus:border-moonstone focus:bg-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-midnight block">Portfolio / GitHub / Web URL</label>
+                  <input
+                    type="url"
+                    value={verificationForm.portfolio_url}
+                    onChange={(e) => setVerificationForm({ ...verificationForm, portfolio_url: e.target.value })}
+                    placeholder="https://github.com/... or site"
+                    className="w-full p-2.5 bg-aliceblue/40 border border-timberwolf/70 rounded-xl text-xs text-midnight focus:border-moonstone focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Document upload */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-midnight block">
+                  Credential / ID Document (PDF, DOCX, PNG, JPG - max 10MB)
+                </label>
+                <div className="p-4 border-2 border-dashed border-timberwolf/70 rounded-2xl bg-aliceblue/30 text-center space-y-2">
+                  <input
+                    type="file"
+                    id="verificationDocInput"
+                    accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleUploadVerificationDoc(file);
+                    }}
+                  />
+                  <div className="flex flex-col items-center justify-center">
+                    <label
+                      htmlFor="verificationDocInput"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-timberwolf/70 text-xs font-semibold text-midnight hover:bg-lightblue/20 cursor-pointer shadow-subtle transition"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-moonstone" />
+                      <span>{uploadingDoc ? 'Uploading Evidence...' : verificationForm.document_url ? 'Replace Document' : 'Upload Credential Document'}</span>
+                    </label>
+                    {verificationForm.document_name && (
+                      <span className="text-[11px] font-semibold text-emerald-800 mt-2 flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        {verificationForm.document_name}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-midnight/50 mt-1">
+                      Degree certificates, government identity, or professional licenses (encrypted & private).
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-midnight block">Submission Notes (Optional)</label>
+                <textarea
+                  rows={2}
+                  value={verificationForm.submission_notes}
+                  onChange={(e) => setVerificationForm({ ...verificationForm, submission_notes: e.target.value })}
+                  placeholder="Provide any additional context or highlights for the administrative review team..."
+                  className="w-full p-2.5 bg-aliceblue/40 border border-timberwolf/70 rounded-xl text-xs text-midnight focus:border-moonstone focus:bg-white resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-timberwolf/40">
+                <button
+                  type="button"
+                  onClick={() => setShowVerificationModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-timberwolf text-xs font-semibold text-midnight hover:bg-aliceblue cursor-pointer min-h-[44px]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingVerification || uploadingDoc}
+                  className="btn-shine px-5 py-2.5 rounded-xl bg-moonstone hover:bg-moonstone-hover text-white text-xs font-bold shadow-subtle cursor-pointer disabled:opacity-50 min-h-[44px] flex items-center gap-1.5"
+                >
+                  {submittingVerification ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>Submit Verification Claim</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

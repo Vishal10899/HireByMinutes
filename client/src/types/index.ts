@@ -1,4 +1,5 @@
 export type UserRole = 'client' | 'provider' | 'admin';
+export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
 
 export interface User {
   id: string;
@@ -21,6 +22,8 @@ export interface User {
   review_count?: number;
   sessions_completed?: number;
   verified?: number | boolean;
+  verification_status?: VerificationStatus;
+  verification_rejection_reason?: string;
   email_verified?: number | boolean;
   response_time?: string;
   member_since?: string;
@@ -76,6 +79,7 @@ export interface Service {
   provider_rating?: number | string;
   provider_review_count?: number;
   provider_verified?: number | boolean;
+  provider_verification_status?: VerificationStatus;
   provider_response_time?: string;
   sessions_completed?: number;
   total_session_minutes?: number;
@@ -530,5 +534,40 @@ export interface ProjectContract {
   client_review?: string | null;
   client_reviewed_at?: string | null;
   milestones?: ProjectMilestone[];
+}
+
+export interface VerificationRequest {
+  id: string;
+  provider_id: string;
+  status: 'pending' | 'approved' | 'rejected';
+  professional_title: string;
+  years_of_experience: number;
+  linkedin_url?: string | null;
+  portfolio_url?: string | null;
+  document_url?: string | null;
+  document_name?: string | null;
+  submission_notes?: string | null;
+  decision_notes?: string | null;
+  rejection_reason?: string | null;
+  reviewed_by?: string | null;
+  reviewed_by_name?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  provider_name?: string;
+  provider_email?: string;
+  provider_avatar?: string;
+  provider_headline?: string;
+  provider_bio?: string;
+  provider_location?: string;
+  provider_city?: string;
+  provider_country?: string;
+  provider_experience_years?: number;
+  provider_skills_json?: string;
+  provider_languages_json?: string;
+  provider_suspended?: number;
+  provider_verification_status?: VerificationStatus;
+  provider_verified?: number | boolean;
+  services_count?: number;
 }
 

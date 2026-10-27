@@ -145,6 +145,11 @@ function sanitizeUser(user) {
     safe.certifications = [];
   }
 
+  if (!safe.verification_status) {
+    safe.verification_status = safe.verified ? 'verified' : 'unverified';
+  }
+  safe.verified = safe.verification_status === 'verified' ? 1 : 0;
+
   return safe;
 }
 
@@ -1639,6 +1644,217 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   });
 
   // ==========================================
+  // EXPERT VERIFICATION REQUESTS & UPLOADS
+  // ==========================================
+  const verificationDocUpload = multer({
+    storage: memoryStorage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit for verification documents
+    fileFilter: (req, file, cb) => {
+      const allowedMimes = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/jpeg',
+        'image/png',
+        'image/webp'
+      ];
+      const ext = path.extname(file.originalname).toLowerCase();
+      const allowedExts = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.webp'];
+
+      if (!allowedMimes.includes(file.mimetype) && !allowedExts.includes(ext)) {
+        return cb(new Error('Invalid document format. Supported formats: PDF, DOC, DOCX, PNG, JPG, WEBP.'));
+      }
+      cb(null, true);
+    }
+  });
+
+  router.post('/upload/verification-document', authMiddleware, verificationDocUpload.single('document'), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No verification document provided for upload.' });
+    }
+    try {
+      const uploadResult = await storageService.upload({
+        buffer: req.file.buffer,
+        originalName: req.file.originalname,
+        folder: 'verification_docs'
+      });
+      res.json({
+        url: uploadResult.url,
+        filename: uploadResult.filename,
+        originalName: req.file.originalname,
+        size: uploadResult.size,
+        mimetype: uploadResult.mimeType,
+        provider: uploadResult.provider,
+        message: 'Verification document uploaded successfully.'
+      });
+    } catch (err) {
+      console.error('[Verification Doc Upload Error]', err.message);
+      res.status(500).json({ error: 'Failed to process document upload: ' + err.message });
+    }
+  }, (err, req, res, next) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'Document upload failed.' });
+    }
+    next();
+  });
+
+  router.get('/provider/verification-status', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only provider accounts can access verification status.' });
+    }
+    try {
+      const user = db.prepare('SELECT id, full_name, email, verified, verification_status, verification_rejection_reason FROM users WHERE id = ?').get(req.user.id);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      const activeRequest = db.prepare(`
+        SELECT * FROM verification_requests 
+        WHERE provider_id = ? AND status = 'pending' 
+        ORDER BY created_at DESC 
+        LIMIT 1
+      `).get(req.user.id) || null;
+
+      const latestRequest = db.prepare(`
+        SELECT * FROM verification_requests 
+        WHERE provider_id = ? 
+        ORDER BY created_at DESC 
+        LIMIT 1
+      `).get(req.user.id) || null;
+
+      const normalizedStatus = user.verification_status || (user.verified ? 'verified' : 'unverified');
+
+      res.json({
+        status: normalizedStatus,
+        verified: Boolean(user.verified),
+        can_resubmit: !activeRequest && normalizedStatus !== 'verified',
+        rejection_reason: user.verification_rejection_reason || (latestRequest?.status === 'rejected' ? latestRequest.rejection_reason : null),
+        active_request: activeRequest,
+        latest_request: latestRequest
+      });
+    } catch (err) {
+      console.error('[GET /provider/verification-status Error]', err.message);
+      res.status(500).json({ error: 'Failed to fetch verification status' });
+    }
+  });
+
+  router.post('/provider/verification-request', authMiddleware, (req, res) => {
+    if (req.user.role !== 'provider' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only provider accounts can submit verification requests.' });
+    }
+
+    if (req.body.provider_id && req.body.provider_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You are not authorized to submit verification requests for another provider.' });
+    }
+
+    try {
+      const user = db.prepare('SELECT id, full_name, headline, verified, verification_status FROM users WHERE id = ?').get(req.user.id);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      if (user.verified === 1 || user.verification_status === 'verified') {
+        return res.status(400).json({ error: 'This provider profile is already verified.' });
+      }
+
+      // Check for active pending request to prevent duplicates
+      const pendingReq = db.prepare(`
+        SELECT id, created_at FROM verification_requests 
+        WHERE provider_id = ? AND status = 'pending'
+      `).get(req.user.id);
+
+      if (pendingReq) {
+        return res.status(409).json({ 
+          code: 'DUPLICATE_ACTIVE_REQUEST',
+          error: 'A verification request is already pending review for this profile.',
+          request_id: pendingReq.id
+        });
+      }
+
+      const {
+        professional_title,
+        years_of_experience,
+        linkedin_url,
+        portfolio_url,
+        document_url,
+        document_name,
+        id_document_url,
+        submission_notes
+      } = req.body;
+
+      const title = (professional_title && professional_title.trim()) || user.headline || 'Domain Expert';
+      const docUrl = (document_url || id_document_url || '').trim() || null;
+
+      const requestId = `vreq-${uuidv4().slice(0, 12)}`;
+      const expYears = Math.max(0, parseInt(years_of_experience, 10) || 0);
+      const now = new Date().toISOString();
+
+      const insertStmt = db.prepare(`
+        INSERT INTO verification_requests (
+          id, provider_id, status, professional_title, years_of_experience,
+          linkedin_url, portfolio_url, document_url, document_name, submission_notes,
+          created_at, updated_at
+        ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const updateUserStmt = db.prepare(`
+        UPDATE users
+        SET verification_status = 'pending'
+        WHERE id = ?
+      `);
+
+      const executeAtomicSubmit = typeof db.transaction === 'function'
+        ? db.transaction(() => {
+            insertStmt.run(
+              requestId,
+              req.user.id,
+              title,
+              expYears,
+              linkedin_url ? linkedin_url.trim() : null,
+              portfolio_url ? portfolio_url.trim() : null,
+              docUrl,
+              document_name ? document_name.trim() : null,
+              submission_notes ? submission_notes.trim() : null,
+              now,
+              now
+            );
+            updateUserStmt.run(req.user.id);
+          })
+        : () => {
+            insertStmt.run(
+              requestId,
+              req.user.id,
+              title,
+              expYears,
+              linkedin_url ? linkedin_url.trim() : null,
+              portfolio_url ? portfolio_url.trim() : null,
+              docUrl,
+              document_name ? document_name.trim() : null,
+              submission_notes ? submission_notes.trim() : null,
+              now,
+              now
+            );
+            updateUserStmt.run(req.user.id);
+          };
+
+      executeAtomicSubmit();
+
+      logAuditAction(req.user, 'VERIFICATION_REQUEST_SUBMITTED', 'verification_requests', requestId, {
+        professional_title: title,
+        has_document: Boolean(docUrl)
+      });
+
+      const created = db.prepare('SELECT * FROM verification_requests WHERE id = ?').get(requestId);
+
+      res.status(201).json({
+        success: true,
+        message: 'Verification request submitted successfully and is pending administrative review.',
+        request: created,
+        verification_status: 'pending'
+      });
+    } catch (err) {
+      console.error('[POST /provider/verification-request Error]', err.message);
+      res.status(500).json({ error: 'Failed to submit verification request: ' + err.message });
+    }
+  });
+
+  // ==========================================
   // PROFILE MANAGEMENT (GET & PATCH)
   // ==========================================
   router.get('/users/profile/me', authMiddleware, (req, res) => {
@@ -1871,6 +2087,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
              u.full_name as provider_name, u.avatar_url as provider_avatar,
              u.headline as provider_headline, u.rating as provider_rating,
              u.review_count as provider_review_count, u.verified as provider_verified,
+             COALESCE(u.verification_status, CASE WHEN u.verified = 1 THEN 'verified' ELSE 'unverified' END) as provider_verification_status,
              u.response_time as provider_response_time, u.country as provider_country,
              u.city as provider_city, u.state_region as provider_state_region,
              u.area as provider_area, u.languages_json as provider_languages_json,
@@ -1878,7 +2095,13 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       FROM services s
       JOIN users u ON s.provider_id = u.id
       JOIN categories c ON s.category_id = c.id
-      WHERE LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND u.email_verified = 1
+      WHERE LOWER(s.listing_status) IN ('active', 'published')
+        AND (u.is_suspended = 0 OR u.is_suspended IS NULL)
+        AND (u.full_name IS NOT NULL AND TRIM(u.full_name) != '')
+        AND ((u.headline IS NOT NULL AND TRIM(u.headline) != '') OR (s.title IS NOT NULL AND TRIM(s.title) != ''))
+        AND (u.email_verified = 1 OR u.created_by_admin = 1 OR u.email_verified IS NULL)
+        AND s.price_per_minute > 0
+        AND (c.active = 1 OR c.active IS NULL)
       ORDER BY u.rating DESC, u.sessions_completed DESC
       LIMIT 6
     `).all();
@@ -1893,6 +2116,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       return {
         ...s,
         provider_rating: s.provider_rating != null ? Number(s.provider_rating) : 5.0,
+        provider_verification_status: s.provider_verification_status || (s.provider_verified === 1 ? 'verified' : 'unverified'),
+        provider_verified: (s.provider_verification_status === 'verified' || (s.provider_verified === 1 && !['pending', 'rejected', 'unverified'].includes(s.provider_verification_status))) ? true : false,
         price_per_minute: Number(s.price_per_minute) || 0,
         country: s.country || s.provider_country || 'United States',
         city: s.city || s.provider_city || '',
@@ -1913,7 +2138,13 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 24));
     const offset = (page - 1) * limit;
 
-    let whereClause = ` WHERE LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND u.email_verified = 1`;
+    let whereClause = ` WHERE LOWER(s.listing_status) IN ('active', 'published')
+      AND (u.is_suspended = 0 OR u.is_suspended IS NULL)
+      AND (u.full_name IS NOT NULL AND TRIM(u.full_name) != '')
+      AND ((u.headline IS NOT NULL AND TRIM(u.headline) != '') OR (s.title IS NOT NULL AND TRIM(s.title) != ''))
+      AND (u.email_verified = 1 OR u.created_by_admin = 1 OR u.email_verified IS NULL)
+      AND s.price_per_minute > 0
+      AND (c.active = 1 OR c.active IS NULL)`;
     const params = [];
 
     if (category && category !== 'all') {
@@ -2001,7 +2232,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     }
 
     if (verified === 'true' || verified === '1') {
-      whereClause += ` AND u.verified = 1`;
+      whereClause += ` AND (u.verified = 1 OR u.verification_status = 'verified')`;
     }
 
     if (availableNow === 'true' || availableNow === '1') {
@@ -2043,6 +2274,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
              u.full_name as provider_name, u.avatar_url as provider_avatar,
              u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating,
              u.review_count as provider_review_count, u.verified as provider_verified,
+             COALESCE(u.verification_status, CASE WHEN u.verified = 1 THEN 'verified' ELSE 'unverified' END) as provider_verification_status,
              u.response_time as provider_response_time, u.sessions_completed,
              u.country as provider_country, u.state_region as provider_state_region,
              u.city as provider_city, u.area as provider_area,
@@ -2078,6 +2310,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       return {
         ...s,
         provider_rating: s.provider_rating != null ? Number(s.provider_rating) : 5.0,
+        provider_verification_status: s.provider_verification_status || (s.provider_verified === 1 ? 'verified' : 'unverified'),
+        provider_verified: (s.provider_verification_status === 'verified' || (s.provider_verified === 1 && !['pending', 'rejected', 'unverified'].includes(s.provider_verification_status))) ? true : false,
         price_per_minute: Number(s.price_per_minute) || 0,
         country: s.country || s.provider_country || 'United States',
         city: s.city || s.provider_city || '',
@@ -2106,6 +2340,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
                u.id as provider_id, u.full_name as provider_name, u.avatar_url as provider_avatar,
                u.headline as provider_headline, u.bio as provider_bio, u.rating as provider_rating,
                u.review_count as provider_review_count, u.verified as provider_verified,
+               COALESCE(u.verification_status, CASE WHEN u.verified = 1 THEN 'verified' ELSE 'unverified' END) as provider_verification_status,
                u.response_time as provider_response_time, u.sessions_completed, u.member_since,
                u.country as provider_country, u.state_region as provider_state_region,
                u.city as provider_city, u.area as provider_area,
@@ -2114,7 +2349,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         FROM services s
         JOIN users u ON s.provider_id = u.id
         JOIN categories c ON s.category_id = c.id
-        WHERE s.id = ? AND LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND u.email_verified = 1
+        WHERE s.id = ? AND LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND (u.email_verified = 1 OR u.created_by_admin = 1 OR u.email_verified IS NULL)
       `).get(req.params.id);
 
       if (!service) {
@@ -2160,6 +2395,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       const formattedService = {
         ...service,
         provider_rating: service.provider_rating != null ? Number(service.provider_rating) : 5.0,
+        provider_verification_status: service.provider_verification_status || (service.provider_verified === 1 ? 'verified' : 'unverified'),
+        provider_verified: (service.provider_verification_status === 'verified' || (service.provider_verified === 1 && !['pending', 'rejected', 'unverified'].includes(service.provider_verification_status))) ? true : false,
         price_per_minute: Number(service.price_per_minute) || 0,
         country: service.country || service.provider_country || 'United States',
         city: service.city || service.provider_city || '',
@@ -5449,7 +5686,9 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
   router.get('/users/:id/public-profile', (req, res) => {
     const user = db.prepare(`
       SELECT id, full_name, username, avatar_url, headline, bio, location, country, state_region, city,
-             rating, review_count, sessions_completed, verified, response_time, member_since,
+             rating, review_count, sessions_completed, verified,
+             COALESCE(verification_status, CASE WHEN verified = 1 THEN 'verified' ELSE 'unverified' END) as verification_status,
+             response_time, member_since,
              skills_json, languages_json, experience_years, education_json, certifications_json
       FROM users WHERE id = ?
     `).get(req.params.id);
@@ -6471,19 +6710,50 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const targetUser = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
     if (!targetUser) return res.status(404).json({ error: 'User not found' });
 
-    db.prepare('UPDATE users SET verified = ?, verification_rejection_reason = ? WHERE id = ?').run(
-      verified ? 1 : 0,
+    const isVerified = Boolean(verified);
+    const newStatus = isVerified ? 'verified' : (rejection_reason ? 'rejected' : 'unverified');
+
+    db.prepare('UPDATE users SET verified = ?, verification_status = ?, verification_rejection_reason = ? WHERE id = ?').run(
+      isVerified ? 1 : 0,
+      newStatus,
       rejection_reason || null,
       req.params.id
     );
 
-    logAuditAction(req.user, verified ? 'USER_VERIFIED' : 'USER_VERIFICATION_REVOKED', 'user', req.params.id, {
+    // If there is an active pending request, update it as well
+    try {
+      const pendingReq = db.prepare("SELECT id FROM verification_requests WHERE provider_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1").get(req.params.id);
+      if (pendingReq) {
+        db.prepare(`
+          UPDATE verification_requests
+          SET status = ?,
+              decision_notes = ?,
+              rejection_reason = ?,
+              reviewed_by = ?,
+              reviewed_by_name = ?,
+              reviewed_at = CURRENT_TIMESTAMP,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(
+          isVerified ? 'approved' : 'rejected',
+          'Direct administrative action',
+          rejection_reason || null,
+          req.user.id,
+          req.user.full_name,
+          pendingReq.id
+        );
+      }
+    } catch (reqUpdateErr) {
+      console.warn('[PATCH /admin/users/:id/verify] verification_requests update notice:', reqUpdateErr.message);
+    }
+
+    logAuditAction(req.user, isVerified ? 'USER_VERIFIED' : 'USER_VERIFICATION_REVOKED', 'user', req.params.id, {
       user_email: targetUser.email,
       user_name: targetUser.full_name,
       rejection_reason
     });
 
-    if (verified && targetUser.role === 'provider') {
+    if (isVerified && targetUser.role === 'provider') {
       emailService.sendProviderVerified({
         providerEmail: targetUser.email,
         providerName: targetUser.full_name,
@@ -6491,7 +6761,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       }).catch(err => console.error('Failed to dispatch provider verification email', err));
     }
 
-    res.json({ success: true, verified: verified ? 1 : 0 });
+    res.json({ success: true, verified: isVerified ? 1 : 0, verification_status: newStatus });
   });
 
   router.patch('/admin/users/:id/suspend', adminAuthMiddleware, (req, res) => {
@@ -6524,6 +6794,250 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.params.id);
     logAuditAction(req.user, 'USER_ROLE_CHANGED', 'user', req.params.id, { new_role: role });
     res.json({ success: true, role });
+  });
+
+  // ==========================================
+  // ADMIN VERIFICATION MANAGEMENT
+  // ==========================================
+  router.get('/admin/verification-requests', adminAuthMiddleware, (req, res) => {
+    try {
+      const { status, search } = req.query;
+      let query = `
+        SELECT vr.*,
+               u.full_name as provider_name,
+               u.email as provider_email,
+               u.avatar_url as provider_avatar,
+               u.headline as provider_headline,
+               u.is_suspended as provider_suspended,
+               (SELECT COUNT(*) FROM services WHERE provider_id = vr.provider_id) as services_count
+        FROM verification_requests vr
+        JOIN users u ON vr.provider_id = u.id
+        WHERE 1=1
+      `;
+      const params = [];
+
+      if (status && status !== 'all') {
+        query += ' AND vr.status = ?';
+        params.push(status);
+      }
+
+      if (search && search.trim()) {
+        query += ' AND (u.full_name LIKE ? OR u.email LIKE ? OR vr.professional_title LIKE ?)';
+        const term = `%${search.trim()}%`;
+        params.push(term, term, term);
+      }
+
+      query += ' ORDER BY vr.created_at DESC';
+
+      const requests = db.prepare(query).all(...params);
+
+      // Fetch summary counts for the admin tabs/badges
+      const countsRow = db.prepare(`
+        SELECT
+          COUNT(*) as total_count,
+          SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count,
+          SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_count,
+          SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected_count
+        FROM verification_requests
+      `).get() || {};
+
+      res.json({
+        requests,
+        counts: {
+          total: Number(countsRow.total_count) || 0,
+          pending: Number(countsRow.pending_count) || 0,
+          approved: Number(countsRow.approved_count) || 0,
+          rejected: Number(countsRow.rejected_count) || 0
+        }
+      });
+    } catch (err) {
+      console.error('[GET /admin/verification-requests Error]', err.message);
+      res.status(500).json({ error: 'Failed to fetch verification requests: ' + err.message });
+    }
+  });
+
+  router.get('/admin/verification-requests/:id', adminAuthMiddleware, (req, res) => {
+    try {
+      const request = db.prepare(`
+        SELECT vr.*,
+               u.id as user_id,
+               u.full_name as provider_name,
+               u.email as provider_email,
+               u.avatar_url as provider_avatar,
+               u.headline as provider_headline,
+               u.bio as provider_bio,
+               u.location as provider_location,
+               u.city as provider_city,
+               u.country as provider_country,
+               u.experience_years as provider_experience_years,
+               u.skills_json as provider_skills_json,
+               u.languages_json as provider_languages_json,
+               u.is_suspended as provider_suspended,
+               u.verification_status as provider_verification_status,
+               u.verified as provider_verified
+        FROM verification_requests vr
+        JOIN users u ON vr.provider_id = u.id
+        WHERE vr.id = ?
+      `).get(req.params.id);
+
+      if (!request) {
+        return res.status(404).json({ error: 'Verification request not found.' });
+      }
+
+      const services = db.prepare(`
+        SELECT s.id, s.title, s.description, s.price_per_minute, s.listing_status, s.available_now,
+               c.name as category_name
+        FROM services s
+        LEFT JOIN categories c ON s.category_id = c.id
+        WHERE s.provider_id = ?
+        ORDER BY s.created_at DESC
+      `).all(request.provider_id);
+
+      const providerUser = db.prepare('SELECT * FROM users WHERE id = ?').get(request.provider_id);
+
+      res.json({
+        request,
+        provider: providerUser ? sanitizeUser(providerUser) : null,
+        services
+      });
+    } catch (err) {
+      console.error('[GET /admin/verification-requests/:id Error]', err.message);
+      res.status(500).json({ error: 'Failed to fetch verification request details: ' + err.message });
+    }
+  });
+
+  router.post('/admin/verification-requests/:id/decision', adminAuthMiddleware, (req, res) => {
+    try {
+      const { decision, rejection_reason = '', reason = '', decision_notes = '', notes = '' } = req.body;
+
+      const isApprove = decision === 'approve' || decision === 'approved';
+      const isReject = decision === 'reject' || decision === 'rejected';
+
+      if (!isApprove && !isReject) {
+        return res.status(400).json({ error: "Decision must be 'approve' or 'reject'." });
+      }
+
+      const effectiveRejectionReason = (rejection_reason || reason || '').trim();
+
+      if (isReject && !effectiveRejectionReason) {
+        return res.status(400).json({ error: 'A specific rejection reason is required when rejecting a verification request.' });
+      }
+
+      const existingReq = db.prepare('SELECT * FROM verification_requests WHERE id = ?').get(req.params.id);
+      if (!existingReq) {
+        return res.status(404).json({ error: 'Verification request not found.' });
+      }
+
+      if (existingReq.status !== 'pending') {
+        return res.status(400).json({ 
+          error: `This verification request has already been ${existingReq.status}. Conflicting simultaneous decisions are prevented.` 
+        });
+      }
+
+      const newStatus = isApprove ? 'approved' : 'rejected';
+      const userVerificationStatus = isApprove ? 'verified' : 'rejected';
+      const userVerifiedFlag = isApprove ? 1 : 0;
+      const cleanRejection = isApprove ? null : effectiveRejectionReason;
+      const cleanNotes = (decision_notes || notes || '').trim() || null;
+      const reviewerId = req.user.id;
+      const reviewerName = req.user.full_name || req.user.email;
+      const now = new Date().toISOString();
+
+      const updateReqStmt = db.prepare(`
+        UPDATE verification_requests
+        SET status = ?,
+            decision_notes = ?,
+            rejection_reason = ?,
+            reviewed_by = ?,
+            reviewed_by_name = ?,
+            reviewed_at = ?,
+            updated_at = ?
+        WHERE id = ?
+      `);
+
+      const updateUserStmt = db.prepare(`
+        UPDATE users
+        SET verified = ?,
+            verification_status = ?,
+            verification_rejection_reason = ?
+        WHERE id = ?
+      `);
+
+      const executeAtomicDecision = typeof db.transaction === 'function'
+        ? db.transaction(() => {
+            updateReqStmt.run(
+              newStatus,
+              cleanNotes,
+              cleanRejection,
+              reviewerId,
+              reviewerName,
+              now,
+              now,
+              req.params.id
+            );
+            updateUserStmt.run(
+              userVerifiedFlag,
+              userVerificationStatus,
+              cleanRejection,
+              existingReq.provider_id
+            );
+          })
+        : () => {
+            updateReqStmt.run(
+              newStatus,
+              cleanNotes,
+              cleanRejection,
+              reviewerId,
+              reviewerName,
+              now,
+              now,
+              req.params.id
+            );
+            updateUserStmt.run(
+              userVerifiedFlag,
+              userVerificationStatus,
+              cleanRejection,
+              existingReq.provider_id
+            );
+          };
+
+      executeAtomicDecision();
+
+      logAuditAction(
+        req.user,
+        isApprove ? 'VERIFICATION_REQUEST_APPROVED' : 'VERIFICATION_REQUEST_REJECTED',
+        'verification_requests',
+        req.params.id,
+        {
+          provider_id: existingReq.provider_id,
+          rejection_reason: cleanRejection,
+          decision_notes: cleanNotes
+        }
+      );
+
+      const targetUser = db.prepare('SELECT * FROM users WHERE id = ?').get(existingReq.provider_id);
+
+      if (isApprove && targetUser && targetUser.role === 'provider') {
+        emailService.sendProviderVerified({
+          providerEmail: targetUser.email,
+          providerName: targetUser.full_name,
+          providerId: targetUser.id
+        }).catch(err => console.error('Failed to dispatch provider verification email', err));
+      }
+
+      const updatedRequest = db.prepare('SELECT * FROM verification_requests WHERE id = ?').get(req.params.id);
+
+      res.json({
+        success: true,
+        decision: newStatus,
+        verification_status: userVerificationStatus,
+        request: updatedRequest,
+        user: sanitizeUser(targetUser)
+      });
+    } catch (err) {
+      console.error('[POST /admin/verification-requests/:id/decision Error]', err.message);
+      res.status(500).json({ error: 'Failed to process verification decision: ' + err.message });
+    }
   });
 
   // 3. Service Listings Management

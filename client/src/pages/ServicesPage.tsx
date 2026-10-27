@@ -750,7 +750,7 @@ export const ServicesPage: React.FC = () => {
                 </div>
                 <h3 className="text-lg font-bold text-midnight">No experts are available yet.</h3>
                 <p className="text-xs text-midnight/70 max-w-md mx-auto leading-relaxed">
-                  Verified domain experts will appear here as they publish their service listings. Are you an expert ready to offer pay-per-minute consultations?
+                  Published domain experts will appear here as they publish their service listings. Are you an expert ready to offer pay-per-minute consultations?
                 </p>
                 <div className="pt-2">
                   <Link

@@ -322,12 +322,35 @@ export const EditProfilePage: React.FC = () => {
           <span className="text-xs font-semibold px-3 py-1 rounded-full bg-aliceblue text-midnight border border-timberwolf/60 capitalize">
             Role: {user?.role}
           </span>
-          {user?.verified ? (
-            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Verified</span>
-            </span>
-          ) : null}
+          {user?.role === 'provider' && (
+            user?.verification_status === 'verified' || user?.verified ? (
+              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Verified Expert</span>
+              </span>
+            ) : user?.verification_status === 'pending' ? (
+              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                <span>Verification Pending</span>
+              </span>
+            ) : user?.verification_status === 'rejected' ? (
+              <Link
+                to="/provider?tab=verification"
+                className="text-xs font-semibold px-3 py-1 rounded-full bg-rose-100 text-rose-800 hover:bg-rose-200 border border-rose-200 flex items-center gap-1 transition-colors"
+              >
+                <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                <span>Verification Rejected — Resubmit</span>
+              </Link>
+            ) : (
+              <Link
+                to="/provider?tab=verification"
+                className="text-xs font-bold px-3.5 py-1 rounded-full bg-moonstone hover:bg-moonstone-hover text-white flex items-center gap-1.5 shadow-subtle transition-all cursor-pointer"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Claim to Verify</span>
+              </Link>
+            )
+          )}
         </div>
       </div>
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { VerificationRequest } from '../types';
 import { BrandLogo } from '../components/common/BrandLogo';
 import { COUNTRIES } from '../data/geoData';
 import { AdminContentErrorBoundary } from '../components/admin/AdminContentErrorBoundary';
@@ -242,6 +243,23 @@ export const AdminPage: React.FC = () => {
   const [reportActionStatus, setReportActionStatus] = useState('actioned');
   const [selectedAuditDetail, setSelectedAuditDetail] = useState<any | null>(null);
 
+  // Verification Request Management State
+  const [verificationRequestsList, setVerificationRequestsList] = useState<VerificationRequest[]>([]);
+  const [verificationCounts, setVerificationCounts] = useState<{ total: number; pending: number; approved: number; rejected: number }>({
+    total: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0
+  });
+  const [verificationStatusFilter, setVerificationStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+  const [verificationSearchQuery, setVerificationSearchQuery] = useState('');
+  const [inspectRequestModal, setInspectRequestModal] = useState<any | null>(null);
+  const [inspectLoading, setInspectLoading] = useState(false);
+  const [inspectServices, setInspectServices] = useState<any[]>([]);
+  const [rejectReqModal, setRejectReqModal] = useState<VerificationRequest | null>(null);
+  const [rejectReqReason, setRejectReqReason] = useState('');
+  const [adminDecisionNotes, setAdminDecisionNotes] = useState('');
+
   // Add User State (Admin Special Flow)
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
@@ -351,7 +369,8 @@ export const AdminPage: React.FC = () => {
         reportsRes,
         auditRes,
         settingsRes,
-        campaignsRes
+        campaignsRes,
+        verifRes
       ] = await Promise.all([
         api.getAdminStats().catch(() => ({ stats: null })),
         api.getAdminUsers().catch(() => ({ users: [] })),
@@ -366,7 +385,8 @@ export const AdminPage: React.FC = () => {
         api.getAdminReports().catch(() => ({ reports: [] })),
         api.getAdminAuditLogs().catch(() => ({ logs: [] })),
         api.getAdminSettings().catch(() => ({ settings: {} })),
-        api.getAdminCampaigns().catch(() => ({ campaigns: [], effective: null }))
+        api.getAdminCampaigns().catch(() => ({ campaigns: [], effective: null })),
+        api.getAdminVerificationRequests().catch(() => ({ requests: [], counts: { total: 0, pending: 0, approved: 0, rejected: 0 } }))
       ]);
 
       setStats(statsRes.stats || null);
@@ -384,6 +404,8 @@ export const AdminPage: React.FC = () => {
       setPlatformSettings(settingsRes.settings || {});
       setCampaignsList(campaignsRes.campaigns || []);
       setEffectiveFeeData(campaignsRes.effective || null);
+      setVerificationRequestsList(verifRes?.requests || []);
+      setVerificationCounts(verifRes?.counts || { total: 0, pending: 0, approved: 0, rejected: 0 });
     } catch (err) {
       console.error('Failed to load admin data', err);
     } finally {
@@ -467,11 +489,88 @@ export const AdminPage: React.FC = () => {
       if (statusFilter === 'active') matchesStatus = u.is_suspended === 0;
       if (statusFilter === 'suspended') matchesStatus = u.is_suspended === 1;
       if (statusFilter === 'verified') matchesStatus = u.role === 'provider' && u.verified === 1;
-      if (statusFilter === 'pending') matchesStatus = u.role === 'provider' && u.verified === 0;
+      if (statusFilter === 'pending') matchesStatus = u.role === 'provider' && u.verification_status === 'pending';
+      if (statusFilter === 'rejected') matchesStatus = u.role === 'provider' && u.verification_status === 'rejected';
+      if (statusFilter === 'unverified') matchesStatus = u.role === 'provider' && (u.verification_status === 'unverified' || (!u.verified && !u.verification_status));
 
       return matchesSearch && matchesRole && matchesStatus;
     });
   }, [usersList, searchQuery, roleFilter, statusFilter]);
+
+  // Filtered Verification Requests
+  const filteredVerificationRequests = useMemo(() => {
+    return verificationRequestsList.filter((vr) => {
+      let matchesStatus = true;
+      if (verificationStatusFilter !== 'all') {
+        matchesStatus = vr.status === verificationStatusFilter;
+      }
+      let matchesSearch = true;
+      if (verificationSearchQuery.trim()) {
+        const q = verificationSearchQuery.toLowerCase();
+        matchesSearch =
+          (vr.provider_name || '').toLowerCase().includes(q) ||
+          (vr.provider_email || '').toLowerCase().includes(q) ||
+          (vr.professional_title || '').toLowerCase().includes(q);
+      }
+      return matchesStatus && matchesSearch;
+    });
+  }, [verificationRequestsList, verificationStatusFilter, verificationSearchQuery]);
+
+  const handleInspectVerificationRequest = async (reqItem: VerificationRequest) => {
+    try {
+      setInspectLoading(true);
+      setInspectRequestModal(reqItem);
+      const res = await api.getAdminVerificationRequestById(reqItem.id);
+      setInspectRequestModal(res.request || reqItem);
+      setInspectServices(res.services || []);
+    } catch (err: any) {
+      alert(err.message || 'Failed to load request details');
+    } finally {
+      setInspectLoading(false);
+    }
+  };
+
+  const handleApproveVerificationRequest = async (reqId: string, notes?: string) => {
+    try {
+      setActionLoading(`verif-approve-${reqId}`);
+      await api.decideAdminVerificationRequest(reqId, {
+        decision: 'approve',
+        decision_notes: notes || undefined
+      });
+      confetti({ particleCount: 70, spread: 60 });
+      setInspectRequestModal(null);
+      await loadAdminData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to approve verification request');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRejectVerificationRequest = async () => {
+    if (!rejectReqModal) return;
+    if (!rejectReqReason.trim()) {
+      alert('Please provide a specific reason for rejection.');
+      return;
+    }
+    try {
+      setActionLoading(`verif-reject-${rejectReqModal.id}`);
+      await api.decideAdminVerificationRequest(rejectReqModal.id, {
+        decision: 'reject',
+        rejection_reason: rejectReqReason.trim(),
+        decision_notes: adminDecisionNotes.trim() || undefined
+      });
+      setRejectReqModal(null);
+      setRejectReqReason('');
+      setAdminDecisionNotes('');
+      setInspectRequestModal(null);
+      await loadAdminData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to reject verification request');
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   // Verification Review Queue (Providers with verified === 0)
   const pendingVerifications = useMemo(() => {
@@ -911,7 +1010,7 @@ export const AdminPage: React.FC = () => {
         { id: 'users', label: 'All Users', icon: Users, count: usersList.length },
         { id: 'clients', label: 'Clients', icon: UserCheck, count: stats?.totalClients || 0 },
         { id: 'experts', label: 'Experts', icon: Award, count: stats?.totalProviders || 0 },
-        { id: 'verifications', label: 'Verification Queue', icon: ShieldCheck, count: pendingVerifications.length },
+        { id: 'verifications', label: 'Verification Queue', icon: ShieldCheck, count: verificationCounts.pending },
         { id: 'suspended', label: 'Suspended Users', icon: UserX, count: usersList.filter((u) => u.is_suspended === 1).length },
         { id: 'reports', label: 'Moderation & Reports', icon: AlertCircle, count: reportsList.filter((r) => r.status === 'pending').length }
       ]
@@ -1146,7 +1245,7 @@ export const AdminPage: React.FC = () => {
                       >
                         <ShieldCheck className="w-4 h-4 text-emerald-700" />
                         <span>Verification Queue</span>
-                        {pendingVerifications.length > 0 && (
+                        {verificationCounts.pending > 0 && (
                           <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping absolute -top-0.5 -right-0.5" />
                         )}
                       </button>
@@ -1196,7 +1295,7 @@ export const AdminPage: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-1.5 mt-1 text-[11px] text-amber-700 font-semibold">
                           <AlertCircle className="w-3 h-3" />
-                          <span>{pendingVerifications.length} pending review</span>
+                          <span>{verificationCounts.pending} requests pending review</span>
                         </div>
                       </div>
                     </div>
@@ -1417,7 +1516,7 @@ export const AdminPage: React.FC = () => {
                         <ShieldCheck className="w-4 h-4 text-amber-600" />
                         <div>
                           <div className="text-xs font-bold text-midnight">Expert Verifications</div>
-                          <div className="text-[10px] text-midnight/60">{pendingVerifications.length} profiles pending review</div>
+                          <div className="text-[10px] text-midnight/60">{verificationCounts.pending} requests pending review</div>
                         </div>
                       </div>
                       <ChevronRight className="w-4 h-4 text-midnight/40" />
@@ -1668,13 +1767,21 @@ export const AdminPage: React.FC = () => {
                             {/* Verification */}
                             <td className="py-3.5 px-4">
                               {u.role === 'provider' ? (
-                                u.verified === 1 ? (
+                                u.verified === 1 || u.verification_status === 'verified' ? (
                                   <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-semibold border border-emerald-200">
                                     <CheckCircle2 className="w-3 h-3" /> Verified
                                   </span>
-                                ) : (
+                                ) : u.verification_status === 'pending' ? (
                                   <span className="inline-flex items-center gap-1 text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full font-semibold border border-amber-200">
-                                    <AlertCircle className="w-3 h-3" /> Pending
+                                    <AlertCircle className="w-3 h-3" /> Pending Review
+                                  </span>
+                                ) : u.verification_status === 'rejected' ? (
+                                  <span className="inline-flex items-center gap-1 text-rose-800 bg-rose-50 px-2 py-0.5 rounded-full font-semibold border border-rose-200">
+                                    <AlertCircle className="w-3 h-3" /> Rejected
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-midnight/60 bg-aliceblue px-2 py-0.5 rounded-full font-semibold border border-timberwolf/60">
+                                    Unverified
                                   </span>
                                 )
                               ) : (
@@ -2351,76 +2458,265 @@ export const AdminPage: React.FC = () => {
           {/* TAB 8: EXPERT VERIFICATION REVIEW QUEUE */}
           {/* ===================================================================== */}
           {activeTab === 'verifications' && (
-            <div className="space-y-5">
-              <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card">
-                <h1 className="text-2xl font-extrabold text-midnight tracking-tight">
-                  Expert Verification Review Queue
-                </h1>
-                <p className="text-xs text-midnight/70 mt-1">
-                  Inspect credentials, bio, languages, skills, experience, and service rates before approving badge.
-                </p>
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[11px] font-bold border border-emerald-200 mb-2">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Compliance & Credential Auditing</span>
+                  </div>
+                  <h1 className="text-2xl font-extrabold text-midnight tracking-tight">
+                    Expert Verification Requests
+                  </h1>
+                  <p className="text-xs text-midnight/70 mt-1">
+                    Audit submitted credentials, evidence documents, and decide verification badge certification.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={loadAdminData}
+                    disabled={refreshing}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-aliceblue border border-timberwolf/60 text-midnight text-xs font-semibold hover:bg-lightblue/30 transition-all cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-moonstone' : ''}`} />
+                    <span>Refresh Requests</span>
+                  </button>
+                </div>
               </div>
 
-              {pendingVerifications.length === 0 ? (
+              {/* Status Tabs and Search Filter */}
+              <div className="bg-white rounded-2xl border border-timberwolf/70 p-4 shadow-card flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                  {(['all', 'pending', 'approved', 'rejected'] as const).map((st) => {
+                    const count =
+                      st === 'all'
+                        ? verificationCounts.total
+                        : st === 'pending'
+                        ? verificationCounts.pending
+                        : st === 'approved'
+                        ? verificationCounts.approved
+                        : verificationCounts.rejected;
+                    return (
+                      <button
+                        key={st}
+                        onClick={() => setVerificationStatusFilter(st)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap capitalize flex items-center gap-1.5 ${
+                          verificationStatusFilter === st
+                            ? 'bg-midnight text-aliceblue shadow-subtle'
+                            : 'text-midnight/70 hover:bg-aliceblue'
+                        }`}
+                      >
+                        <span>{st}</span>
+                        <span className={`px-1.5 py-0.2 rounded-md text-[10px] ${
+                          verificationStatusFilter === st ? 'bg-white/20' : 'bg-slate-100 text-midnight/60'
+                        }`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-4 h-4 text-midnight/40 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={verificationSearchQuery}
+                    onChange={(e) => setVerificationSearchQuery(e.target.value)}
+                    placeholder="Search requests..."
+                    className="w-full pl-9 pr-3 py-1.5 bg-aliceblue/40 border border-timberwolf/70 rounded-xl text-xs text-midnight focus:border-moonstone focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Requests List */}
+              {filteredVerificationRequests.length === 0 ? (
                 <div className="bg-white rounded-2xl border border-timberwolf/70 p-10 text-center shadow-card space-y-3">
                   <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
-                  <h3 className="text-base font-bold text-midnight">Review Queue is All Clear!</h3>
-                  <p className="text-xs text-midnight/60">All expert accounts on HireByMinute have been reviewed.</p>
+                  <h3 className="text-base font-bold text-midnight">No Verification Requests Found</h3>
+                  <p className="text-xs text-midnight/60">
+                    {verificationSearchQuery
+                      ? 'No requests matched your search filter.'
+                      : verificationStatusFilter === 'pending'
+                      ? 'The verification queue is currently empty. All submitted applications have been processed.'
+                      : `No requests with status '${verificationStatusFilter}' found.`}
+                  </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  {pendingVerifications.map((p) => (
-                    <div key={p.id} className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card space-y-4">
-                      <div className="flex items-start gap-4">
-                        <img
-                          src={p.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.full_name}`}
-                          alt={p.full_name}
-                          className="w-14 h-14 rounded-full object-cover border-2 border-lightblue"
-                        />
-                        <div className="flex-1">
-                          <h3 className="font-bold text-base text-midnight">{p.full_name}</h3>
-                          <p className="text-xs text-midnight/70 font-medium">@{p.username}</p>
-                          <p className="text-xs text-moonstone font-semibold mt-0.5">{p.headline || 'Expert Provider'}</p>
+                  {filteredVerificationRequests.map((reqItem) => (
+                    <div
+                      key={reqItem.id}
+                      className="water-surface-card bg-white rounded-2xl border border-timberwolf/70 p-6 shadow-card space-y-4 flex flex-col justify-between"
+                    >
+                      <div className="space-y-4">
+                        {/* Header: Provider & Status Badge */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={reqItem.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${reqItem.provider_name}`}
+                              alt={reqItem.provider_name}
+                              className="w-12 h-12 rounded-full object-cover border-2 border-lightblue"
+                            />
+                            <div>
+                              <h3 className="font-bold text-sm text-midnight">{reqItem.provider_name}</h3>
+                              <p className="text-[11px] text-midnight/60">{reqItem.provider_email}</p>
+                              <span className="text-[11px] font-semibold text-moonstone block mt-0.5">
+                                {reqItem.professional_title}
+                              </span>
+                            </div>
+                          </div>
+
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider shrink-0 border ${
+                            reqItem.status === 'approved'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : reqItem.status === 'rejected'
+                              ? 'bg-rose-50 text-rose-800 border-rose-200'
+                              : 'bg-amber-50 text-amber-800 border-amber-200'
+                          }`}>
+                            {reqItem.status}
+                          </span>
                         </div>
+
+                        {/* Details Grid */}
+                        <div className="grid grid-cols-2 gap-2 text-xs bg-aliceblue/40 p-3 rounded-xl border border-timberwolf/30">
+                          <div>
+                            <span className="text-midnight/50 text-[10px] uppercase font-semibold block">Experience</span>
+                            <span className="font-bold text-midnight">{reqItem.years_of_experience || 0} years</span>
+                          </div>
+                          <div>
+                            <span className="text-midnight/50 text-[10px] uppercase font-semibold block">Services</span>
+                            <span className="font-bold text-midnight">{reqItem.services_count || 0} listings</span>
+                          </div>
+                          <div className="col-span-2 pt-1 border-t border-timberwolf/20 flex items-center justify-between">
+                            <span className="text-midnight/50 text-[10px] uppercase font-semibold">Submitted</span>
+                            <span className="font-mono text-[11px] text-midnight/70">
+                              {new Date(reqItem.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Evidence Links & Document */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          {reqItem.linkedin_url && (
+                            <a
+                              href={reqItem.linkedin_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-aliceblue border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-lightblue/30 transition"
+                            >
+                              <span>LinkedIn</span>
+                              <ExternalLink className="w-3 h-3 text-moonstone" />
+                            </a>
+                          )}
+                          {reqItem.portfolio_url && (
+                            <a
+                              href={reqItem.portfolio_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-aliceblue border border-timberwolf/60 text-[11px] font-semibold text-midnight hover:bg-lightblue/30 transition"
+                            >
+                              <span>Portfolio</span>
+                              <ExternalLink className="w-3 h-3 text-moonstone" />
+                            </a>
+                          )}
+                          {reqItem.document_url && (
+                            <a
+                              href={reqItem.document_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 transition"
+                            >
+                              <FileText className="w-3 h-3 text-emerald-600" />
+                              <span>Evidence: {reqItem.document_name || 'Document'}</span>
+                            </a>
+                          )}
+                        </div>
+
+                        {/* Submission Notes */}
+                        {reqItem.submission_notes && (
+                          <p className="text-xs text-midnight/80 bg-white p-2.5 rounded-lg border border-timberwolf/40 italic">
+                            "{reqItem.submission_notes}"
+                          </p>
+                        )}
+
+                        {/* Decision Audit Trail if already reviewed */}
+                        {reqItem.status !== 'pending' && (
+                          <div className={`p-3 rounded-xl border text-xs space-y-1 ${
+                            reqItem.status === 'approved'
+                              ? 'bg-emerald-50/60 border-emerald-200/70 text-emerald-900'
+                              : 'bg-rose-50/60 border-rose-200/70 text-rose-900'
+                          }`}>
+                            <div className="flex items-center justify-between font-bold">
+                              <span>Decision: {reqItem.status.toUpperCase()}</span>
+                              <span className="text-[10px] font-normal text-midnight/60">
+                                {reqItem.reviewed_at ? new Date(reqItem.reviewed_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+                              </span>
+                            </div>
+                            {reqItem.reviewed_by_name && (
+                              <p className="text-[11px] opacity-80">
+                                Reviewer: {reqItem.reviewed_by_name}
+                              </p>
+                            )}
+                            {reqItem.rejection_reason && (
+                              <p className="text-xs font-semibold text-rose-800 pt-0.5">
+                                Reason: {reqItem.rejection_reason}
+                              </p>
+                            )}
+                            {reqItem.decision_notes && (
+                              <p className="text-[11px] opacity-80 pt-0.5">
+                                Notes: {reqItem.decision_notes}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
 
-                      <p className="text-xs text-midnight/80 leading-relaxed bg-aliceblue p-3 rounded-xl border border-timberwolf/40">
-                        {p.bio || 'No bio submitted.'}
-                      </p>
-
-                      <div className="space-y-1.5 text-xs text-midnight/70">
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-midnight/50">Location:</span>
-                          <span>{[p.city, p.country].filter(Boolean).join(', ') || 'Worldwide'}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-midnight/50">Experience:</span>
-                          <span>{p.experience_years || 5} years</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-midnight/50">Languages:</span>
-                          <span>{p.languages ? p.languages.join(', ') : 'English'}</span>
-                        </div>
-                      </div>
-
-                      <div className="pt-3 border-t border-timberwolf/30 flex items-center justify-end gap-2">
+                      {/* Card Actions */}
+                      <div className="pt-3 border-t border-timberwolf/30 flex items-center justify-between gap-2 mt-4">
                         <button
-                          onClick={() => {
-                            setRejectVerificationModal(p);
-                            setRejectionReason('');
-                          }}
-                          className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 text-xs font-semibold cursor-pointer"
+                          type="button"
+                          onClick={() => handleInspectVerificationRequest(reqItem)}
+                          className="px-3 py-1.5 rounded-xl bg-aliceblue hover:bg-lightblue/30 border border-timberwolf/60 text-xs font-semibold text-midnight cursor-pointer transition flex items-center gap-1"
                         >
-                          Reject with Note
+                          <Eye className="w-3.5 h-3.5 text-moonstone" />
+                          <span>Inspect Profile</span>
                         </button>
 
-                        <button
-                          onClick={() => handleToggleVerification(p.id, 0)}
-                          disabled={actionLoading === `verify-${p.id}`}
-                          className="btn-shine px-4 py-1.5 rounded-xl bg-midnight text-aliceblue hover:bg-midnight-hover font-semibold text-xs shadow-subtle cursor-pointer"
-                        >
-                          Approve Verification
-                        </button>
+                        {reqItem.status === 'pending' ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRejectReqModal(reqItem);
+                                setRejectReqReason('');
+                                setAdminDecisionNotes('');
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 text-xs font-semibold cursor-pointer transition"
+                            >
+                              Reject
+                            </button>
+                            <button
+                              type="button"
+                              disabled={actionLoading === `verif-approve-${reqItem.id}`}
+                              onClick={() => handleApproveVerificationRequest(reqItem.id)}
+                              className="btn-shine px-4 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-subtle cursor-pointer transition flex items-center gap-1"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Approve</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <Link
+                            to={`/services?search=${encodeURIComponent(reqItem.provider_name || '')}`}
+                            className="text-xs font-semibold text-moonstone hover:underline flex items-center gap-1"
+                          >
+                            <span>View Public Listings</span>
+                            <ArrowUpRight className="w-3 h-3" />
+                          </Link>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -3854,6 +4150,261 @@ export const AdminPage: React.FC = () => {
                 Confirm Rejection
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2B. REJECT VERIFICATION REQUEST MODAL */}
+      {rejectReqModal && (
+        <div className="fixed inset-0 z-50 bg-midnight/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-timberwolf/60 shadow-modal max-w-md w-full p-6 text-midnight animate-fade-in space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-timberwolf/30">
+              <h3 className="font-extrabold text-base text-midnight">Reject Verification Request</h3>
+              <button
+                onClick={() => setRejectReqModal(null)}
+                className="w-7 h-7 rounded-lg text-midnight/50 hover:text-midnight flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-midnight/70">
+              Provide feedback for <span className="font-bold text-midnight">{rejectReqModal.provider_name}</span>. The applicant will see this reason on their dashboard to guide resubmission.
+            </p>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-midnight/80 uppercase tracking-wider block">
+                Rejection Reason * (Required)
+              </label>
+              <textarea
+                rows={3}
+                required
+                value={rejectReqReason}
+                onChange={(e) => setRejectReqReason(e.target.value)}
+                placeholder="e.g. Identity document unreadable. Please upload a clear color scan of your government ID or professional license."
+                className="w-full bg-white border border-timberwolf/70 rounded-xl p-3 text-xs text-midnight focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-midnight/80 uppercase tracking-wider block">
+                Internal Decision Notes (Optional)
+              </label>
+              <textarea
+                rows={2}
+                value={adminDecisionNotes}
+                onChange={(e) => setAdminDecisionNotes(e.target.value)}
+                placeholder="Internal audit notes for compliance records..."
+                className="w-full bg-white border border-timberwolf/70 rounded-xl p-3 text-xs text-midnight focus:border-moonstone"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setRejectReqModal(null)}
+                className="px-3 py-1.5 rounded-xl bg-white border border-timberwolf/70 text-xs font-semibold hover:bg-aliceblue cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRejectVerificationRequest}
+                disabled={actionLoading === `verif-reject-${rejectReqModal.id}` || !rejectReqReason.trim()}
+                className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                {actionLoading === `verif-reject-${rejectReqModal.id}` ? 'Rejecting...' : 'Confirm Rejection'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2C. INSPECT VERIFICATION REQUEST MODAL */}
+      {inspectRequestModal && (
+        <div className="fixed inset-0 z-50 bg-midnight/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-timberwolf/60 shadow-modal max-w-2xl w-full p-6 text-midnight animate-fade-in space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-timberwolf/30">
+              <div className="flex items-center gap-2.5">
+                <ShieldCheck className="w-5 h-5 text-moonstone" />
+                <h3 className="font-extrabold text-base text-midnight">Verification Request Inspection</h3>
+              </div>
+              <button
+                onClick={() => setInspectRequestModal(null)}
+                className="w-8 h-8 rounded-lg bg-aliceblue text-midnight/70 hover:text-midnight flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {inspectLoading ? (
+              <div className="p-10 text-center space-y-2">
+                <RefreshCw className="w-6 h-6 animate-spin text-moonstone mx-auto" />
+                <p className="text-xs text-midnight/60">Loading profile and service listings...</p>
+              </div>
+            ) : (
+              <div className="space-y-5 text-xs">
+                {/* Provider Profile Summary */}
+                <div className="flex items-start gap-4 bg-aliceblue/40 p-4 rounded-xl border border-timberwolf/40">
+                  <img
+                    src={inspectRequestModal.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${inspectRequestModal.provider_name}`}
+                    alt={inspectRequestModal.provider_name}
+                    className="w-14 h-14 rounded-full object-cover border-2 border-lightblue"
+                  />
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-base text-midnight">{inspectRequestModal.provider_name}</h4>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+                        inspectRequestModal.status === 'approved'
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          : inspectRequestModal.status === 'rejected'
+                          ? 'bg-rose-50 text-rose-800 border-rose-200'
+                          : 'bg-amber-50 text-amber-800 border-amber-200'
+                      }`}>
+                        {inspectRequestModal.status}
+                      </span>
+                    </div>
+                    <p className="text-midnight/60">{inspectRequestModal.provider_email}</p>
+                    <p className="text-moonstone font-semibold">{inspectRequestModal.professional_title}</p>
+                    <p className="text-midnight/70 italic mt-1 leading-relaxed">
+                      {inspectRequestModal.provider_bio || 'No public biography submitted.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Submitted Evidence */}
+                <div className="p-4 rounded-xl bg-white border border-timberwolf/60 space-y-3">
+                  <h4 className="font-bold text-xs uppercase tracking-wider text-midnight">Submitted Evidence & Claims</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-midnight/50 font-semibold block">Experience Claimed:</span>
+                      <span className="font-bold text-midnight">{inspectRequestModal.years_of_experience || 0} years</span>
+                    </div>
+                    <div>
+                      <span className="text-midnight/50 font-semibold block">Submission Date:</span>
+                      <span className="font-mono text-midnight">
+                        {new Date(inspectRequestModal.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-2">
+                    {inspectRequestModal.linkedin_url && (
+                      <a
+                        href={inspectRequestModal.linkedin_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-aliceblue border border-timberwolf/60 font-semibold text-midnight hover:bg-lightblue/30"
+                      >
+                        <span>LinkedIn</span>
+                        <ExternalLink className="w-3.5 h-3.5 text-moonstone" />
+                      </a>
+                    )}
+                    {inspectRequestModal.portfolio_url && (
+                      <a
+                        href={inspectRequestModal.portfolio_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-aliceblue border border-timberwolf/60 font-semibold text-midnight hover:bg-lightblue/30"
+                      >
+                        <span>Portfolio</span>
+                        <ExternalLink className="w-3.5 h-3.5 text-moonstone" />
+                      </a>
+                    )}
+                    {inspectRequestModal.document_url && (
+                      <a
+                        href={inspectRequestModal.document_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-300 font-bold text-emerald-800 hover:bg-emerald-100"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Inspect Evidence: {inspectRequestModal.document_name || 'Document'}</span>
+                      </a>
+                    )}
+                  </div>
+
+                  {inspectRequestModal.submission_notes && (
+                    <div className="p-3 bg-aliceblue/30 rounded-lg border border-timberwolf/30">
+                      <span className="text-midnight/50 font-semibold block text-[10px] uppercase">Notes from Applicant:</span>
+                      <p className="text-midnight/80 italic mt-0.5">{inspectRequestModal.submission_notes}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Services Associated with Provider */}
+                <div className="p-4 rounded-xl bg-white border border-timberwolf/60 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-xs uppercase tracking-wider text-midnight">
+                      Provider Service Listings ({inspectServices.length})
+                    </h4>
+                    <Link
+                      to={`/services?search=${encodeURIComponent(inspectRequestModal.provider_name || '')}`}
+                      className="text-moonstone hover:underline flex items-center gap-1 text-[11px]"
+                    >
+                      <span>Search on Marketplace</span>
+                      <ArrowUpRight className="w-3 h-3" />
+                    </Link>
+                  </div>
+                  {inspectServices.length === 0 ? (
+                    <p className="text-midnight/60 italic py-2">No service listings created yet by this provider.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {inspectServices.map((srv) => (
+                        <div key={srv.id} className="p-2.5 rounded-lg bg-aliceblue/30 border border-timberwolf/40 flex items-center justify-between">
+                          <div>
+                            <span className="font-bold text-midnight block">{srv.title}</span>
+                            <span className="text-[11px] text-midnight/60">{srv.category_name || 'General'}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-mono font-bold text-midnight block">₹{srv.price_per_minute}/min</span>
+                            <span className={`text-[10px] font-semibold uppercase ${srv.listing_status === 'active' ? 'text-emerald-700' : 'text-midnight/50'}`}>
+                              {srv.listing_status}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Reviewer / Decision Action */}
+                {inspectRequestModal.status === 'pending' ? (
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-timberwolf/30">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRejectReqModal(inspectRequestModal);
+                        setRejectReqReason('');
+                        setAdminDecisionNotes('');
+                      }}
+                      className="px-4 py-2 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 text-xs font-semibold cursor-pointer"
+                    >
+                      Reject Request
+                    </button>
+                    <button
+                      type="button"
+                      disabled={actionLoading === `verif-approve-${inspectRequestModal.id}`}
+                      onClick={() => handleApproveVerificationRequest(inspectRequestModal.id)}
+                      className="btn-shine px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-subtle cursor-pointer flex items-center gap-1.5"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Approve & Grant Badge</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-xl bg-aliceblue/50 border border-timberwolf/40 text-xs">
+                    <span className="font-semibold text-midnight">Audit Record:</span>
+                    <p className="text-midnight/70 mt-0.5">
+                      Status is <strong className="capitalize">{inspectRequestModal.status}</strong>
+                      {inspectRequestModal.reviewed_by_name ? ` by ${inspectRequestModal.reviewed_by_name}` : ''}
+                      {inspectRequestModal.reviewed_at ? ` on ${new Date(inspectRequestModal.reviewed_at).toLocaleDateString()}` : ''}.
+                    </p>
+                    {inspectRequestModal.rejection_reason && (
+                      <p className="text-rose-800 font-medium mt-1">Rejection Reason: {inspectRequestModal.rejection_reason}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

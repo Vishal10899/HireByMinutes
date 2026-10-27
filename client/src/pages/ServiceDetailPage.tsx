@@ -1246,11 +1246,31 @@ export const ServiceDetailPage: React.FC = () => {
                   <h1 className="text-2xl font-extrabold text-midnight">
                     {service.provider_name}
                   </h1>
-                  {service.provider_verified && (
+                  {(service.provider_verification_status === 'verified' || (Boolean(service.provider_verified) && service.provider_verification_status !== 'unverified' && service.provider_verification_status !== 'pending' && service.provider_verification_status !== 'rejected')) ? (
                     <span className="inline-flex items-center gap-1 text-xs font-semibold text-moonstone bg-moonstone/10 px-2.5 py-0.5 rounded-full border border-moonstone/20">
                       <CheckCircle className="w-3.5 h-3.5" /> Verified Expert
                     </span>
-                  )}
+                  ) : user && user.id === service.provider_id ? (
+                    service.provider_verification_status === 'pending' ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600" /> Verification Pending
+                      </span>
+                    ) : service.provider_verification_status === 'rejected' ? (
+                      <Link
+                        to="/provider/dashboard?tab=verification"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-0.5 rounded-full border border-rose-200 transition-colors"
+                      >
+                        <AlertCircle className="w-3.5 h-3.5 text-rose-600" /> Verification Rejected — Resubmit
+                      </Link>
+                    ) : (
+                      <Link
+                        to="/provider/dashboard?tab=verification"
+                        className="inline-flex items-center gap-1 text-xs font-bold text-white bg-moonstone hover:bg-moonstone-hover px-3 py-1 rounded-full shadow-subtle transition-all cursor-pointer"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" /> Claim to Verify
+                      </Link>
+                    )
+                  ) : null}
                 </div>
                 <p className="text-sm text-midnight/80 font-medium">
                   {service.provider_headline || service.title}

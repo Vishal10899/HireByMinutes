@@ -929,6 +929,99 @@ export const api = {
     return res.json();
   },
 
+  getProviderVerificationStatus: async () => {
+    const res = await fetch(`${API_BASE}/provider/verification-status`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch verification status');
+    }
+    return res.json();
+  },
+
+  submitVerificationRequest: async (data: {
+    professional_title: string;
+    years_of_experience?: number;
+    linkedin_url?: string;
+    portfolio_url?: string;
+    document_url?: string;
+    document_name?: string;
+    submission_notes?: string;
+  }) => {
+    const res = await fetch(`${API_BASE}/provider/verification-request`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to submit verification request');
+    }
+    return res.json();
+  },
+
+  uploadVerificationDocument: async (file: File) => {
+    const formData = new FormData();
+    formData.append('document', file);
+    const token = localStorage.getItem('token');
+    const res = await fetch(`${API_BASE}/upload/verification-document`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to upload verification document');
+    }
+    return res.json();
+  },
+
+  getAdminVerificationRequests: async (params?: { status?: string; search?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.search) query.set('search', params.search);
+    const res = await fetch(`${API_BASE}/admin/verification-requests?${query.toString()}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch verification requests');
+    }
+    return res.json();
+  },
+
+  getAdminVerificationRequestById: async (id: string) => {
+    const res = await fetch(`${API_BASE}/admin/verification-requests/${id}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch verification request details');
+    }
+    return res.json();
+  },
+
+  decideAdminVerificationRequest: async (
+    id: string,
+    decisionData: {
+      decision: 'approve' | 'reject';
+      rejection_reason?: string;
+      decision_notes?: string;
+    }
+  ) => {
+    const res = await fetch(`${API_BASE}/admin/verification-requests/${id}/decision`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(decisionData)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to process verification decision');
+    }
+    return res.json();
+  },
+
   suspendUser: async (userId: string, suspended: boolean) => {
     const res = await fetch(`${API_BASE}/admin/users/${userId}/suspend`, {
       method: 'PATCH',

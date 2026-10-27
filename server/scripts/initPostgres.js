@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
   review_count INTEGER DEFAULT 0,
   sessions_completed INTEGER DEFAULT 0,
   verified INTEGER DEFAULT 0,
+  verification_status VARCHAR(32) DEFAULT 'unverified',
   is_suspended INTEGER DEFAULT 0,
   email_verified INTEGER DEFAULT 1,
   profile_visits INTEGER DEFAULT 0,
@@ -661,7 +662,34 @@ CREATE TABLE IF NOT EXISTS project_milestones (
 
 CREATE INDEX IF NOT EXISTS idx_milestones_contract ON project_milestones(contract_id);
 
+CREATE TABLE IF NOT EXISTS verification_requests (
+  id VARCHAR(64) PRIMARY KEY,
+  provider_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status VARCHAR(32) NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+  professional_title VARCHAR(255) NOT NULL,
+  years_of_experience INTEGER DEFAULT 0,
+  linkedin_url TEXT,
+  portfolio_url TEXT,
+  document_url TEXT,
+  document_name VARCHAR(255),
+  submission_notes TEXT,
+  decision_notes TEXT,
+  rejection_reason TEXT,
+  reviewed_by VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_by_name VARCHAR(255),
+  reviewed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_requests_provider ON verification_requests(provider_id);
+CREATE INDEX IF NOT EXISTS idx_verification_requests_status ON verification_requests(status);
+
 -- Safe Idempotent Schema Migrations
+ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_status VARCHAR(32) DEFAULT 'unverified';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_rejection_reason TEXT;
+UPDATE users SET verification_status = 'verified' WHERE verified = 1 AND (verification_status IS NULL OR verification_status = '' OR verification_status = 'unverified');
+UPDATE users SET verification_status = 'unverified' WHERE (verified = 0 OR verified IS NULL) AND (verification_status IS NULL OR verification_status = '');
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS active INTEGER DEFAULT 1;
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS service_count INTEGER DEFAULT 0;

@@ -20,6 +20,7 @@ const suites = [
   { name: 'Admin Panel Persistence & Data Integrity Suite', file: path.join('admin', 'admin-persistence.test.js') },
   { name: 'Free Service Listing & Signup Flow Suite', file: path.join('marketplace', 'free-listing-flow.test.js') },
   { name: 'Expert & Provider Discovery Suite', file: path.join('marketplace', 'provider-discovery.test.js') },
+  { name: 'Expert Verification & Discovery Workflow Suite', file: path.join('marketplace', 'expert-verification-workflow.test.js') },
   { name: 'Production Hardening & Reliability Suite', file: path.join('marketplace', 'production-hardening.test.js') },
   { name: 'Universal Marketplace Features Suite', file: path.join('marketplace', 'universal-marketplace-features.test.js') },
   { name: 'Frontend Runtime & Error Boundary Suite', file: path.join('frontend', 'error-boundary-runtime.test.js') },

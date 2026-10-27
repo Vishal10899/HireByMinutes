@@ -86,7 +86,7 @@ export const ExpertCard: React.FC<ExpertCardProps> = ({ service }) => {
               <h3 className="font-bold text-base text-midnight truncate group-hover/link:text-moonstone transition-colors min-w-0">
                 {service.provider_name}
               </h3>
-              {service.provider_verified && (
+              {(service.provider_verification_status === 'verified' || (Boolean(service.provider_verified) && service.provider_verification_status !== 'unverified' && service.provider_verification_status !== 'pending' && service.provider_verification_status !== 'rejected')) && (
                 <span title="Verified Expert" className="inline-flex shrink-0">
                   <CheckCircle className="w-4 h-4 text-moonstone" />
                 </span>
