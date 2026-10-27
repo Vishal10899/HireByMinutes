@@ -1,11 +1,24 @@
 // HireByMinutes — SQLite to PostgreSQL Data Migration Script
-// Deterministically migrates all rows from local SQLite database into remote PostgreSQL instance
+// Deterministically and safely migrates real rows from local SQLite database into PostgreSQL instance
+// Preserves existing production records with ON CONFLICT DO NOTHING and filters synthetic test accounts
 
 const Database = require('better-sqlite3');
 const { Pool } = require('pg');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+
+const fakeUserIds = new Set(['usr-arjun', 'usr-elena', 'usr-marcus', 'usr-priya', 'usr-david', 'usr-sarah', 'usr-admin']);
+
+function isSyntheticTestUser(user) {
+  if (!user) return true;
+  if (fakeUserIds.has(user.id)) return true;
+  const email = (user.email || '').toLowerCase();
+  const id = (user.id || '').toLowerCase();
+  if (email.includes('@test.local') || email.includes('@example.com') || email.includes('@hardened.test') || email.includes('@t.local')) return true;
+  if (email.includes('client_tester_') || email.includes('client_179') || id.startsWith('client-test-') || id.startsWith('test-client-')) return true;
+  return false;
+}
 
 async function migrateData(customPool = null) {
   const sqliteDbPath = path.join(__dirname, '..', 'hirebyminutes.db');
@@ -20,11 +33,12 @@ async function migrateData(customPool = null) {
   if (!pool) {
     const postgresUrl = process.env.DATABASE_URL;
     if (!postgresUrl || (!postgresUrl.startsWith('postgres://') && !postgresUrl.startsWith('postgresql://'))) {
-      console.error('[Error] Valid PostgreSQL DATABASE_URL required in .env');
+      console.error('[Error] Valid PostgreSQL DATABASE_URL required in .env or environment');
       process.exit(1);
     }
+    const sanitizedHost = postgresUrl.split('@')[1] ? postgresUrl.split('@')[1].split('/')[0] : 'remote-postgres';
     console.log(`[Migration] Reading from SQLite: ${sqliteDbPath}`);
-    console.log(`[Migration] Target PostgreSQL: ${postgresUrl.split('@')[1] || postgresUrl}`);
+    console.log(`[Migration] Target PostgreSQL host: ${sanitizedHost}`);
 
     pool = new Pool({
       connectionString: postgresUrl,
@@ -35,8 +49,6 @@ async function migrateData(customPool = null) {
 
   const sqlite = new Database(sqliteDbPath, { readonly: true });
   const pg = await pool.connect();
-
-  const fakeUserIds = new Set(['usr-arjun', 'usr-elena', 'usr-marcus', 'usr-priya', 'usr-david', 'usr-sarah', 'usr-admin']);
 
   const tables = [
     'categories',
@@ -52,51 +64,63 @@ async function migrateData(customPool = null) {
     'opportunities',
     'applications',
     'notifications',
-    'audit_logs',
-    'reports',
     'platform_settings',
-    'email_verification_tokens',
-    'password_reset_tokens',
-    'email_logs',
-    'profile_visits',
+    'cms_pages',
+    'faqs',
     'registration_campaigns',
-    'banners_announcements',
-    'cms_pages'
+    'verification_requests'
   ];
 
   try {
+    // 1. Audit and filter users
+    const rawUsers = sqlite.prepare('SELECT * FROM users').all();
+    const eligibleUsers = rawUsers.filter(u => !isSyntheticTestUser(u));
+    const validUserIds = new Set(eligibleUsers.map(u => u.id));
+
+    console.log(`[Audit] Total SQLite users: ${rawUsers.length}, synthetic test excluded: ${rawUsers.length - eligibleUsers.length}, eligible real: ${eligibleUsers.length}`);
+
     await pg.query('BEGIN');
 
     for (const table of tables) {
-      // Check if table exists in SQLite
       const tableExists = sqlite.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(table);
       if (!tableExists) continue;
 
       let rows = sqlite.prepare(`SELECT * FROM ${table}`).all();
       if (rows.length === 0) continue;
 
-      // Filter out any legacy fake/demo data
+      // Filter rows based on referential integrity to legitimate users
       if (table === 'users') {
-        rows = rows.filter(r => !fakeUserIds.has(r.id));
+        rows = eligibleUsers;
       } else if (table === 'services') {
-        rows = rows.filter(r => !fakeUserIds.has(r.provider_id));
+        rows = rows.filter(r => validUserIds.has(r.provider_id));
       } else if (table === 'provider_availability') {
-        rows = rows.filter(r => !fakeUserIds.has(r.provider_id));
+        rows = rows.filter(r => validUserIds.has(r.provider_id));
       } else if (table === 'opportunities') {
-        rows = rows.filter(r => !fakeUserIds.has(r.creator_id) && !['opp-1', 'opp-2', 'opp-3'].includes(r.id));
-      } else if (table === 'reports') {
-        rows = rows.filter(r => !fakeUserIds.has(r.reporter_id) && r.id !== 'rep-1');
-      } else if (table === 'audit_logs') {
-        rows = rows.filter(r => r.id !== 'log-init-1');
+        rows = rows.filter(r => validUserIds.has(r.creator_id) && !['opp-1', 'opp-2', 'opp-3'].includes(r.id));
+      } else if (table === 'bookings') {
+        rows = rows.filter(r => validUserIds.has(r.client_id) && validUserIds.has(r.provider_id));
+      } else if (table === 'sessions') {
+        rows = rows.filter(r => validUserIds.has(r.client_id) && validUserIds.has(r.provider_id));
+      } else if (table === 'reviews') {
+        rows = rows.filter(r => validUserIds.has(r.client_id) && validUserIds.has(r.provider_id));
+      } else if (table === 'payments') {
+        rows = rows.filter(r => validUserIds.has(r.user_id));
+      } else if (table === 'notifications') {
+        rows = rows.filter(r => validUserIds.has(r.user_id));
+      } else if (table === 'verification_requests') {
+        rows = rows.filter(r => validUserIds.has(r.provider_id));
       }
 
       if (rows.length === 0) continue;
 
-      console.log(`[Migration] Migrating ${rows.length} real rows for table "${table}"...`);
+      // Get target columns in PostgreSQL to ensure matching columns only
+      const targetColsRes = await pg.query("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1", [table]);
+      const targetCols = new Set(targetColsRes.rows.map(r => r.column_name));
 
-      const columns = Object.keys(rows[0]);
-      const colNames = columns.join(', ');
-      const placeholders = columns.map((_, idx) => `$${idx + 1}`).join(', ');
+      const sourceCols = Object.keys(rows[0]);
+      const validCols = sourceCols.filter(c => targetCols.has(c));
+      const colNames = validCols.join(', ');
+      const placeholders = validCols.map((_, idx) => `$${idx + 1}`).join(', ');
 
       const insertSql = `
         INSERT INTO ${table} (${colNames})
@@ -104,11 +128,24 @@ async function migrateData(customPool = null) {
         ON CONFLICT DO NOTHING
       `;
 
+      let insertedCount = 0;
       for (const row of rows) {
-        const values = columns.map(col => row[col]);
-        await pg.query(insertSql, values);
+        const values = validCols.map(col => row[col]);
+        const res = await pg.query(insertSql, values);
+        if (res.rowCount > 0) insertedCount++;
       }
+
+      console.log(`[Migration] Table "${table}": migrated ${insertedCount} new rows (of ${rows.length} eligible).`);
     }
+
+    // Recalculate category service counts to accurately reflect all active published services
+    await pg.query(`
+      UPDATE categories 
+      SET service_count = (
+        SELECT COUNT(*) FROM services 
+        WHERE services.category_id = categories.id AND LOWER(services.listing_status) IN ('active', 'published')
+      )
+    `);
 
     await pg.query('COMMIT');
     console.log('✅ [Migration] All SQLite real data migrated to PostgreSQL successfully!');

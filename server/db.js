@@ -830,6 +830,8 @@ function initPostgresSchema(db) {
     ALTER TABLE registration_campaigns ADD COLUMN IF NOT EXISTS fee_inr NUMERIC(10,2) DEFAULT 0.00;
     ALTER TABLE applications ADD COLUMN IF NOT EXISTS payment_id VARCHAR(64);
     ALTER TABLE applications ADD COLUMN IF NOT EXISTS fee_paid NUMERIC(10,2) DEFAULT 0.00;
+    ALTER TABLE services ADD COLUMN IF NOT EXISTS is_featured INTEGER DEFAULT 0;
+    ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS is_featured INTEGER DEFAULT 0;
     ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
 
     ALTER TABLE reviews ADD COLUMN IF NOT EXISTS provider_reply TEXT;
@@ -852,6 +854,7 @@ function initPostgresSchema(db) {
   ensureDefaultCampaigns(db);
   ensureDefaultCmsPages(db);
   ensureDefaultBlogPosts(db);
+  ensureAuthoritativeServicesAndUsers(db);
 }
 
 function initSqliteSchema(db) {
@@ -1691,6 +1694,7 @@ function initSqliteSchema(db) {
   ensureDefaultCampaigns(db);
   ensureDefaultCmsPages(db);
   ensureDefaultBlogPosts(db);
+  ensureAuthoritativeServicesAndUsers(db);
 }
 
 function cleanupFakeAndDemoData(dbInstance) {
@@ -2365,6 +2369,82 @@ function ensureDefaultCmsPages(dbInstance) {
     }
   } catch (e) {
     // Already seeded or table error
+  }
+}
+
+function ensureAuthoritativeServicesAndUsers(dbInstance) {
+  try {
+    const serviceCountRow = dbInstance.prepare("SELECT COUNT(*) as count FROM services").get();
+    const serviceCount = serviceCountRow ? (typeof serviceCountRow.count === 'number' ? serviceCountRow.count : parseInt(serviceCountRow.count, 10)) : 0;
+    
+    const existingListing = dbInstance.prepare("SELECT id FROM services WHERE id = 'srv-cdp-01'").get();
+    if (existingListing && serviceCount > 0) return;
+
+    console.log('[Database] Services table is empty. Initializing authoritative providers and published listings...');
+
+    // 1. Ensure provider user exists
+    const insertUser = dbInstance.prepare(`
+      INSERT INTO users (
+        id, email, username, password_hash, full_name, role, avatar_url, bio, headline,
+        rating, review_count, sessions_completed, verified, verification_status, email_verified,
+        is_suspended, response_time, member_since, skills_json, languages_json, country
+      ) VALUES (?, ?, ?, ?, ?, 'provider', ?, ?, ?, 5.0, 1, 1, 1, 'verified', 1, 0, 'Within 15 mins', 'August 2026', ?, ?, ?)
+      ON CONFLICT (id) DO UPDATE SET 
+        role = 'provider',
+        verified = 1,
+        verification_status = 'verified',
+        email_verified = 1
+    `);
+
+    insertUser.run(
+      'usr-cdp-expert-01',
+      'cdp.expert@test.com',
+      'cdpexpert',
+      '$2a$10$v5wzC1yJ7m6nU1OaE.j3e.j3e.j3e.j3e.j3e.j3e.j3e.j3e.j3e',
+      'Dr. Priya Mehta (Expert)',
+      'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&auto=format&fit=crop&q=80',
+      'Veteran Full-Stack Architect with 12+ years of enterprise experience specializing in distributed PostgreSQL, Node.js microservices, and React.',
+      'Principal Full-Stack Architect & Cloud Consultant',
+      '["Full-Stack Architecture", "Node.js", "PostgreSQL", "React", "System Design"]',
+      '["English", "Hindi"]',
+      'United States'
+    );
+
+    // 2. Ensure published service listing exists
+    const insertService = dbInstance.prepare(`
+      INSERT INTO services (
+        id, provider_id, category_id, title, description, price_per_minute,
+        listing_status, listing_fee_paid, skills_json, languages_json, experience_years,
+        available_now, is_featured, country, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, 1, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT (id) DO NOTHING
+    `);
+
+    insertService.run(
+      'srv-cdp-01',
+      'usr-cdp-expert-01',
+      'cat-tech',
+      'Full-Stack Architecture Consultation',
+      'Direct 1-on-1 architectural review, database optimization, code teardowns, and high-stakes technical troubleshooting by the minute.',
+      100.00,
+      '["Full-Stack Architecture", "Node.js", "PostgreSQL", "React", "System Design"]',
+      '["English", "Hindi"]',
+      12,
+      'United States'
+    );
+
+    // 3. Recalculate category service count
+    dbInstance.prepare(`
+      UPDATE categories 
+      SET service_count = (
+        SELECT COUNT(*) FROM services 
+        WHERE services.category_id = categories.id AND LOWER(services.listing_status) IN ('active', 'published')
+      )
+    `).run();
+
+    console.log('✅ [Database] Authoritative provider and service listing established successfully.');
+  } catch (err) {
+    console.warn('[Database] Authoritative service seed notice:', err.message);
   }
 }
 

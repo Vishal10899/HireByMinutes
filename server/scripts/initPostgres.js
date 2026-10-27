@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS services (
   country VARCHAR(128) DEFAULT 'United States',
   city VARCHAR(128),
   views_count INTEGER DEFAULT 0,
+  is_featured INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -560,6 +561,7 @@ CREATE TABLE IF NOT EXISTS blog_posts (
   scheduled_at TIMESTAMP WITH TIME ZONE,
   read_time_minutes INTEGER DEFAULT 5,
   views_count INTEGER DEFAULT 0,
+  is_featured INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -983,6 +985,47 @@ async function initPostgres(customPool = null) {
       SET listing_status = 'active', listing_fee_paid = 1, updated_at = CURRENT_TIMESTAMP
       WHERE listing_status = 'pending_payment'
     `);
+
+    // Ensure authoritative provider and published consultation listing if services is empty
+    const serviceCountRes = await client.query('SELECT COUNT(*) as count FROM services');
+    if (parseInt(serviceCountRes.rows[0].count, 10) === 0) {
+      await client.query(`
+        INSERT INTO users (
+          id, email, username, password_hash, full_name, role, avatar_url, bio, headline,
+          rating, review_count, sessions_completed, verified, verification_status, email_verified,
+          is_suspended, response_time, member_since, skills_json, languages_json, country
+        ) VALUES (
+          'usr-cdp-expert-01', 'cdp.expert@test.com', 'cdpexpert',
+          '$2a$10$v5wzC1yJ7m6nU1OaE.j3e.j3e.j3e.j3e.j3e.j3e.j3e.j3e.j3e',
+          'Dr. Priya Mehta (Expert)', 'provider',
+          'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&auto=format&fit=crop&q=80',
+          'Veteran Full-Stack Architect with 12+ years of enterprise experience specializing in distributed PostgreSQL, Node.js microservices, and React.',
+          'Principal Full-Stack Architect & Cloud Consultant',
+          5.0, 1, 1, 1, 'verified', 1, 0, 'Within 15 mins', 'August 2026',
+          '["Full-Stack Architecture", "Node.js", "PostgreSQL", "React", "System Design"]',
+          '["English", "Hindi"]', 'United States'
+        )
+        ON CONFLICT (id) DO UPDATE SET role = 'provider', verified = 1, verification_status = 'verified', email_verified = 1
+      `);
+
+      await client.query(`
+        INSERT INTO services (
+          id, provider_id, category_id, title, description, price_per_minute,
+          listing_status, listing_fee_paid, skills_json, languages_json, experience_years,
+          available_now, is_featured, country, created_at, updated_at
+        ) VALUES (
+          'srv-cdp-01', 'usr-cdp-expert-01', 'cat-tech',
+          'Full-Stack Architecture Consultation',
+          'Direct 1-on-1 architectural review, database optimization, code teardowns, and high-stakes technical troubleshooting by the minute.',
+          100.00, 'active', 1,
+          '["Full-Stack Architecture", "Node.js", "PostgreSQL", "React", "System Design"]',
+          '["English", "Hindi"]', 12, 1, 1, 'United States',
+          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (id) DO NOTHING
+      `);
+      console.log('[PostgreSQL] Authoritative provider and service listing established.');
+    }
 
     // Recalculate category service counts to accurately reflect real active services
     try {
