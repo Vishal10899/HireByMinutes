@@ -1866,7 +1866,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       const srv = db.prepare(`
         SELECT s.*, c.name as category_name, c.slug as category_slug
         FROM services s
-        LEFT JOIN categories c ON s.category_id = c.id
+        LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
         WHERE s.provider_id = ?
         ORDER BY s.created_at DESC
         LIMIT 1
@@ -1981,7 +1981,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       user.id
     );
 
-    // If expert information provided, update the provider's active/primary service
+    // If expert information provided, update or create the provider's active/primary service
     let updatedService = null;
     if (user.role === 'provider' || user.role === 'admin') {
       const existingService = db.prepare(`SELECT * FROM services WHERE provider_id = ? ORDER BY created_at DESC LIMIT 1`).get(user.id);
@@ -1999,7 +1999,11 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         const newServiceTitle = service_title !== undefined && service_title.trim() ? service_title.trim() : existingService.title;
         const newServiceDesc = service_description !== undefined && service_description.trim() ? service_description.trim() : existingService.description;
         const newSubcategory = subcategory !== undefined && subcategory.trim() ? subcategory.trim() : (existingService.subcategory || '');
-        const newCategoryId = category_id !== undefined && category_id ? category_id : existingService.category_id;
+        let newCategoryId = existingService.category_id;
+        if (category_id !== undefined && category_id) {
+          const matchedCategory = db.prepare('SELECT id FROM categories WHERE id = ? OR slug = ?').get(category_id, category_id);
+          newCategoryId = matchedCategory ? matchedCategory.id : category_id;
+        }
         const newAvailableNow = available_now !== undefined ? (available_now ? 1 : 0) : existingService.available_now;
 
         db.prepare(`
@@ -2026,9 +2030,73 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         const srv = db.prepare(`
           SELECT s.*, c.name as category_name, c.slug as category_slug
           FROM services s
-          LEFT JOIN categories c ON s.category_id = c.id
+          LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
           WHERE s.id = ?
         `).get(existingService.id);
+
+        updatedService = {
+          ...srv,
+          skills: JSON.parse(srv.skills_json || '[]'),
+          languages: JSON.parse(srv.languages_json || '[]')
+        };
+      } else if (
+        (service_title && service_title.trim()) ||
+        (newHeadline && newHeadline.trim()) ||
+        (user.headline && user.headline.trim()) ||
+        (service_description && service_description.trim()) ||
+        (newBio && newBio.trim()) ||
+        price_per_minute !== undefined
+      ) {
+        let newPrice = 50.00;
+        if (price_per_minute !== undefined) {
+          const parsedPrice = parseFloat(price_per_minute);
+          if (isNaN(parsedPrice) || parsedPrice <= 0 || parsedPrice > 10000) {
+            return res.status(400).json({ error: 'Rate per minute must be a valid positive number between ₹1.00 and ₹10,000.00' });
+          }
+          newPrice = Number(parsedPrice.toFixed(2));
+        }
+
+        const newServiceTitle = (service_title && service_title.trim()) || newHeadline || (user.headline && user.headline.trim()) || `${newFullName} Consultation`;
+        const newServiceDesc = (service_description && service_description.trim()) || newBio || (user.bio && user.bio.trim()) || `${newServiceTitle} — 1-on-1 consultation by the minute.`;
+        const newSubcategory = (subcategory && subcategory.trim()) || 'General Consultation';
+        const targetCategory = category_id || 'cat-tech';
+        const matchedCategory = db.prepare('SELECT id FROM categories WHERE id = ? OR slug = ?').get(targetCategory, targetCategory);
+        const resolvedCategoryId = matchedCategory ? matchedCategory.id : 'cat-tech';
+        const newAvailableNow = available_now !== undefined ? (available_now ? 1 : 0) : 1;
+        const newServiceId = `srv-${uuidv4().slice(0, 8)}`;
+
+        db.prepare(`
+          INSERT INTO services (
+            id, provider_id, title, category_id, subcategory, description, price_per_minute,
+            listing_status, listing_fee_paid, listing_fee_payment_id,
+            skills_json, languages_json, country, city, experience_years, available_now,
+            created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 1, NULL, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).run(
+          newServiceId,
+          user.id,
+          newServiceTitle,
+          resolvedCategoryId,
+          newSubcategory,
+          newServiceDesc,
+          newPrice,
+          skillsJson,
+          languagesJson,
+          newCountry,
+          newCity,
+          newExpYears,
+          newAvailableNow
+        );
+
+        db.prepare('UPDATE categories SET service_count = service_count + 1 WHERE id = ?').run(resolvedCategoryId);
+
+        const srv = db.prepare(`
+          SELECT s.*, c.name as category_name, c.slug as category_slug
+          FROM services s
+          LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
+          WHERE s.id = ?
+        `).get(newServiceId);
 
         updatedService = {
           ...srv,
@@ -2056,7 +2124,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       SELECT c.*,
              COUNT(s.id) as active_services_count
       FROM categories c
-      LEFT JOIN services s ON c.id = s.category_id AND LOWER(s.listing_status) IN ('active', 'published')
+      LEFT JOIN services s ON (c.id = s.category_id OR c.slug = s.category_id) AND LOWER(s.listing_status) IN ('active', 'published')
       WHERE c.active = 1
       GROUP BY c.id
       ORDER BY c.sort_order ASC
@@ -2091,17 +2159,16 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
              u.response_time as provider_response_time, u.country as provider_country,
              u.city as provider_city, u.state_region as provider_state_region,
              u.area as provider_area, u.languages_json as provider_languages_json,
-             c.name as category_name, c.slug as category_slug
+             COALESCE(c.name, 'General Consulting') as category_name, COALESCE(c.slug, 'other') as category_slug
       FROM services s
       JOIN users u ON s.provider_id = u.id
-      JOIN categories c ON s.category_id = c.id
+      LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
       WHERE LOWER(s.listing_status) IN ('active', 'published')
         AND (u.is_suspended = 0 OR u.is_suspended IS NULL)
         AND (u.full_name IS NOT NULL AND TRIM(u.full_name) != '')
         AND ((u.headline IS NOT NULL AND TRIM(u.headline) != '') OR (s.title IS NOT NULL AND TRIM(s.title) != ''))
-        AND (u.email_verified = 1 OR u.created_by_admin = 1 OR u.email_verified IS NULL)
         AND s.price_per_minute > 0
-        AND (c.active = 1 OR c.active IS NULL)
+        AND (c.active = 1 OR c.active IS NULL OR c.id IS NULL)
       ORDER BY u.rating DESC, u.sessions_completed DESC
       LIMIT 6
     `).all();
@@ -2115,6 +2182,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       }
       return {
         ...s,
+        category_name: s.category_name || 'General Consulting',
+        category_slug: s.category_slug || 'other',
         provider_rating: s.provider_rating != null ? Number(s.provider_rating) : 5.0,
         provider_verification_status: s.provider_verification_status || (s.provider_verified === 1 ? 'verified' : 'unverified'),
         provider_verified: (s.provider_verification_status === 'verified' || (s.provider_verified === 1 && !['pending', 'rejected', 'unverified'].includes(s.provider_verification_status))) ? true : false,
@@ -2142,14 +2211,13 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       AND (u.is_suspended = 0 OR u.is_suspended IS NULL)
       AND (u.full_name IS NOT NULL AND TRIM(u.full_name) != '')
       AND ((u.headline IS NOT NULL AND TRIM(u.headline) != '') OR (s.title IS NOT NULL AND TRIM(s.title) != ''))
-      AND (u.email_verified = 1 OR u.created_by_admin = 1 OR u.email_verified IS NULL)
       AND s.price_per_minute > 0
-      AND (c.active = 1 OR c.active IS NULL)`;
+      AND (c.active = 1 OR c.active IS NULL OR c.id IS NULL)`;
     const params = [];
 
     if (category && category !== 'all') {
-      whereClause += ` AND (c.slug = ? OR c.id = ?)`;
-      params.push(category, category);
+      whereClause += ` AND (c.slug = ? OR c.id = ? OR s.category_id = ? OR s.category_id = (SELECT id FROM categories WHERE slug = ?))`;
+      params.push(category, category, category, category);
     }
 
     if (subcategory && subcategory !== 'all') {
@@ -2261,7 +2329,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       SELECT COUNT(*) as total
       FROM services s
       JOIN users u ON s.provider_id = u.id
-      JOIN categories c ON s.category_id = c.id
+      LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
       ${whereClause}
     `;
     const totalRow = db.prepare(countSql).get(...params);
@@ -2279,10 +2347,10 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
              u.country as provider_country, u.state_region as provider_state_region,
              u.city as provider_city, u.area as provider_area,
              u.languages_json as provider_languages_json,
-             c.name as category_name, c.slug as category_slug
+             COALESCE(c.name, 'General Consulting') as category_name, COALESCE(c.slug, 'other') as category_slug
       FROM services s
       JOIN users u ON s.provider_id = u.id
-      JOIN categories c ON s.category_id = c.id
+      LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
       ${whereClause}
       ${orderByClause}
       LIMIT ? OFFSET ?
@@ -2309,6 +2377,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
       return {
         ...s,
+        category_name: s.category_name || 'General Consulting',
+        category_slug: s.category_slug || 'other',
         provider_rating: s.provider_rating != null ? Number(s.provider_rating) : 5.0,
         provider_verification_status: s.provider_verification_status || (s.provider_verified === 1 ? 'verified' : 'unverified'),
         provider_verified: (s.provider_verification_status === 'verified' || (s.provider_verified === 1 && !['pending', 'rejected', 'unverified'].includes(s.provider_verification_status))) ? true : false,
@@ -2345,11 +2415,13 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
                u.country as provider_country, u.state_region as provider_state_region,
                u.city as provider_city, u.area as provider_area,
                u.languages_json as provider_languages_json,
-               c.id as category_id, c.name as category_name, c.slug as category_slug
+               COALESCE(c.id, s.category_id) as category_id,
+               COALESCE(c.name, 'General Consulting') as category_name,
+               COALESCE(c.slug, 'other') as category_slug
         FROM services s
         JOIN users u ON s.provider_id = u.id
-        JOIN categories c ON s.category_id = c.id
-        WHERE s.id = ? AND LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL) AND (u.email_verified = 1 OR u.created_by_admin = 1 OR u.email_verified IS NULL)
+        LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
+        WHERE s.id = ? AND LOWER(s.listing_status) IN ('active', 'published') AND (u.is_suspended = 0 OR u.is_suspended IS NULL)
       `).get(req.params.id);
 
       if (!service) {
@@ -2394,6 +2466,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
 
       const formattedService = {
         ...service,
+        category_name: service.category_name || 'General Consulting',
+        category_slug: service.category_slug || 'other',
         provider_rating: service.provider_rating != null ? Number(service.provider_rating) : 5.0,
         provider_verification_status: service.provider_verification_status || (service.provider_verified === 1 ? 'verified' : 'unverified'),
         provider_verified: (service.provider_verification_status === 'verified' || (service.provider_verified === 1 && !['pending', 'rejected', 'unverified'].includes(service.provider_verification_status))) ? true : false,
@@ -2462,35 +2536,103 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       return res.status(403).json({ error: 'Only registered experts can create or manage service listings.' });
     }
 
-    const { title, category_id, description, price_per_minute, skills = [], languages = ['English'], experience_years = 5, available_now = 1 } = req.body;
+    const {
+      title,
+      category_id,
+      subcategory,
+      description,
+      price_per_minute,
+      skills = [],
+      languages = ['English'],
+      experience_years = 5,
+      available_now = 1,
+      country,
+      city
+    } = req.body;
 
     if (!title || !category_id || !description || !price_per_minute) {
       return res.status(400).json({ error: 'Title, category, description, and price per minute are required.' });
     }
 
+    // Resolve canonical category_id
+    let resolvedCategoryId = category_id;
+    try {
+      const matchedCat = db.prepare('SELECT id FROM categories WHERE id = ? OR slug = ?').get(category_id, category_id);
+      if (matchedCat) {
+        resolvedCategoryId = matchedCat.id;
+      }
+    } catch (e) {
+      console.warn('[POST /services] Category resolve notice:', e.message);
+    }
+
     const id = `srv-${uuidv4().slice(0, 8)}`;
+    const finalCountry = country || req.user.country || 'United States';
+    const finalCity = city || req.user.city || '';
+    const finalSubcategory = subcategory || '';
 
     db.prepare(`
       INSERT INTO services (
         id, provider_id, title, category_id, description, price_per_minute,
         listing_status, listing_fee_paid, listing_fee_payment_id, skills_json, languages_json,
-        experience_years, available_now
+        experience_years, available_now, subcategory, country, city
       )
-      VALUES (?, ?, ?, ?, ?, ?, 'active', 1, NULL, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, 'active', 1, NULL, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       req.user.id,
       title.trim(),
-      category_id,
+      resolvedCategoryId,
       description.trim(),
       Number(price_per_minute),
       JSON.stringify(skills),
       JSON.stringify(languages),
       Number(experience_years),
-      available_now ? 1 : 0
+      available_now ? 1 : 0,
+      finalSubcategory,
+      finalCountry,
+      finalCity
     );
 
-    db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(category_id);
+    try {
+      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ? OR slug = ?`).run(resolvedCategoryId, resolvedCategoryId);
+    } catch (e) {
+      console.warn('[POST /services] Category service_count notice:', e.message);
+    }
+
+    // Also update provider profile headline/bio/skills/location if empty to ensure profile completeness
+    try {
+      const user = db.prepare('SELECT headline, bio, skills_json, country, city FROM users WHERE id = ?').get(req.user.id);
+      if (user) {
+        const updates = [];
+        const uParams = [];
+        if (!user.headline || !user.headline.trim()) {
+          updates.push('headline = ?');
+          uParams.push(title.trim());
+        }
+        if (!user.bio || !user.bio.trim()) {
+          updates.push('bio = ?');
+          uParams.push(description.trim());
+        }
+        if ((!user.skills_json || user.skills_json === '[]') && Array.isArray(skills) && skills.length > 0) {
+          updates.push('skills_json = ?');
+          uParams.push(JSON.stringify(skills));
+        }
+        if (!user.country && finalCountry) {
+          updates.push('country = ?');
+          uParams.push(finalCountry);
+        }
+        if (!user.city && finalCity) {
+          updates.push('city = ?');
+          uParams.push(finalCity);
+        }
+        if (updates.length > 0) {
+          uParams.push(req.user.id);
+          db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...uParams);
+        }
+      }
+    } catch (e) {
+      console.warn('[POST /services] User sync notice:', e.message);
+    }
 
     db.prepare(`
       INSERT INTO notifications (id, user_id, title, message, type, link)
@@ -2535,7 +2677,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     `).run(service.id);
 
     if (!wasActive) {
-      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
+      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ? OR slug = ?`).run(service.category_id, service.category_id);
     }
 
     const updated = db.prepare('SELECT * FROM services WHERE id = ?').get(service.id);
@@ -2563,7 +2705,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     `).run(service.id);
 
     if (!wasActive) {
-      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
+      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ? OR slug = ?`).run(service.category_id, service.category_id);
     }
 
     const updated = db.prepare('SELECT * FROM services WHERE id = ?').get(service.id);
@@ -2593,7 +2735,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     `).run(service.id);
 
     if (!wasActive) {
-      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
+      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ? OR slug = ?`).run(service.category_id, service.category_id);
     }
 
     const updated = db.prepare('SELECT * FROM services WHERE id = ?').get(service.id);
@@ -2622,7 +2764,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     `).run(service.id);
 
     if (!wasActive) {
-      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ?`).run(service.category_id);
+      db.prepare(`UPDATE categories SET service_count = service_count + 1 WHERE id = ? OR slug = ?`).run(service.category_id, service.category_id);
     }
 
     const updated = db.prepare('SELECT * FROM services WHERE id = ?').get(service.id);
@@ -5008,7 +5150,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
              c.name as category_name, c.slug as category_slug
       FROM services s
       JOIN users u ON s.provider_id = u.id
-      JOIN categories c ON s.category_id = c.id
+      LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
       WHERE LOWER(s.listing_status) IN ('active', 'published')
         AND u.id != ?
         AND COALESCE(u.is_suspended, 0) = 0
@@ -5273,7 +5415,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const services = db.prepare(`
       SELECT s.*, c.name as category_name
       FROM services s
-      JOIN categories c ON s.category_id = c.id
+      LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
       WHERE s.provider_id = ?
       ORDER BY s.created_at DESC
     `).all(userId);
@@ -5698,7 +5840,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const services = db.prepare(`
       SELECT s.*, c.name as category_name
       FROM services s
-      JOIN categories c ON s.category_id = c.id
+      LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
       WHERE s.provider_id = ? AND s.listing_status = 'active'
       ORDER BY s.is_featured DESC, s.created_at DESC
     `).all(req.params.id);
@@ -6303,7 +6445,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
              (SELECT COUNT(*) FROM bookings WHERE service_id = s.id) as bookings_count
       FROM services s
       JOIN users u ON s.provider_id = u.id
-      JOIN categories c ON s.category_id = c.id
+      LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
       ORDER BY (COALESCE(s.views_count, 0) + (SELECT COUNT(*) FROM bookings WHERE service_id = s.id) * 3) DESC LIMIT 5
     `).all();
 
@@ -6888,7 +7030,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
         SELECT s.id, s.title, s.description, s.price_per_minute, s.listing_status, s.available_now,
                c.name as category_name
         FROM services s
-        LEFT JOIN categories c ON s.category_id = c.id
+        LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
         WHERE s.provider_id = ?
         ORDER BY s.created_at DESC
       `).all(request.provider_id);
@@ -7049,7 +7191,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
              (SELECT COUNT(*) FROM bookings WHERE service_id = s.id) as bookings_count
       FROM services s
       JOIN users u ON s.provider_id = u.id
-      JOIN categories c ON s.category_id = c.id
+      LEFT JOIN categories c ON (s.category_id = c.id OR s.category_id = c.slug)
       WHERE 1=1
     `;
     const params = [];

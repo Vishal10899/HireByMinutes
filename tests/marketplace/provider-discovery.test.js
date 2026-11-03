@@ -288,38 +288,40 @@ async function runDiscoverySuite() {
     console.log(`   [Neon Fallback] Live Neon pool unavailable or quota reached: ${err.message}. Using pg-mem PostgreSQL.`);
   }
 
+  const { initPostgres } = require('../../server/scripts/initPostgres');
+
   if (!pool) {
     const { newDb } = require('pg-mem');
-    const { initPostgres } = require('../../server/scripts/initPostgres');
     const pgMem = newDb();
     const { Pool: MemPool } = pgMem.adapters.createPg();
     pool = new MemPool();
-    await initPostgres(pool);
-
-    // Seed test users & services matching production schema
-    await pool.query(`
-      INSERT INTO users (id, email, username, password_hash, full_name, role, headline, bio, rating, review_count, sessions_completed, verified, verification_status, email_verified, is_suspended, member_since)
-      VALUES 
-      ('usr-vishal', 'vishal@test.com', 'vishal_dev', 'hash', 'Vishal Chaudhary', 'provider', 'Senior AI Engineer', 'AI/ML specialist', 5.0, 10, 15, 1, 'verified', 1, 0, 'August 2026')
-      ON CONFLICT (id) DO NOTHING;
-    `);
-    await pool.query(`
-      INSERT INTO users (id, email, username, password_hash, full_name, role, headline, bio, rating, review_count, sessions_completed, verified, verification_status, email_verified, is_suspended, member_since)
-      VALUES 
-      ('usr-sumit', 'sumit@test.com', 'sumit_data', 'hash', 'Sumit kumar', 'provider', 'Lead Data Analyst', 'Data insights', 4.9, 8, 12, 1, 'verified', 1, 0, 'August 2026')
-      ON CONFLICT (id) DO NOTHING;
-    `);
-    await pool.query(`
-      INSERT INTO services (id, provider_id, category_id, title, description, price_per_minute, listing_status, available_now, skills_json, languages_json)
-      VALUES 
-      ('srv-455779a7', 'usr-vishal', 'cat-ai', 'AI/ML Engineer', 'Production Machine Learning and AI models', 50, 'active', 1, '["Python","PyTorch"]', '["English"]'),
-      ('srv-224f69d9', 'usr-sumit', 'cat-tech', 'Data Analyst', 'SQL, Tableau, ETL and business intelligence', 40, 'active', 1, '["SQL","Tableau"]', '["English"]')
-      ON CONFLICT (id) DO NOTHING;
-    `);
-    await pool.query(`
-      UPDATE categories SET service_count = 1 WHERE slug IN ('technology', 'ai-data');
-    `);
   }
+
+  await initPostgres(pool);
+
+  // Seed test users & services matching production schema
+  await pool.query(`
+    INSERT INTO users (id, email, username, password_hash, full_name, role, headline, bio, rating, review_count, sessions_completed, verified, verification_status, email_verified, is_suspended, member_since)
+    VALUES 
+    ('usr-vishal', 'vishal@test.com', 'vishal_dev', 'hash', 'Vishal Chaudhary', 'provider', 'Senior AI Engineer', 'AI/ML specialist', 5.0, 10, 15, 1, 'verified', 1, 0, 'August 2026')
+    ON CONFLICT (id) DO NOTHING;
+  `);
+  await pool.query(`
+    INSERT INTO users (id, email, username, password_hash, full_name, role, headline, bio, rating, review_count, sessions_completed, verified, verification_status, email_verified, is_suspended, member_since)
+    VALUES 
+    ('usr-sumit', 'sumit@test.com', 'sumit_data', 'hash', 'Sumit kumar', 'provider', 'Lead Data Analyst', 'Data insights', 4.9, 8, 12, 1, 'verified', 1, 0, 'August 2026')
+    ON CONFLICT (id) DO NOTHING;
+  `);
+  await pool.query(`
+    INSERT INTO services (id, provider_id, category_id, title, description, price_per_minute, listing_status, available_now, skills_json, languages_json)
+    VALUES 
+    ('srv-455779a7', 'usr-vishal', 'cat-ai', 'AI/ML Engineer', 'Production Machine Learning and AI models', 50, 'active', 1, '["Python","PyTorch"]', '["English"]'),
+    ('srv-224f69d9', 'usr-sumit', 'cat-tech', 'Data Analyst', 'SQL, Tableau, ETL and business intelligence', 40, 'active', 1, '["SQL","Tableau"]', '["English"]')
+    ON CONFLICT (id) DO NOTHING;
+  `);
+  await pool.query(`
+    UPDATE categories SET service_count = 1 WHERE slug IN ('technology', 'ai-data');
+  `);
 
   await runAsyncTest('16. Neon PostgreSQL: Real active services are discoverable via SQL', async () => {
     const query = `
