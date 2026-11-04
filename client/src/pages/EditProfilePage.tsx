@@ -53,6 +53,7 @@ export const EditProfilePage: React.FC = () => {
   const [username, setUsername] = useState('');
   const [headline, setHeadline] = useState('');
   const [bio, setBio] = useState('');
+  const [gender, setGender] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [avatarPreview, setAvatarPreview] = useState('');
   const [languages, setLanguages] = useState<string[]>(['English']);
@@ -70,6 +71,26 @@ export const EditProfilePage: React.FC = () => {
   const [stateRegion, setStateRegion] = useState('');
   const [city, setCity] = useState('');
   const [area, setArea] = useState('');
+
+  // Validation State & Field Refs for Auto-Scroll / Focus
+  interface FormErrors {
+    fullName?: string;
+    gender?: string;
+    stateRegion?: string;
+    skills?: string;
+    education?: string;
+    serviceTitle?: string;
+    pricePerMinute?: string;
+  }
+  const [errors, setErrors] = useState<FormErrors>({});
+
+  const fullNameRef = useRef<HTMLDivElement | null>(null);
+  const genderRef = useRef<HTMLDivElement | null>(null);
+  const stateRegionRef = useRef<HTMLDivElement | null>(null);
+  const skillsRef = useRef<HTMLDivElement | null>(null);
+  const educationRef = useRef<HTMLDivElement | null>(null);
+  const serviceTitleRef = useRef<HTMLDivElement | null>(null);
+  const pricePerMinuteRef = useRef<HTMLDivElement | null>(null);
 
   // Expert / Provider Specific State
   const [isProvider, setIsProvider] = useState(false);
@@ -103,6 +124,7 @@ export const EditProfilePage: React.FC = () => {
         setUsername(u.username || (u.full_name || 'user').toLowerCase().replace(/[^a-z0-9_]/g, '_'));
         setHeadline(u.headline || '');
         setBio(u.bio || '');
+        setGender(u.gender || '');
         setCountry(u.country || 'United States');
         setStateRegion(u.state_region || '');
         setCity(u.city || '');
@@ -199,6 +221,7 @@ export const EditProfilePage: React.FC = () => {
     if (!skill) return;
     if (!skills.includes(skill)) {
       setSkills([...skills, skill]);
+      setErrors((prev) => ({ ...prev, skills: undefined }));
     }
     setNewSkillInput('');
   };
@@ -212,6 +235,7 @@ export const EditProfilePage: React.FC = () => {
     if (!item) return;
     if (!education.includes(item)) {
       setEducation([...education, item]);
+      setErrors((prev) => ({ ...prev, education: undefined }));
     }
     setNewEducationInput('');
   };
@@ -235,11 +259,80 @@ export const EditProfilePage: React.FC = () => {
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // =========================================================================
+    // MANDATORY FIELD VALIDATION (Frontend enforcement)
+    // 1. Payment Per Minute / Consultation Rate (for providers)
+    // 2. Region / Location
+    // 3. Gender
+    // 4. Education (minimum 1 entry)
+    // 5. Skills (minimum 1 skill)
+    // 6. Services Provided (minimum 1 service for providers)
+    // =========================================================================
+    const newErrors: FormErrors = {};
+
     if (!fullName.trim()) {
-      setErrorMessage('Full name is required.');
+      newErrors.fullName = 'Full Name is required.';
+    }
+
+    if (!stateRegion.trim()) {
+      newErrors.stateRegion = 'State / Region is required and cannot be empty.';
+    }
+
+    if (!gender || !gender.trim()) {
+      newErrors.gender = 'Gender is required. Please select a valid option.';
+    }
+
+    if (!skills || skills.length === 0) {
+      newErrors.skills = 'Skills: At least 1 skill is required.';
+    }
+
+    if (!education || education.length === 0) {
+      newErrors.education = 'Education: At least 1 education credential is required.';
+    }
+
+    if (isProvider) {
+      if (!serviceTitle.trim()) {
+        newErrors.serviceTitle = 'Services Provided: Service listing title is required.';
+      }
+      const price = Number(pricePerMinute);
+      if (isNaN(price) || price <= 0 || price > 10000) {
+        newErrors.pricePerMinute = 'Payment rate per minute must be a valid positive amount.';
+      }
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      setErrorMessage('Please complete all mandatory fields marked with an asterisk (*).');
+
+      // Scroll to & focus first invalid field
+      const focusAndScroll = (ref: React.RefObject<HTMLDivElement | null>) => {
+        if (ref.current) {
+          ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const control = ref.current.querySelector('input, select, textarea') as HTMLElement | null;
+          control?.focus();
+        }
+      };
+
+      if (newErrors.fullName) {
+        focusAndScroll(fullNameRef);
+      } else if (newErrors.gender) {
+        focusAndScroll(genderRef);
+      } else if (newErrors.stateRegion) {
+        focusAndScroll(stateRegionRef);
+      } else if (newErrors.skills) {
+        focusAndScroll(skillsRef);
+      } else if (newErrors.education) {
+        focusAndScroll(educationRef);
+      } else if (newErrors.serviceTitle) {
+        focusAndScroll(serviceTitleRef);
+      } else if (newErrors.pricePerMinute) {
+        focusAndScroll(pricePerMinuteRef);
+      }
       return;
     }
 
+    setErrors({});
     setSaving(true);
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -250,6 +343,7 @@ export const EditProfilePage: React.FC = () => {
         avatar_url: avatarUrl,
         headline: headline.trim(),
         bio: bio.trim(),
+        gender: gender.trim(),
         country: country.trim(),
         state_region: stateRegion.trim(),
         city: city.trim(),
@@ -281,6 +375,17 @@ export const EditProfilePage: React.FC = () => {
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to update profile.');
+      if (err.fields && typeof err.fields === 'object') {
+        const backendFieldMap: FormErrors = {};
+        if (err.fields.full_name) backendFieldMap.fullName = err.fields.full_name;
+        if (err.fields.gender) backendFieldMap.gender = err.fields.gender;
+        if (err.fields.state_region) backendFieldMap.stateRegion = err.fields.state_region;
+        if (err.fields.skills) backendFieldMap.skills = err.fields.skills;
+        if (err.fields.education) backendFieldMap.education = err.fields.education;
+        if (err.fields.service_title) backendFieldMap.serviceTitle = err.fields.service_title;
+        if (err.fields.price_per_minute) backendFieldMap.pricePerMinute = err.fields.price_per_minute;
+        setErrors(prev => ({ ...prev, ...backendFieldMap }));
+      }
     } finally {
       setSaving(false);
     }
@@ -371,6 +476,12 @@ export const EditProfilePage: React.FC = () => {
 
       <form onSubmit={handleSaveProfile} className="space-y-8">
         
+        {/* Required Fields Legend */}
+        <div className="flex items-center gap-1.5 text-xs text-midnight/70">
+          <span className="text-red-500 font-bold text-sm leading-none">*</span>
+          <span className="font-semibold text-midnight/80">Required fields</span>
+        </div>
+
         {/* ========================================================================= */}
         {/* 1. PROFILE PHOTO SECTION */}
         {/* ========================================================================= */}
@@ -443,18 +554,27 @@ export const EditProfilePage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             
             {/* Full Name */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-midnight block">
-                Full Name *
+            <div className="space-y-1.5" ref={fullNameRef} id="field-full-name">
+              <label className="text-xs font-semibold text-midnight flex items-center gap-1">
+                <span>Full Name</span>
+                <span className="text-red-500 font-bold ml-0.5" aria-hidden="true">*</span>
               </label>
               <input
                 type="text"
-                required
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
+                onChange={(e) => {
+                  setFullName(e.target.value);
+                  if (errors.fullName) setErrors(prev => ({ ...prev, fullName: undefined }));
+                }}
                 placeholder="e.g. Elena Rostova"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-timberwolf/70 text-xs font-medium text-midnight bg-aliceblue/30 focus:outline-none focus:border-moonstone"
+                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium text-midnight bg-aliceblue/30 focus:outline-none ${errors.fullName ? 'border-red-500 focus:border-red-500' : 'border-timberwolf/70 focus:border-moonstone'}`}
               />
+              {errors.fullName && (
+                <p className="text-[11px] text-red-500 font-medium flex items-center gap-1 mt-1">
+                  <AlertCircle className="w-3 h-3 text-red-500 shrink-0" />
+                  <span>{errors.fullName}</span>
+                </p>
+              )}
             </div>
 
             {/* Permanent Username (Read-Only) */}
@@ -477,6 +597,35 @@ export const EditProfilePage: React.FC = () => {
               <span className="text-[11px] text-midnight/50 block">
                 Username cannot be changed once created.
               </span>
+            </div>
+
+            {/* Gender (Mandatory Field) */}
+            <div className="space-y-1.5" ref={genderRef} id="field-gender">
+              <label className="text-xs font-semibold text-midnight flex items-center gap-1">
+                <span>Gender</span>
+                <span className="text-red-500 font-bold ml-0.5" aria-hidden="true">*</span>
+              </label>
+              <select
+                value={gender}
+                onChange={(e) => {
+                  setGender(e.target.value);
+                  if (errors.gender) setErrors(prev => ({ ...prev, gender: undefined }));
+                }}
+                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium text-midnight bg-aliceblue/30 focus:outline-none ${errors.gender ? 'border-red-500 focus:border-red-500' : 'border-timberwolf/70 focus:border-moonstone'}`}
+              >
+                <option value="">Select Gender...</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Non-binary">Non-binary</option>
+                <option value="Prefer not to say">Prefer not to say</option>
+                <option value="Other">Other</option>
+              </select>
+              {errors.gender && (
+                <p className="text-[11px] text-red-500 font-medium flex items-center gap-1 mt-1">
+                  <AlertCircle className="w-3 h-3 text-red-500 shrink-0" />
+                  <span>{errors.gender}</span>
+                </p>
+              )}
             </div>
 
             {/* Professional Headline */}
@@ -534,16 +683,28 @@ export const EditProfilePage: React.FC = () => {
                 </select>
               </div>
 
-              {/* State / Region */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-midnight block">State / Region</label>
+              {/* State / Region (Mandatory Field) */}
+              <div className="space-y-1.5" ref={stateRegionRef} id="field-state-region">
+                <label className="text-xs font-semibold text-midnight flex items-center gap-1">
+                  <span>State / Region</span>
+                  <span className="text-red-500 font-bold ml-0.5" aria-hidden="true">*</span>
+                </label>
                 <input
                   type="text"
                   value={stateRegion}
-                  onChange={(e) => setStateRegion(e.target.value)}
+                  onChange={(e) => {
+                    setStateRegion(e.target.value);
+                    if (errors.stateRegion) setErrors(prev => ({ ...prev, stateRegion: undefined }));
+                  }}
                   placeholder="e.g. Haryana / California"
-                  className="w-full p-2.5 rounded-xl border border-timberwolf/70 text-xs font-medium text-midnight bg-aliceblue/30 focus:outline-none focus:border-moonstone"
+                  className={`w-full p-2.5 rounded-xl border text-xs font-medium text-midnight bg-aliceblue/30 focus:outline-none ${errors.stateRegion ? 'border-red-500 focus:border-red-500' : 'border-timberwolf/70 focus:border-moonstone'}`}
                 />
+                {errors.stateRegion && (
+                  <p className="text-[11px] text-red-500 font-medium flex items-center gap-1 mt-1">
+                    <AlertCircle className="w-3 h-3 text-red-500 shrink-0" />
+                    <span>{errors.stateRegion}</span>
+                  </p>
+                )}
               </div>
 
               {/* City */}
@@ -619,11 +780,21 @@ export const EditProfilePage: React.FC = () => {
             </div>
           </div>
 
-          {/* Skills Management */}
-          <div className="space-y-2 pt-4 border-t border-timberwolf/30">
-            <label className="text-xs font-semibold text-midnight block">
-              Skills & Expertise Tags
-            </label>
+          {/* Skills Management (Mandatory Field) */}
+          <div className="space-y-2 pt-4 border-t border-timberwolf/30" ref={skillsRef} id="field-skills">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-midnight flex items-center gap-1">
+                <span>Skills & Expertise Tags</span>
+                <span className="text-red-500 font-bold ml-0.5" aria-hidden="true">*</span>
+              </label>
+              <span className="text-[10px] text-midnight/50">Minimum 1 skill required</span>
+            </div>
+            {errors.skills && (
+              <p className="text-[11px] text-red-500 font-medium flex items-center gap-1">
+                <AlertCircle className="w-3 h-3 text-red-500 shrink-0" />
+                <span>{errors.skills}</span>
+              </p>
+            )}
             <div className="flex flex-wrap gap-2 mb-2">
               {skills.map((skill) => (
                 <span
@@ -666,12 +837,22 @@ export const EditProfilePage: React.FC = () => {
             </div>
           </div>
 
-          {/* Education Management */}
-          <div className="space-y-2 pt-4 border-t border-timberwolf/30">
-            <label className="text-xs font-semibold text-midnight flex items-center gap-1.5">
-              <GraduationCap className="w-3.5 h-3.5 text-moonstone" />
-              <span>Education & Academic Credentials</span>
-            </label>
+          {/* Education Management (Mandatory Field) */}
+          <div className="space-y-2 pt-4 border-t border-timberwolf/30" ref={educationRef} id="field-education">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-midnight flex items-center gap-1.5">
+                <GraduationCap className="w-3.5 h-3.5 text-moonstone" />
+                <span>Education & Academic Credentials</span>
+                <span className="text-red-500 font-bold ml-0.5" aria-hidden="true">*</span>
+              </label>
+              <span className="text-[10px] text-midnight/50">Minimum 1 credential required</span>
+            </div>
+            {errors.education && (
+              <p className="text-[11px] text-red-500 font-medium flex items-center gap-1">
+                <AlertCircle className="w-3 h-3 text-red-500 shrink-0" />
+                <span>{errors.education}</span>
+              </p>
+            )}
             <div className="flex flex-wrap gap-2 mb-2">
               {education.map((edu) => (
                 <span
@@ -802,18 +983,31 @@ export const EditProfilePage: React.FC = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               
-              {/* Service Title */}
-              <div className="space-y-1.5 sm:col-span-2">
-                <label className="text-xs font-semibold text-midnight block">
-                  Service Listing Title
-                </label>
+              {/* Services Provided / Service Listing Title (Mandatory Field) */}
+              <div className="space-y-1.5 sm:col-span-2" ref={serviceTitleRef} id="field-service-title">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-midnight flex items-center gap-1">
+                    <span>Services Provided / Service Listing Title</span>
+                    <span className="text-red-500 font-bold ml-0.5" aria-hidden="true">*</span>
+                  </label>
+                  <span className="text-[10px] text-midnight/50">Minimum 1 service required</span>
+                </div>
                 <input
                   type="text"
                   value={serviceTitle}
-                  onChange={(e) => setServiceTitle(e.target.value)}
+                  onChange={(e) => {
+                    setServiceTitle(e.target.value);
+                    if (errors.serviceTitle) setErrors(prev => ({ ...prev, serviceTitle: undefined }));
+                  }}
                   placeholder="e.g. Figma UI/UX Teardown & Design System Review"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-timberwolf/70 text-xs font-medium text-midnight bg-aliceblue/30 focus:outline-none focus:border-moonstone"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-medium text-midnight bg-aliceblue/30 focus:outline-none ${errors.serviceTitle ? 'border-red-500 focus:border-red-500' : 'border-timberwolf/70 focus:border-moonstone'}`}
                 />
+                {errors.serviceTitle && (
+                  <p className="text-[11px] text-red-500 font-medium flex items-center gap-1 mt-1">
+                    <AlertCircle className="w-3 h-3 text-red-500 shrink-0" />
+                    <span>{errors.serviceTitle}</span>
+                  </p>
+                )}
               </div>
 
               {/* Category */}
@@ -877,20 +1071,24 @@ export const EditProfilePage: React.FC = () => {
                 />
               </div>
 
-              {/* Rate Per Minute */}
-              <div className="space-y-1.5">
+              {/* Rate Per Minute (Mandatory Field) */}
+              <div className="space-y-1.5" ref={pricePerMinuteRef} id="field-rate">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-midnight block">
-                    Rate Per Minute (INR ₹)
+                  <label className="text-xs font-semibold text-midnight flex items-center gap-1">
+                    <span>Rate Per Minute (INR ₹)</span>
+                    <span className="text-red-500 font-bold ml-0.5" aria-hidden="true">*</span>
                   </label>
                   <span className="text-[11px] font-mono text-emerald-700 font-bold">
-                    {formatINR(pricePerMinute * 30)} / 30m
+                    {formatINR((pricePerMinute || 0) * 30)} / 30m
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setPricePerMinute((prev) => Math.max(1, Number((prev - 5).toFixed(0))))}
+                    onClick={() => {
+                      setPricePerMinute((prev) => Math.max(1, Number((prev - 5).toFixed(0))));
+                      if (errors.pricePerMinute) setErrors(prev => ({ ...prev, pricePerMinute: undefined }));
+                    }}
                     className="w-10 h-10 rounded-xl border border-timberwolf bg-aliceblue text-midnight font-bold text-sm hover:border-moonstone transition-colors flex items-center justify-center cursor-pointer"
                   >
                     -
@@ -903,18 +1101,31 @@ export const EditProfilePage: React.FC = () => {
                       min="1"
                       max="10000"
                       value={pricePerMinute}
-                      onChange={(e) => setPricePerMinute(Math.max(1, parseFloat(e.target.value) || 1))}
-                      className="w-full pl-8 pr-3.5 py-2.5 rounded-xl border border-timberwolf/70 text-xs font-mono font-bold text-midnight bg-aliceblue/30 focus:outline-none focus:border-moonstone text-center"
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setPricePerMinute(isNaN(val) ? ('' as any) : Math.max(1, val));
+                        if (errors.pricePerMinute) setErrors(prev => ({ ...prev, pricePerMinute: undefined }));
+                      }}
+                      className={`w-full pl-8 pr-3.5 py-2.5 rounded-xl border text-xs font-mono font-bold text-midnight bg-aliceblue/30 focus:outline-none text-center ${errors.pricePerMinute ? 'border-red-500 focus:border-red-500' : 'border-timberwolf/70 focus:border-moonstone'}`}
                     />
                   </div>
                   <button
                     type="button"
-                    onClick={() => setPricePerMinute((prev) => Math.min(10000, Number((prev + 5).toFixed(0))))}
+                    onClick={() => {
+                      setPricePerMinute((prev) => Math.min(10000, Number((prev + 5).toFixed(0))));
+                      if (errors.pricePerMinute) setErrors(prev => ({ ...prev, pricePerMinute: undefined }));
+                    }}
                     className="w-10 h-10 rounded-xl border border-timberwolf bg-aliceblue text-midnight font-bold text-sm hover:border-moonstone transition-colors flex items-center justify-center cursor-pointer"
                   >
                     +
                   </button>
                 </div>
+                {errors.pricePerMinute && (
+                  <p className="text-[11px] text-red-500 font-medium flex items-center gap-1 mt-1">
+                    <AlertCircle className="w-3 h-3 text-red-500 shrink-0" />
+                    <span>{errors.pricePerMinute}</span>
+                  </p>
+                )}
                 <span className="text-[10px] text-midnight/50 block">
                   Past bookings and accepted consultations retain their historical rates.
                 </span>

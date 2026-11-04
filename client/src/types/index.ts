@@ -15,6 +15,7 @@ export interface User {
   state_region?: string;
   city?: string;
   area?: string;
+  gender?: string;
   languages?: string[];
   skills?: string[];
   experience_years?: number;

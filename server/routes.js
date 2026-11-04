@@ -1897,6 +1897,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       state_region,
       city,
       area,
+      gender,
       languages,
       skills,
       experience_years,
@@ -1914,13 +1915,99 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Validate full name
+    // =========================================================================
+    // MANDATORY FIELD VALIDATION (Backend enforcement)
+    // 1. Payment Per Minute / Consultation Rate (for providers)
+    // 2. Region / Location
+    // 3. Gender
+    // 4. Education (minimum 1 entry)
+    // 5. Skills (minimum 1 skill)
+    // 6. Services Provided (minimum 1 service for providers)
+    // =========================================================================
+    const validationErrors = {};
+
+    // 1. Full name
     const newFullName = full_name !== undefined ? full_name.trim() : user.full_name;
     if (!newFullName) {
-      return res.status(400).json({ error: 'Full name cannot be empty.' });
+      validationErrors.full_name = 'Full name cannot be empty.';
     }
 
-    // Languages and Skills JSON sanitization
+    // 2. Region / Location
+    const newStateRegion = state_region !== undefined ? String(state_region).trim() : (user.state_region || '');
+    if (!newStateRegion) {
+      validationErrors.state_region = 'Region / Location is required and cannot be empty.';
+    }
+
+    // 3. Gender
+    const newGender = gender !== undefined ? String(gender).trim() : (user.gender || '');
+    const validGenders = ['Male', 'Female', 'Non-binary', 'Prefer not to say', 'Other'];
+    if (!newGender || !validGenders.includes(newGender)) {
+      validationErrors.gender = 'Gender is required. Please select a valid gender option.';
+    }
+
+    // 4. Skills (minimum 1 skill required)
+    let skillsArray;
+    if (skills !== undefined) {
+      skillsArray = Array.isArray(skills)
+        ? skills.map(s => String(s).trim()).filter(Boolean)
+        : String(skills).split(',').map(s => s.trim()).filter(Boolean);
+    } else {
+      try {
+        skillsArray = JSON.parse(user.skills_json || '[]');
+      } catch {
+        skillsArray = [];
+      }
+    }
+    if (!skillsArray || skillsArray.length === 0) {
+      validationErrors.skills = 'Skills are required. Please provide at least one skill.';
+    }
+    const skillsJson = JSON.stringify(skillsArray);
+
+    // 5. Education (minimum 1 entry required)
+    let educationArray;
+    if (education !== undefined) {
+      educationArray = Array.isArray(education)
+        ? education.map(e => String(e).trim()).filter(Boolean)
+        : String(education).split(',').map(e => e.trim()).filter(Boolean);
+    } else {
+      try {
+        educationArray = JSON.parse(user.education_json || '[]');
+      } catch {
+        educationArray = [];
+      }
+    }
+    if (!educationArray || educationArray.length === 0) {
+      validationErrors.education = 'Education is required. Please provide at least one education entry.';
+    }
+    const educationJson = JSON.stringify(educationArray);
+
+    // 6. Provider-specific mandatory fields (Payment per minute & Services Provided)
+    let existingService = null;
+    if (user.role === 'provider' || user.role === 'admin') {
+      existingService = db.prepare(`SELECT * FROM services WHERE provider_id = ? ORDER BY created_at DESC LIMIT 1`).get(user.id);
+
+      // Payment per minute
+      let candidatePrice = price_per_minute !== undefined ? parseFloat(price_per_minute) : (existingService ? parseFloat(existingService.price_per_minute) : NaN);
+      if (isNaN(candidatePrice) || candidatePrice <= 0 || candidatePrice > 10000) {
+        validationErrors.price_per_minute = 'Payment rate per minute must be a valid positive amount between ₹1.00 and ₹10,000.00.';
+      }
+
+      // Services Provided (minimum 1 service required)
+      const candidateServiceTitle = service_title !== undefined ? String(service_title).trim() : (existingService ? String(existingService.title || '').trim() : '');
+      if (!candidateServiceTitle) {
+        validationErrors.service_title = 'Services Provided is required. Please specify at least one service.';
+      }
+    }
+
+    if (Object.keys(validationErrors).length > 0) {
+      const firstErrorMessage = Object.values(validationErrors)[0];
+      return res.status(400).json({
+        error: firstErrorMessage,
+        fields: validationErrors
+      });
+    }
+
+    // Languages JSON sanitization
     let languagesJson = user.languages_json;
     if (languages !== undefined) {
       const langsArray = Array.isArray(languages)
@@ -1929,18 +2016,6 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       languagesJson = JSON.stringify(langsArray.length > 0 ? langsArray : ['English']);
     }
 
-    let skillsJson = user.skills_json;
-    if (skills !== undefined) {
-      const skillsArray = Array.isArray(skills)
-        ? skills.map(s => String(s).trim()).filter(Boolean)
-        : String(skills).split(',').map(s => s.trim()).filter(Boolean);
-      skillsJson = JSON.stringify(skillsArray);
-    }
-
-    const educationJson = education !== undefined
-      ? JSON.stringify(Array.isArray(education) ? education : [])
-      : (user.education_json || '[]');
-
     const certificationsJson = certifications !== undefined
       ? JSON.stringify(Array.isArray(certifications) ? certifications : [])
       : (user.certifications_json || '[]');
@@ -1948,9 +2023,8 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
     const newAvatarUrl = avatar_url !== undefined ? avatar_url : user.avatar_url;
     const newBio = bio !== undefined ? String(bio).trim() : user.bio;
     const newHeadline = headline !== undefined ? String(headline).trim() : user.headline;
-    const newLocation = location !== undefined ? String(location).trim() : user.location;
+    const newLocation = location !== undefined ? String(location).trim() : (user.location || [user.city, newStateRegion, user.country].filter(Boolean).join(', '));
     const newCountry = country !== undefined ? String(country).trim() : (user.country || 'United States');
-    const newStateRegion = state_region !== undefined ? String(state_region).trim() : (user.state_region || '');
     const newCity = city !== undefined ? String(city).trim() : (user.city || '');
     const newArea = area !== undefined ? String(area).trim() : (user.area || '');
     const newExpYears = experience_years !== undefined ? Math.max(0, parseInt(experience_years) || 0) : user.experience_years;
@@ -1961,7 +2035,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       SET full_name = ?, avatar_url = ?, bio = ?, headline = ?, location = ?,
           country = ?, state_region = ?, city = ?, area = ?,
           languages_json = ?, skills_json = ?, experience_years = ?,
-          education_json = ?, certifications_json = ?
+          education_json = ?, certifications_json = ?, gender = ?
       WHERE id = ?
     `).run(
       newFullName,
@@ -1978,13 +2052,16 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       newExpYears,
       educationJson,
       certificationsJson,
+      newGender,
       user.id
     );
 
     // If expert information provided, update or create the provider's active/primary service
     let updatedService = null;
     if (user.role === 'provider' || user.role === 'admin') {
-      const existingService = db.prepare(`SELECT * FROM services WHERE provider_id = ? ORDER BY created_at DESC LIMIT 1`).get(user.id);
+      if (!existingService) {
+        existingService = db.prepare(`SELECT * FROM services WHERE provider_id = ? ORDER BY created_at DESC LIMIT 1`).get(user.id);
+      }
 
       if (existingService) {
         let newPrice = existingService.price_per_minute;
@@ -6776,6 +6853,7 @@ module.exports = function(timerEngineArg, ioArg, maybeTimer) {
       state_region,
       city,
       area,
+      gender,
       languages,
       skills,
       experience_years,

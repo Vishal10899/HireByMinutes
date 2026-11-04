@@ -285,6 +285,7 @@ export const api = {
     location?: string;
     country?: string;
     state_region?: string;
+    gender?: string;
     city?: string;
     area?: string;
     languages?: string[];
@@ -305,8 +306,10 @@ export const api = {
       body: JSON.stringify(data)
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update profile');
+      const err = await res.json().catch(() => ({}));
+      const errorObj: any = new Error(err.error || 'Failed to update profile');
+      errorObj.fields = err.fields;
+      throw errorObj;
     }
     return res.json();
   },

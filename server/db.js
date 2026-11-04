@@ -123,6 +123,7 @@ function initPostgresSchema(db) {
       created_by_admin INTEGER DEFAULT 0,
       created_by_admin_id VARCHAR(64),
       verification_rejection_reason TEXT,
+      gender VARCHAR(32),
       last_active TIMESTAMP WITH TIME ZONE,
       response_time VARCHAR(64) DEFAULT 'Within 15 mins',
       member_since VARCHAR(64) DEFAULT 'August 2026',
@@ -626,6 +627,7 @@ function initPostgresSchema(db) {
 
     ALTER TABLE users ADD COLUMN IF NOT EXISTS education_json TEXT DEFAULT '[]';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS certifications_json TEXT DEFAULT '[]';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(32);
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reward_points_balance INTEGER DEFAULT 0;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_balance_paise INTEGER DEFAULT 0;
     ALTER TABLE consultation_requests ADD COLUMN IF NOT EXISTS reward_points_redeemed INTEGER DEFAULT 0;
@@ -888,6 +890,7 @@ function initSqliteSchema(db) {
       created_by_admin INTEGER DEFAULT 0,
       created_by_admin_id TEXT,
       verification_rejection_reason TEXT,
+      gender TEXT,
       last_active DATETIME,
       response_time TEXT DEFAULT 'Within 15 mins',
       member_since TEXT DEFAULT 'August 2026',
@@ -1596,6 +1599,7 @@ function initSqliteSchema(db) {
     }
   };
 
+  safeAddColumn('users', 'gender TEXT');
   safeAddColumn('categories', 'sort_order INTEGER DEFAULT 0');
   safeAddColumn('categories', 'active INTEGER DEFAULT 1');
   safeAddColumn('categories', 'service_count INTEGER DEFAULT 0');
